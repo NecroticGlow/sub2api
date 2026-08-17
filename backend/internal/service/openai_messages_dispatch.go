@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/deepseek"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -77,6 +78,19 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 			return ""
 		}
 		return xai.ModelMappingWithOptions(opts)["claude-*"]
+	}
+
+	// DeepSeek groups accept Anthropic clients out of the box: opus-tier
+	// requests map to the reasoner, everything else to the chat model.
+	if g.Platform == PlatformDeepSeek {
+		switch claudeMessagesDispatchFamily(requestedModel) {
+		case "opus":
+			return deepseek.DefaultReasonerModelID
+		case "sonnet", "haiku":
+			return deepseek.DefaultChatModelID
+		default:
+			return ""
+		}
 	}
 
 	cfg := normalizeOpenAIMessagesDispatchModelConfig(g.MessagesDispatchModelConfig)

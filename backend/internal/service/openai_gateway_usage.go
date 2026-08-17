@@ -177,7 +177,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// 变价）；未装配 PricingAt 的路径回退记录时刻，保持既有行为。不并入上面的
 	// Resolve，以免污染 user:group 倍率缓存。
 	baseMultiplier := multiplier
-	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, openAIUsagePricingAt(input))
+	pricingAt := openAIUsagePricingAt(input)
+	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
 	videoMultiplier := resolveVideoRateMultiplier(apiKey, baseMultiplier)
 
 	var cost *CostBreakdown
@@ -192,6 +193,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
 		billingModel = input.OriginalModel
 	}
+	// DeepSeek V4 uses official Beijing-time peak/off-peak pricing. Apply its
+	// 2x peak factor here as well as in the shared GatewayService path, because
+	// OpenAI-compatible usage recording has its own billing implementation.
+	multiplier = applyDeepSeekPeakMultiplier(billingModel, multiplier, pricingAt)
 	billingModels := usageBillingModelCandidates(
 		billingModel,
 		result.BillingModel,

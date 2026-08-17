@@ -1,23 +1,29 @@
 import type { GroupPlatform } from '@/types'
 
-export const OPENAI_CC_SWITCH_CODEX_MODEL = 'gpt-5.5'
-export const GROK_CC_SWITCH_MODEL = 'grok-4.5'
+export const OPENAI_CC_SWITCH_CODEX_MODEL = 'gpt-5.6-sol'
+export const GROK_CC_SWITCH_MODEL = 'grok-4.6'
+export const ANTHROPIC_CC_SWITCH_MODEL = 'claude-opus-4-8'
+export const DEEPSEEK_CC_SWITCH_MODEL = 'deepseek-chat'
 
-export type CcSwitchClientType = 'claude' | 'gemini'
-
-export interface CcSwitchImportConfig {
-  app: string
-  endpoint: string
-  model?: string
-}
+/**
+ * CC Switch target applications supported by the ccswitch:// v1 deeplink.
+ * `grokbuild` is only meaningful for grok-platform groups.
+ */
+export type CcSwitchApp = 'claude' | 'codex' | 'gemini' | 'grokbuild'
 
 export interface CcSwitchImportDeeplinkInput {
   baseUrl: string
   platform?: GroupPlatform | null
-  clientType: CcSwitchClientType
+  app: CcSwitchApp
   providerName: string
   apiKey: string
   usageScript: string
+  /** Main model (ccswitch `model` param). Empty = let the client use its default. */
+  model?: string
+  /** Claude-only tiered models (ccswitch haikuModel/sonnetModel/opusModel). */
+  haikuModel?: string
+  sonnetModel?: string
+  opusModel?: string
 }
 
 function withV1Endpoint(baseUrl: string): string {
@@ -25,50 +31,65 @@ function withV1Endpoint(baseUrl: string): string {
   return normalizedBaseUrl.endsWith('/v1') ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`
 }
 
-export function resolveCcSwitchImportConfig(
+/** Default CC Switch app for a group platform. */
+export function defaultCcSwitchAppForPlatform(
+  platform: GroupPlatform | undefined | null
+): CcSwitchApp {
+  switch (platform || 'anthropic') {
+    case 'openai':
+      return 'codex'
+    case 'gemini':
+      return 'gemini'
+    case 'grok':
+      return 'grokbuild'
+    default:
+      // anthropic / antigravity / deepseek / composite default to Claude Code
+      return 'claude'
+  }
+}
+
+/** Suggested main model for a group platform (may be empty). */
+export function defaultCcSwitchModelForPlatform(
+  platform: GroupPlatform | undefined | null
+): string {
+  switch (platform || 'anthropic') {
+    case 'openai':
+      return OPENAI_CC_SWITCH_CODEX_MODEL
+    case 'grok':
+      return GROK_CC_SWITCH_MODEL
+    case 'anthropic':
+      return ANTHROPIC_CC_SWITCH_MODEL
+    case 'deepseek':
+      return DEEPSEEK_CC_SWITCH_MODEL
+    default:
+      // antigravity / composite: model sets vary, let the fetched list decide
+      return ''
+  }
+}
+
+/** Gateway endpoint CC Switch should call for a given group platform. */
+export function resolveCcSwitchEndpoint(
   platform: GroupPlatform | undefined | null,
-  clientType: CcSwitchClientType,
   baseUrl: string
-): CcSwitchImportConfig {
+): string {
   switch (platform || 'anthropic') {
     case 'antigravity':
-      return {
-        app: clientType === 'gemini' ? 'gemini' : 'claude',
-        endpoint: `${baseUrl}/antigravity`
-      }
-    case 'openai':
-      return {
-        app: 'codex',
-        endpoint: baseUrl,
-        model: OPENAI_CC_SWITCH_CODEX_MODEL
-      }
-    case 'gemini':
-      return {
-        app: 'gemini',
-        endpoint: baseUrl
-      }
+      return `${baseUrl}/antigravity`
     case 'grok':
-      return {
-        app: 'grokbuild',
-        endpoint: withV1Endpoint(baseUrl),
-        model: GROK_CC_SWITCH_MODEL
-      }
+      return withV1Endpoint(baseUrl)
     default:
-      return {
-        app: 'claude',
-        endpoint: baseUrl
-      }
+      return baseUrl
   }
 }
 
 export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput): string {
-  const config = resolveCcSwitchImportConfig(input.platform, input.clientType, input.baseUrl)
+  const endpoint = resolveCcSwitchEndpoint(input.platform, input.baseUrl)
   const entries: [string, string][] = [
     ['resource', 'provider'],
-    ['app', config.app],
+    ['app', input.app],
     ['name', input.providerName],
     ['homepage', input.baseUrl],
-    ['endpoint', config.endpoint],
+    ['endpoint', endpoint],
     ['apiKey', input.apiKey],
     ['configFormat', 'json'],
     ['usageEnabled', 'true'],
@@ -76,8 +97,24 @@ export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput):
     ['usageAutoInterval', '30']
   ]
 
-  if (config.model) {
-    entries.splice(2, 0, ['model', config.model])
+  const model = input.model?.trim()
+  if (model) {
+    entries.splice(2, 0, ['model', model])
+  }
+
+  // Tiered models are only recognized by CC Switch for the Claude app.
+  if (input.app === 'claude') {
+    const tiered: [string, string | undefined][] = [
+      ['haikuModel', input.haikuModel],
+      ['sonnetModel', input.sonnetModel],
+      ['opusModel', input.opusModel]
+    ]
+    for (const [key, value] of tiered) {
+      const trimmed = value?.trim()
+      if (trimmed) {
+        entries.push([key, trimmed])
+      }
+    }
   }
 
   return `ccswitch://v1/import?${new URLSearchParams(entries).toString()}`

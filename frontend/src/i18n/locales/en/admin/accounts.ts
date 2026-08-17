@@ -104,6 +104,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
+        deepseek: 'DeepSeek',
       },
       types: {
         oauth: 'OAuth',
@@ -768,6 +769,12 @@ export default {
         presets: {
           cli: 'Grok Build CLI',
           official: 'Official API'
+        }
+      },
+      deepseekBaseUrl: {
+        presets: {
+          official: 'Official API',
+          clinepass: 'ClinePass'
         }
       },
       grokClientToolCache: {

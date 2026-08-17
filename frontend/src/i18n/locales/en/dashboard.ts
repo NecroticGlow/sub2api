@@ -209,13 +209,19 @@ export default {
     ipBlacklistHint: 'One IP or CIDR per line. These IPs will be blocked from using this key.',
     ipRestrictionEnabled: 'IP restriction enabled',
     ccSwitchNotInstalled: 'CC-Switch is not installed or the protocol handler is not registered. Please install CC-Switch first or manually copy the API key.',
-    ccsClientSelect: {
-      title: 'Select Client',
-      description: 'Please select the client type to import to CC-Switch:',
-      claudeCode: 'Claude Code',
-      claudeCodeDesc: 'Import as Claude Code configuration',
-      geminiCli: 'Gemini CLI',
-      geminiCliDesc: 'Import as Gemini CLI configuration',
+    ccsImport: {
+      title: 'Fill in CC Switch',
+      app: 'Application',
+      name: 'Name',
+      namePlaceholder: 'Name this provider',
+      mainModel: 'Main Model',
+      haikuModel: 'Haiku Model',
+      sonnetModel: 'Sonnet Model',
+      opusModel: 'Opus Model',
+      modelPlaceholder: 'Select or enter a model name',
+      loadingModels: 'Loading models...',
+      open: 'Open CC Switch',
+      grokBuild: 'Grok Build',
     },
     // Quota and expiration
     quotaLimit: 'Quota Limit',
@@ -430,7 +436,8 @@ export default {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
-      grok: 'Grok'
+      grok: 'Grok',
+      deepseek: 'DeepSeek'
     },
     extraModelsHeader: 'Extra Models',
     extraModelsEmpty: 'No extra models',

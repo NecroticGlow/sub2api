@@ -19,14 +19,14 @@ func validateProvider(p string) error {
 }
 
 // validateAPIMode 校验 provider 与 api_mode 的组合。
-// responses 只对 OpenAI 有意义；其它 provider 使用 chat_completions 作为默认占位。
+// responses 对 OpenAI 与 DeepSeek V4 有意义；其它 provider 使用 chat_completions 作为默认占位。
 func validateAPIMode(provider, apiMode string) error {
 	apiMode = defaultAPIMode(apiMode)
 	switch apiMode {
 	case MonitorAPIModeChatCompletions:
 		return nil
 	case MonitorAPIModeResponses:
-		if provider == "" || provider == MonitorProviderOpenAI {
+		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderDeepSeek {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode

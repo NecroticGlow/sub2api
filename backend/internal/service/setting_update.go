@@ -536,6 +536,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
+	updates[SettingKeyMiscBillingPolicyEnabled] = strconv.FormatBool(settings.MiscBillingPolicyEnabled)
 
 	return updates, nil
 }

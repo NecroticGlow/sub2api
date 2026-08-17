@@ -37,7 +37,7 @@ export interface HeaderOverrideRow {
 
 /** 请求头覆写资格（与后端 IsHeaderOverrideEligible 保持一致） */
 export function isHeaderOverrideCapable(platform: string, type: string): boolean {
-  if (platform === 'anthropic' || platform === 'openai') {
+  if (platform === 'anthropic' || platform === 'openai' || platform === 'deepseek') {
     return type === 'apikey'
   }
   if (platform === 'grok') {
@@ -240,6 +240,25 @@ export const GROK_BASE_URL_PRESETS: GrokBaseUrlPreset[] = [
   { label: 'us-east-1', url: 'https://us-east-1.api.x.ai/v1' },
   { label: 'us-west-2', url: 'https://us-west-2.api.x.ai/v1' },
   { label: 'eu-west-1', url: 'https://eu-west-1.api.x.ai/v1' }
+]
+
+// ========== DeepSeek 快捷端点 ==========
+
+export interface DeepSeekBaseUrlPreset {
+  /** i18n 子键：admin.accounts.deepseekBaseUrl.presets.<labelKey> */
+  labelKey: 'official' | 'clinepass'
+  url: string
+}
+
+/**
+ * DeepSeek 快捷端点：官方 API 与 ClinePass（Cline 的 OpenAI 兼容网关，
+ * 以 cline-pass/deepseek-v4-* slug 提供 DeepSeek 模型）。
+ * 仅供快速填充，输入框仍可自由填写任意 OpenAI 兼容转发地址。
+ * 注意：无论走哪个上游，计费始终按 DeepSeek 官方定价。
+ */
+export const DEEPSEEK_BASE_URL_PRESETS: DeepSeekBaseUrlPreset[] = [
+  { labelKey: 'official', url: 'https://api.deepseek.com' },
+  { labelKey: 'clinepass', url: 'https://api.cline.bot/api/v1' }
 ]
 
 /**

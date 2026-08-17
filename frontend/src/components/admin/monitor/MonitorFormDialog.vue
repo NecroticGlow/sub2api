@@ -30,7 +30,7 @@
         </div>
       </div>
 
-      <div v-if="form.provider === PROVIDER_OPENAI" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+      <div v-if="form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_DEEPSEEK" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
         <label class="input-label">{{ t('admin.channelMonitor.form.apiMode') }}</label>
         <div class="grid gap-3 sm:grid-cols-2">
           <button
@@ -216,6 +216,7 @@ import {
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
   PROVIDER_GROK,
+  PROVIDER_DEEPSEEK,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   DEFAULT_GROK_ENDPOINT,
@@ -304,7 +305,7 @@ const templatesLoading = ref(false)
 const templateOptions = computed(() => {
   const items = templatesCache.value.filter((t) => {
     if (t.provider !== form.provider) return false
-    if (form.provider !== PROVIDER_OPENAI) return true
+    if (form.provider !== PROVIDER_OPENAI && form.provider !== PROVIDER_DEEPSEEK) return true
     return normalizeAPIMode(t.api_mode) === form.api_mode
   })
   return [
@@ -378,7 +379,7 @@ function apiModeButtonClass(mode: APIMode): string {
 }
 
 function templateOptionLabel(tpl: ChannelMonitorTemplate): string {
-  if (tpl.provider !== PROVIDER_OPENAI) return tpl.name
+  if (tpl.provider !== PROVIDER_OPENAI && tpl.provider !== PROVIDER_DEEPSEEK) return tpl.name
   const labelKey = normalizeAPIMode(tpl.api_mode) === API_MODE_RESPONSES
     ? 'admin.channelMonitor.form.apiModeResponses'
     : 'admin.channelMonitor.form.apiModeChatCompletions'
@@ -402,6 +403,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
+  { value: PROVIDER_DEEPSEEK, label: t('monitorCommon.providers.deepseek') },
 ])
 
 function selectProvider(provider: Provider) {
@@ -429,7 +431,7 @@ function selectProvider(provider: Provider) {
 watch(() => form.provider, () => {
   if (suppressFormWatchers) return
   form.api_key = ''
-  if (form.provider !== PROVIDER_OPENAI) {
+  if (form.provider !== PROVIDER_OPENAI && form.provider !== PROVIDER_DEEPSEEK) {
     form.api_mode = API_MODE_CHAT_COMPLETIONS
   }
   clearRequestSnapshot()
@@ -437,7 +439,7 @@ watch(() => form.provider, () => {
 
 watch(() => form.api_mode, () => {
   if (suppressFormWatchers) return
-  if (form.provider === PROVIDER_OPENAI) {
+  if (form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_DEEPSEEK) {
     clearRequestSnapshot()
   }
 }, { flush: 'sync' })
@@ -532,7 +534,7 @@ function buildPayload(): CreateParams {
   return {
     name: form.name.trim(),
     provider: form.provider,
-    api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
+    api_mode: (form.provider === PROVIDER_OPENAI || form.provider === PROVIDER_DEEPSEEK) ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
     endpoint: form.endpoint.trim(),
     api_key: form.api_key.trim(),
     primary_model: form.primary_model.trim(),

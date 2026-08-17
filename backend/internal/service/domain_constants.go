@@ -43,6 +43,7 @@ const (
 	PlatformGemini      = domain.PlatformGemini
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformGrok        = domain.PlatformGrok
+	PlatformDeepSeek    = domain.PlatformDeepSeek
 	PlatformComposite   = domain.PlatformComposite
 	// PlatformKiro is retained for unsupported-platform threshold tests and legacy
 	// account rows. Scheduling-threshold evaluation never pauses kiro accounts.
@@ -58,6 +59,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformGemini,
 	PlatformAntigravity,
 	PlatformGrok,
+	PlatformDeepSeek,
 }
 
 // AllowedSchedulingThresholdPlatforms 是允许设置账号自动停调阈值的平台列表。
@@ -639,3 +641,8 @@ const AdminAPIKeyPrefix = "admin-"
 // SettingKeyAllowUserViewErrorRequests controls whether end users can view
 // their own failed requests on the usage page. Default false (opt-in).
 const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
+
+// SettingKeyMiscBillingPolicyEnabled（管理界面显示为「其他」）控制杂项计费
+// 策略（当前为 gpt-5.6-sol 计费加倍）。默认 true；仅影响实际扣费，
+// 模型广场等展示价不受影响。
+const SettingKeyMiscBillingPolicyEnabled = "misc_billing_policy_enabled"

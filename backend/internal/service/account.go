@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/deepseek"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
@@ -271,8 +272,26 @@ func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
 
+func (a *Account) IsDeepSeek() bool {
+	return a.Platform == PlatformDeepSeek
+}
+
+// accountShouldUseResponsesAPI reports whether an OpenAI-compatible API-key
+// account's upstream should be reached via /v1/responses. DeepSeek upstreams
+// never expose Responses, so they always use the raw Chat Completions path;
+// other accounts follow the openai_compat probe verdict.
+func accountShouldUseResponsesAPI(a *Account) bool {
+	if a == nil {
+		return false
+	}
+	if a.IsDeepSeek() {
+		return false
+	}
+	return openai_compat.ShouldUseResponsesAPI(a.Extra)
+}
+
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.Platform == PlatformDeepSeek)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -1282,6 +1301,14 @@ func (a *Account) IsOpenAIApiKey() bool {
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
+	if a.IsDeepSeek() {
+		if a.Type == AccountTypeAPIKey {
+			if baseURL := a.GetCredential("base_url"); baseURL != "" {
+				return baseURL
+			}
+		}
+		return deepseek.DefaultBaseURL
+	}
 	if !a.IsOpenAI() {
 		return ""
 	}
@@ -1398,6 +1425,10 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
+	// DeepSeek rides the OpenAI-compatible API-key forwarding paths.
+	if a.IsDeepSeek() && a.Type == AccountTypeAPIKey {
+		return a.GetCredential("api_key")
+	}
 	if !a.IsOpenAIApiKey() {
 		return ""
 	}
@@ -1484,6 +1515,11 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		default:
 			return false
 		}
+	}
+	if a.IsDeepSeek() {
+		// DeepSeek only exposes an OpenAI-compatible Chat Completions endpoint:
+		// no Responses, embeddings, alpha search, live, or media generation.
+		return capability == OpenAIEndpointCapabilityChatCompletions && a.Type == AccountTypeAPIKey
 	}
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:

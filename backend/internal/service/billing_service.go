@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -389,15 +390,15 @@ func (s *BillingService) initFallbackPricing() {
 	// Source: https://api-docs.deepseek.com/quick_start/pricing
 	// （deepseek-chat / deepseek-reasoner 为 deepseek-v4-flash 的兼容别名，2026/07/24 弃用）
 	s.fallbackPrices["deepseek-v4-pro"] = &ModelPricing{
-		InputPricePerToken:     4.35e-7,  // $0.435 per MTok (cache miss)
-		OutputPricePerToken:    8.7e-7,   // $0.87 per MTok
-		CacheReadPricePerToken: 3.625e-9, // $0.003625 per MTok (cache hit)
+		InputPricePerToken:     4.5 / 7e6,  // ¥4.50 / 7 per MTok, off-peak
+		OutputPricePerToken:    13.5 / 7e6, // ¥13.50 / 7 per MTok, off-peak
+		CacheReadPricePerToken: 0.15 / 7e6, // ¥0.15 / 7 per MTok, off-peak
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["deepseek-v4-flash"] = &ModelPricing{
-		InputPricePerToken:     1.4e-7, // $0.14 per MTok (cache miss)
-		OutputPricePerToken:    2.8e-7, // $0.28 per MTok
-		CacheReadPricePerToken: 2.8e-9, // $0.0028 per MTok (cache hit)
+		InputPricePerToken:     1.5 / 7e6,  // ¥1.50 / 7 per MTok, off-peak
+		OutputPricePerToken:    4.5 / 7e6,  // ¥4.50 / 7 per MTok, off-peak
+		CacheReadPricePerToken: 0.05 / 7e6, // ¥0.05 / 7 per MTok, off-peak
 		SupportsCacheBreakdown: false,
 	}
 
@@ -509,6 +510,13 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 0.15e-6, // $0.15 per MTok (cache hit, ¥1.10)
 		SupportsCacheBreakdown: false,
 	}
+	// Kimi K2.7 Code：官方 coding 档位（与 K2.6 coding 同价口径）。
+	s.fallbackPrices["kimi-k2.7"] = &ModelPricing{
+		InputPricePerToken:     0.95e-6, // $0.95 per MTok (cache miss)
+		OutputPricePerToken:    4e-6,    // $4.00 per MTok
+		CacheReadPricePerToken: 0.19e-6, // $0.19 per MTok (cache hit)
+		SupportsCacheBreakdown: false,
+	}
 	// kimi-for-coding 走 Kimi Coding endpoint，按当前 K2.6 coding 档位兜底计费。
 	s.fallbackPrices["kimi-for-coding"] = &ModelPricing{
 		InputPricePerToken:     0.95e-6,
@@ -569,6 +577,45 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 0.03e-6,
 		SupportsCacheBreakdown: false,
 	}
+	// ---- 小米 MiMo V2.5 ----
+	// Source: 小米 MiMo 开放平台标准 API 价（USD 口径，与 ClinePass 参考表一致的底层官方价）。
+	s.fallbackPrices["mimo-v2.5-pro"] = &ModelPricing{
+		InputPricePerToken:     1.74e-6,   // $1.74 per MTok
+		OutputPricePerToken:    3.48e-6,   // $3.48 per MTok
+		CacheReadPricePerToken: 0.0145e-6, // $0.0145 per MTok
+		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["mimo-v2.5"] = &ModelPricing{
+		InputPricePerToken:     0.14e-6,   // $0.14 per MTok
+		OutputPricePerToken:    0.28e-6,   // $0.28 per MTok
+		CacheReadPricePerToken: 0.0028e-6, // $0.0028 per MTok
+		SupportsCacheBreakdown: false,
+	}
+
+	// ---- 阿里 Qwen 3.x（国际站 Model Studio 官方 USD 价）----
+	// qwen3.7-plus 采用 ≤256K tier（保守口径，对用户有利）。
+	s.fallbackPrices["qwen3.8-max"] = &ModelPricing{
+		InputPricePerToken:         2e-6,    // $2.00 per MTok
+		OutputPricePerToken:        6e-6,    // $6.00 per MTok
+		CacheCreationPricePerToken: 2.5e-6,  // $2.50 per MTok (cache write)
+		CacheReadPricePerToken:     0.25e-6, // $0.25 per MTok
+		SupportsCacheBreakdown:     false,
+	}
+	s.fallbackPrices["qwen3.7-max"] = &ModelPricing{
+		InputPricePerToken:         2.5e-6,    // $2.50 per MTok
+		OutputPricePerToken:        7.5e-6,    // $7.50 per MTok
+		CacheCreationPricePerToken: 3.125e-6,  // $3.125 per MTok (cache write)
+		CacheReadPricePerToken:     0.5e-6,    // $0.50 per MTok
+		SupportsCacheBreakdown:     false,
+	}
+	s.fallbackPrices["qwen3.7-plus"] = &ModelPricing{
+		InputPricePerToken:         0.4e-6,  // $0.40 per MTok (≤256K tier)
+		OutputPricePerToken:        1.6e-6,  // $1.60 per MTok
+		CacheCreationPricePerToken: 0.5e-6,  // $0.50 per MTok (cache write)
+		CacheReadPricePerToken:     0.04e-6, // $0.04 per MTok
+		SupportsCacheBreakdown:     false,
+	}
+
 	s.fallbackPrices["minimax-m2"] = &ModelPricing{
 		InputPricePerToken:     0.30e-6,
 		OutputPricePerToken:    1.20e-6,
@@ -762,6 +809,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		strings.HasSuffix(modelLower, "/k3") || strings.HasSuffix(modelLower, "/k3-256k") {
 		return s.fallbackPrices["kimi-k3"]
 	}
+	if strings.Contains(modelLower, "kimi-k2.7") || strings.Contains(modelLower, "kimi-k2-7") {
+		return s.fallbackPrices["kimi-k2.7"]
+	}
 	if strings.Contains(modelLower, "kimi-k2.6") || strings.Contains(modelLower, "kimi-k2-6") {
 		return s.fallbackPrices["kimi-k2.6"]
 	}
@@ -793,6 +843,25 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "minimax-m2") || strings.Contains(modelLower, "minimax-m-2") {
 		return s.fallbackPrices["minimax-m2"]
+	}
+
+	// 小米 MiMo V2.5（Pro 先判，避免被裸 mimo-v2.5 抢走）。
+	if strings.Contains(modelLower, "mimo-v2.5-pro") || strings.Contains(modelLower, "mimo-v2-5-pro") {
+		return s.fallbackPrices["mimo-v2.5-pro"]
+	}
+	if strings.Contains(modelLower, "mimo-v2.5") || strings.Contains(modelLower, "mimo-v2-5") {
+		return s.fallbackPrices["mimo-v2.5"]
+	}
+
+	// 阿里 Qwen 3.x（仅匹配已知 SKU，未知 qwen 型号不回退）。
+	if strings.Contains(modelLower, "qwen3.8-max") || strings.Contains(modelLower, "qwen3-8-max") {
+		return s.fallbackPrices["qwen3.8-max"]
+	}
+	if strings.Contains(modelLower, "qwen3.7-max") || strings.Contains(modelLower, "qwen3-7-max") {
+		return s.fallbackPrices["qwen3.7-max"]
+	}
+	if strings.Contains(modelLower, "qwen3.7-plus") || strings.Contains(modelLower, "qwen3-7-plus") {
+		return s.fallbackPrices["qwen3.7-plus"]
 	}
 
 	// 火山方舟 豆包 Embedding（多模态向量化）。
@@ -922,6 +991,16 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
 
+	// DeepSeek V4 的官方价格采用北京时间峰谷计费，不能被持久化的
+	// LiteLLM/远程价格缓存覆盖。缓存可能仍保留涨价前的价格，也可能在
+	// 定时更新后重新写回旧值，因此在动态价格服务之前固定采用项目内的
+	// 官方 RMB/7 低谷价格；峰值 2x 由 usage 计费路径按请求时间叠加。
+	if isDeepSeekV4Model(model) {
+		if officialPricing := s.getFallbackPricing(model); officialPricing != nil {
+			return s.applyModelSpecificPricingPolicy(model, officialPricing), nil
+		}
+	}
+
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {
 		litellmPricing := s.pricingService.GetModelPricing(model)
@@ -940,7 +1019,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 			price5m := litellmPricing.CacheCreationInputTokenCost
 			price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
 			enableBreakdown := price1h > 0 && price1h > price5m
-			return s.applyModelSpecificPricingPolicy(model, &ModelPricing{
+			return applyGPT56SolBillingSurcharge(model, s.applyModelSpecificPricingPolicy(model, &ModelPricing{
 				InputPricePerToken:                 litellmPricing.InputCostPerToken,
 				InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
 				OutputPricePerToken:                litellmPricing.OutputCostPerToken,
@@ -957,7 +1036,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 				LongContextOutputMultiplier:        litellmPricing.LongContextOutputCostMultiplier,
 				ImageInputPricePerToken:            litellmPricing.InputCostPerImageToken,
 				ImageOutputPricePerToken:           litellmPricing.OutputCostPerImageToken,
-			}), nil
+			})), nil
 		}
 	}
 
@@ -969,7 +1048,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 		if _, seen := s.fallbackWarnSeen.LoadOrStore(model, struct{}{}); !seen {
 			log.Printf("[Billing] Using fallback pricing for model: %s", model)
 		}
-		return s.applyModelSpecificPricingPolicy(model, fallback), nil
+		return applyGPT56SolBillingSurcharge(model, s.applyModelSpecificPricingPolicy(model, fallback)), nil
 	}
 
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
@@ -1311,6 +1390,50 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	}
 
 	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled), nil
+}
+
+// gpt56SolBillingSurchargeMultiplier 对 gpt-5.6-sol 的计费加倍系数。
+// 仅作用于实际扣费（GetModelPricing 的目录价出口）；模型广场等展示路径
+// 直接读取 PricingService 的 LiteLLM 原始目录，仍显示官方原价。
+const gpt56SolBillingSurchargeMultiplier = 2.0
+
+// gpt56SolSurchargeEnabled 是进程级运行时开关（管理界面「其他」），由
+// setting_parse 在设置加载/更新时发布，缺省关闭（fail-safe）。模式同 xai 的
+// SetRuntimeModelMappingOptions：计费热路径无 ctx，读原子布尔。
+var gpt56SolSurchargeEnabled atomic.Bool
+
+// SetGPT56SolBillingSurchargeEnabled 发布杂项计费策略开关（并发安全）。
+func SetGPT56SolBillingSurchargeEnabled(enabled bool) {
+	gpt56SolSurchargeEnabled.Store(enabled)
+}
+
+// applyGPT56SolBillingSurcharge 把 gpt-5.6-sol（含 gpt-5.6 裸名等 Sol 别名，
+// 由 normalizeKnownOpenAICodexModel 归一）的全部 token 单价乘以加倍系数。
+// 渠道/分组管理员显式配置的价格不经过本函数（显式配价视为最终价）。
+// 返回克隆对象，绝不修改共享的 fallbackPrices 指针。
+func applyGPT56SolBillingSurcharge(model string, pricing *ModelPricing) *ModelPricing {
+	if pricing == nil {
+		return nil
+	}
+	if !gpt56SolSurchargeEnabled.Load() {
+		return pricing
+	}
+	if normalizeKnownOpenAICodexModel(model) != "gpt-5.6-sol" {
+		return pricing
+	}
+	cloned := *pricing
+	m := gpt56SolBillingSurchargeMultiplier
+	cloned.InputPricePerToken *= m
+	cloned.InputPricePerTokenPriority *= m
+	cloned.OutputPricePerToken *= m
+	cloned.OutputPricePerTokenPriority *= m
+	cloned.CacheCreationPricePerToken *= m
+	cloned.CacheCreationPricePerTokenPriority *= m
+	cloned.CacheReadPricePerToken *= m
+	cloned.CacheReadPricePerTokenPriority *= m
+	cloned.CacheCreation5mPrice *= m
+	cloned.CacheCreation1hPrice *= m
+	return &cloned
 }
 
 func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *ModelPricing) *ModelPricing {

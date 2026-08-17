@@ -111,6 +111,7 @@ import {
   API_MODE_RESPONSES,
   DEFAULT_GROK_MODEL,
   PROVIDER_GROK,
+  PROVIDER_DEEPSEEK,
   PROVIDER_OPENAI,
 } from '@/constants/channelMonitor'
 
@@ -301,17 +302,17 @@ const bodyModeHint = computed(() => {
 })
 
 const bodyPlaceholder = computed(() => {
-  if (props.provider === PROVIDER_OPENAI && props.apiMode === API_MODE_RESPONSES) {
+  if ((props.provider === PROVIDER_OPENAI || props.provider === PROVIDER_DEEPSEEK) && props.apiMode === API_MODE_RESPONSES) {
     if (props.bodyOverrideMode === 'merge') {
       return '{\n  "max_output_tokens": 20\n}'
     }
     return '{\n  "model": "gpt-4o-mini",\n  "instructions": "You are a health check endpoint. Reply briefly.",\n  "input": "Reply with exactly: ok",\n  "max_output_tokens": 20,\n  "stream": false\n}'
   }
-  if (props.provider === PROVIDER_OPENAI || props.provider === PROVIDER_GROK) {
+  if (props.provider === PROVIDER_OPENAI || props.provider === PROVIDER_GROK || props.provider === PROVIDER_DEEPSEEK) {
     if (props.bodyOverrideMode === 'merge') {
       return '{\n  "max_tokens": 20\n}'
     }
-    const model = props.provider === PROVIDER_GROK ? DEFAULT_GROK_MODEL : 'gpt-4o-mini'
+    const model = props.provider === PROVIDER_GROK ? DEFAULT_GROK_MODEL : (props.provider === PROVIDER_DEEPSEEK ? 'deepseek-v4-flash' : 'gpt-4o-mini')
     return `{\n  "model": "${model}",\n  "messages": [{"role":"user","content":"Reply with exactly: ok"}],\n  "max_tokens": 20,\n  "stream": false\n}`
   }
   if (props.bodyOverrideMode === 'merge') {

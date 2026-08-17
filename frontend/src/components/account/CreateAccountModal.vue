@@ -160,6 +160,19 @@
             <PlatformIcon platform="grok" size="sm" />
             Grok
           </button>
+          <button
+            type="button"
+            @click="form.platform = 'deepseek'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'deepseek'
+                ? 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="deepseek" size="sm" />
+            DeepSeek
+          </button>
         </div>
       </div>
 
@@ -1127,12 +1140,19 @@
                   ? 'https://generativelanguage.googleapis.com'
                   : form.platform === 'grok'
                     ? 'https://api.x.ai/v1'
-                    : 'https://api.anthropic.com'
+                    : form.platform === 'deepseek'
+                      ? 'https://api.deepseek.com'
+                      : 'https://api.anthropic.com'
             "
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
           <GrokBaseUrlPresets
             v-if="form.platform === 'grok'"
+            class="mt-2"
+            @select="apiKeyBaseUrl = $event"
+          />
+          <DeepSeekBaseUrlPresets
+            v-if="form.platform === 'deepseek'"
             class="mt-2"
             @select="apiKeyBaseUrl = $event"
           />
@@ -1151,7 +1171,9 @@
                   ? 'AIza...'
                   : form.platform === 'grok'
                     ? 'xai-...'
-                    : 'sk-ant-...'
+                    : form.platform === 'deepseek'
+                      ? 'sk-...'
+                      : 'sk-ant-...'
             "
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
@@ -3609,6 +3631,7 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
+import DeepSeekBaseUrlPresets from '@/components/account/DeepSeekBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import {
   applyAntigravityProjectID,
@@ -4255,7 +4278,9 @@ watch(
           ? 'https://generativelanguage.googleapis.com'
           : newPlatform === 'grok'
             ? 'https://api.x.ai/v1'
-            : 'https://api.anthropic.com'
+            : newPlatform === 'deepseek'
+              ? 'https://api.deepseek.com'
+              : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
@@ -4281,6 +4306,10 @@ watch(
       modelRestrictionMode.value = 'mapping'
       form.concurrency = 1
       form.load_factor = null
+    }
+    if (newPlatform === 'deepseek') {
+      // DeepSeek only supports API-key accounts.
+      accountCategory.value = 'apikey'
     }
     if (newPlatform !== 'gemini' && newPlatform !== 'anthropic' && accountCategory.value === 'service_account') {
       accountCategory.value = 'oauth-based'
@@ -5145,7 +5174,9 @@ const handleSubmit = async () => {
         ? 'https://generativelanguage.googleapis.com'
         : form.platform === 'grok'
           ? 'https://api.x.ai/v1'
-          : 'https://api.anthropic.com'
+          : form.platform === 'deepseek'
+            ? 'https://api.deepseek.com'
+            : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {

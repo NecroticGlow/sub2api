@@ -41,7 +41,7 @@ func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
 // CheckOptions 承载一次检测的自定义入参。
 // 所有字段都是可选（零值即等价于"用默认行为"）。
 type CheckOptions struct {
-	// APIMode 仅对 OpenAI provider 生效；空串等同 chat_completions。
+	// APIMode 对 OpenAI 与 DeepSeek provider 生效；空串等同 chat_completions。
 	APIMode string
 	// ExtraHeaders 用户自定义 HTTP 头（merge 到 adapter 默认 headers，用户优先）。
 	ExtraHeaders map[string]string
@@ -170,6 +170,10 @@ type providerAdapter struct {
 var providerAdapters = map[string]providerAdapter{
 	MonitorProviderOpenAI: providerOpenAIChatAdapter,
 	MonitorProviderGrok:   providerGrokChatAdapter,
+	// DeepSeek V4 exposes the OpenAI-compatible Chat Completions API. Keep it
+	// as a distinct monitor provider so the admin UI can filter it separately,
+	// while reusing the hardened OpenAI request/response handling.
+	MonitorProviderDeepSeek: providerDeepSeekChatAdapter,
 	MonitorProviderAnthropic: {
 		buildPath: func(string) string { return providerAnthropicPath },
 		buildBody: func(model, prompt string) ([]byte, error) {
@@ -212,6 +216,8 @@ var providerOpenAIChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPat
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerGrokChatAdapter = newOpenAICompatibleChatAdapter(providerGrokPath)
 
+var providerDeepSeekChatAdapter = newOpenAICompatibleChatAdapter(providerOpenAIPath)
+
 func newOpenAICompatibleChatAdapter(path string) providerAdapter {
 	return providerAdapter{
 		buildPath: func(string) string { return path },
@@ -227,7 +233,27 @@ func newOpenAICompatibleChatAdapter(path string) providerAdapter {
 			return map[string]string{"Authorization": "Bearer " + apiKey}
 		},
 		textPath: "choices.0.message.content",
+		extractText: extractOpenAIChatText,
 	}
+}
+
+// extractOpenAIChatText accepts normal assistant content and falls back to
+// reasoning_content/reasoning. DeepSeek-compatible gateways may return the
+// challenge in the reasoning field while leaving message.content empty.
+func extractOpenAIChatText(respBytes []byte) string {
+	for _, path := range []string{
+		"choices.0.message.content",
+		"choices.0.message.reasoning_content",
+		"choices.0.message.reasoning",
+		"choices.0.delta.content",
+		"choices.0.delta.reasoning_content",
+		"choices.0.delta.reasoning",
+	} {
+		if text := strings.TrimSpace(gjson.GetBytes(respBytes, path).String()); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
@@ -250,7 +276,7 @@ var providerOpenAIResponsesAdapter = providerAdapter{
 
 // providerAdapterFor 按 provider + api_mode 选择具体 adapter。
 func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool) {
-	if provider == MonitorProviderOpenAI && defaultAPIMode(apiMode) == MonitorAPIModeResponses {
+	if (provider == MonitorProviderOpenAI || provider == MonitorProviderDeepSeek) && defaultAPIMode(apiMode) == MonitorAPIModeResponses {
 		return providerOpenAIResponsesAdapter, MonitorAPIModeResponses, true
 	}
 	adapter, ok := providerAdapters[provider]
@@ -291,7 +317,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	if err != nil {
 		return "", "", status, err
 	}
-	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
+	if (provider == MonitorProviderOpenAI || provider == MonitorProviderDeepSeek) && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
 	}
 	return extractMonitorResponseText(adapter, respBytes), string(respBytes), status, nil
@@ -363,7 +389,18 @@ func extractOpenAIResponsesText(respBytes []byte) string {
 	if len(texts) > 0 {
 		return strings.Join(texts, "")
 	}
-	return gjson.GetBytes(respBytes, providerOpenAIResponsesAdapter.textPath).String()
+	for _, path := range []string{
+		providerOpenAIResponsesAdapter.textPath,
+		"output.0.content.0.reasoning_content",
+		"output.0.content.0.reasoning",
+		"reasoning_content",
+		"reasoning",
+	} {
+		if text := strings.TrimSpace(gjson.GetBytes(respBytes, path).String()); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 // mergeHeaders 把用户自定义 headers 合并到 adapter 默认 headers 上。
@@ -445,6 +482,8 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderOpenAI + ":" + MonitorAPIModeChatCompletions: {"model": true, "messages": true, "stream": true},
 	MonitorProviderOpenAI + ":" + MonitorAPIModeResponses:       {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderGrok:      {"model": true, "messages": true, "stream": true},
+	MonitorProviderDeepSeek:  {"model": true, "messages": true, "stream": true},
+	MonitorProviderDeepSeek + ":" + MonitorAPIModeResponses: {"model": true, "instructions": true, "input": true, "stream": true},
 	MonitorProviderAnthropic: {"model": true, "messages": true},
 	MonitorProviderGemini:    {"contents": true},
 }
@@ -457,14 +496,14 @@ func checkAPIMode(opts *CheckOptions) string {
 }
 
 func bodyMergeDenyKey(provider, apiMode string) string {
-	if provider == MonitorProviderOpenAI {
+	if provider == MonitorProviderOpenAI || provider == MonitorProviderDeepSeek {
 		return provider + ":" + defaultAPIMode(apiMode)
 	}
 	return provider
 }
 
 func validateReplaceRequestBody(provider, apiMode string, body map[string]any) error {
-	if provider != MonitorProviderOpenAI && provider != MonitorProviderGrok {
+	if provider != MonitorProviderOpenAI && provider != MonitorProviderGrok && provider != MonitorProviderDeepSeek {
 		return nil
 	}
 	switch defaultAPIMode(apiMode) {

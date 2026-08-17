@@ -86,22 +86,25 @@
     v-else
     class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
   >
-    <!-- Background Decorations -->
+    <!-- Background Decorations (colorful, animated so the liquid glass refraction reads) -->
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
       <div
-        class="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-primary-400/20 blur-3xl"
+        class="glass-blob absolute -right-40 -top-40 h-[28rem] w-[28rem] rounded-full bg-primary-400/30 blur-3xl dark:bg-primary-500/20"
       ></div>
       <div
-        class="absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-primary-500/15 blur-3xl"
+        class="glass-blob glass-blob--slow absolute -bottom-40 -left-40 h-[26rem] w-[26rem] rounded-full bg-sky-400/25 blur-3xl dark:bg-sky-500/15"
       ></div>
       <div
-        class="absolute left-1/3 top-1/4 h-72 w-72 rounded-full bg-primary-300/10 blur-3xl"
+        class="glass-blob glass-blob--reverse absolute left-1/3 top-1/4 h-80 w-80 rounded-full bg-violet-400/20 blur-3xl dark:bg-violet-500/15"
       ></div>
       <div
-        class="absolute bottom-1/4 right-1/4 h-64 w-64 rounded-full bg-primary-400/10 blur-3xl"
+        class="glass-blob glass-blob--slow absolute bottom-1/4 right-1/4 h-72 w-72 rounded-full bg-amber-300/20 blur-3xl dark:bg-amber-400/10"
       ></div>
       <div
-        class="absolute inset-0 bg-[linear-gradient(rgba(20,184,166,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(20,184,166,0.03)_1px,transparent_1px)] bg-[size:64px_64px]"
+        class="glass-blob glass-blob--reverse absolute -left-20 top-1/3 h-64 w-64 rounded-full bg-emerald-400/20 blur-3xl dark:bg-emerald-500/10"
+      ></div>
+      <div
+        class="absolute inset-0 bg-[linear-gradient(rgba(20,184,166,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(20,184,166,0.04)_1px,transparent_1px)] bg-[size:64px_64px]"
       ></div>
     </div>
 
@@ -143,37 +146,49 @@
           </button>
 
           <!-- Login / Dashboard Button -->
-          <router-link
-            v-if="isAuthenticated"
-            :to="dashboardPath"
-            class="inline-flex items-center gap-1.5 rounded-full bg-gray-900 py-1 pl-1 pr-2.5 transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
-          >
-            <span
-              class="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-primary-400 to-primary-600 text-[10px] font-semibold text-white"
+          <router-link v-if="isAuthenticated" :to="dashboardPath" class="inline-block">
+            <LiquidGlass
+              clickable
+              :corner-radius="9999"
+              :displacement-scale="28"
+              :blur="6"
+              tint="rgba(17, 24, 39, 0.72)"
             >
-              {{ userInitial }}
-            </span>
-            <span class="text-xs font-medium text-white">{{ t('home.dashboard') }}</span>
-            <svg
-              class="h-3 w-3 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25"
-              />
-            </svg>
+              <span class="flex items-center gap-1.5 py-1 pl-1 pr-2.5">
+                <span
+                  class="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-primary-400 to-primary-600 text-[10px] font-semibold text-white"
+                >
+                  {{ userInitial }}
+                </span>
+                <span class="text-xs font-medium text-white">{{ t('home.dashboard') }}</span>
+                <svg
+                  class="h-3 w-3 text-gray-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25"
+                  />
+                </svg>
+              </span>
+            </LiquidGlass>
           </router-link>
-          <router-link
-            v-else
-            to="/login"
-            class="inline-flex items-center rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
-          >
-            {{ t('home.login') }}
+          <router-link v-else to="/login" class="inline-block">
+            <LiquidGlass
+              clickable
+              :corner-radius="9999"
+              :displacement-scale="28"
+              :blur="6"
+              tint="rgba(17, 24, 39, 0.72)"
+            >
+              <span class="flex items-center px-3.5 py-1.5 text-xs font-medium text-white">
+                {{ t('home.login') }}
+              </span>
+            </LiquidGlass>
           </router-link>
         </div>
       </nav>
@@ -196,13 +211,21 @@
             </p>
 
             <!-- CTA Button -->
-            <div>
-              <router-link
-                :to="isAuthenticated ? dashboardPath : '/login'"
-                class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
-              >
-                {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
-                <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
+            <div class="flex justify-center lg:justify-start">
+              <router-link :to="isAuthenticated ? dashboardPath : '/login'" class="inline-block">
+                <LiquidGlass
+                  clickable
+                  :corner-radius="9999"
+                  :displacement-scale="40"
+                  :blur="10"
+                  :elasticity="0.18"
+                  tint="rgba(13, 148, 136, 0.62)"
+                >
+                  <span class="flex items-center px-8 py-3 text-base font-semibold text-white">
+                    {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
+                    <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
+                  </span>
+                </LiquidGlass>
               </router-link>
             </div>
           </div>
@@ -247,108 +270,98 @@
 
         <!-- Feature Tags - Centered -->
         <div class="mb-12 flex flex-wrap items-center justify-center gap-4 md:gap-6">
-          <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
+          <LiquidGlass
+            v-for="tag in featureTags"
+            :key="tag.labelKey"
+            :corner-radius="9999"
+            :displacement-scale="32"
+            :blur="6"
           >
-            <Icon name="swap" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
-              t('home.tags.subscriptionToApi')
-            }}</span>
-          </div>
-          <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
-          >
-            <Icon name="shield" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
-              t('home.tags.stickySession')
-            }}</span>
-          </div>
-          <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
-          >
-            <Icon name="chart" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
-              t('home.tags.realtimeBilling')
-            }}</span>
-          </div>
+            <span class="flex items-center gap-2.5 px-5 py-2.5">
+              <Icon :name="tag.icon" size="sm" class="text-primary-500" />
+              <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
+                t(tag.labelKey)
+              }}</span>
+            </span>
+          </LiquidGlass>
         </div>
 
         <!-- Features Grid -->
         <div class="mb-12 grid gap-6 md:grid-cols-3">
           <!-- Feature 1: Unified Gateway -->
-          <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-500/30 transition-transform group-hover:scale-110"
-            >
-              <Icon name="server" size="lg" class="text-white" />
+          <LiquidGlass :corner-radius="20" :displacement-scale="56" :blur="9" class="group">
+            <div class="p-6">
+              <div
+                class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-500/30 transition-transform group-hover:scale-110"
+              >
+                <Icon name="server" size="lg" class="text-white" />
+              </div>
+              <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('home.features.unifiedGateway') }}
+              </h3>
+              <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
+                {{ t('home.features.unifiedGatewayDesc') }}
+              </p>
             </div>
-            <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('home.features.unifiedGateway') }}
-            </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
-              {{ t('home.features.unifiedGatewayDesc') }}
-            </p>
-          </div>
+          </LiquidGlass>
 
           <!-- Feature 2: Account Pool -->
-          <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/30 transition-transform group-hover:scale-110"
-            >
-              <svg
-                class="h-6 w-6 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="1.5"
+          <LiquidGlass :corner-radius="20" :displacement-scale="56" :blur="9" class="group">
+            <div class="p-6">
+              <div
+                class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/30 transition-transform group-hover:scale-110"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
-                />
-              </svg>
+                <svg
+                  class="h-6 w-6 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
+                  />
+                </svg>
+              </div>
+              <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('home.features.multiAccount') }}
+              </h3>
+              <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
+                {{ t('home.features.multiAccountDesc') }}
+              </p>
             </div>
-            <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('home.features.multiAccount') }}
-            </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
-              {{ t('home.features.multiAccountDesc') }}
-            </p>
-          </div>
+          </LiquidGlass>
 
           <!-- Feature 3: Billing & Quota -->
-          <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg shadow-purple-500/30 transition-transform group-hover:scale-110"
-            >
-              <svg
-                class="h-6 w-6 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="1.5"
+          <LiquidGlass :corner-radius="20" :displacement-scale="56" :blur="9" class="group">
+            <div class="p-6">
+              <div
+                class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg shadow-purple-500/30 transition-transform group-hover:scale-110"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
-                />
-              </svg>
+                <svg
+                  class="h-6 w-6 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
+                  />
+                </svg>
+              </div>
+              <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('home.features.balanceQuota') }}
+              </h3>
+              <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
+                {{ t('home.features.balanceQuotaDesc') }}
+              </p>
             </div>
-            <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('home.features.balanceQuota') }}
-            </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
-              {{ t('home.features.balanceQuotaDesc') }}
-            </p>
-          </div>
+          </LiquidGlass>
         </div>
 
         <!-- Supported Providers -->
@@ -362,81 +375,36 @@
         </div>
 
         <div class="mb-16 flex flex-wrap items-center justify-center gap-4">
-          <!-- Claude - Supported -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
+          <LiquidGlass
+            v-for="provider in providerChips"
+            :key="provider.label"
+            :corner-radius="14"
+            :displacement-scale="32"
+            :blur="6"
+            :class="{ 'opacity-70': !provider.supported }"
           >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-orange-500"
-            >
-              <span class="text-xs font-bold text-white">C</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.claude') }}</span>
-            <span
-              class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-              >{{ t('home.providers.supported') }}</span
-            >
-          </div>
-          <!-- GPT - Supported -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-green-600"
-            >
-              <span class="text-xs font-bold text-white">G</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">GPT</span>
-            <span
-              class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-              >{{ t('home.providers.supported') }}</span
-            >
-          </div>
-          <!-- Gemini - Supported -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600"
-            >
-              <span class="text-xs font-bold text-white">G</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.gemini') }}</span>
-            <span
-              class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-              >{{ t('home.providers.supported') }}</span
-            >
-          </div>
-          <!-- Antigravity - Supported -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-pink-600"
-            >
-              <span class="text-xs font-bold text-white">A</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.antigravity') }}</span>
-            <span
-              class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-              >{{ t('home.providers.supported') }}</span
-            >
-          </div>
-          <!-- More - Coming Soon -->
-          <div
-            class="flex items-center gap-2 rounded-xl border border-gray-200/50 bg-white/40 px-5 py-3 opacity-60 backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/40"
-          >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-gray-500 to-gray-600"
-            >
-              <span class="text-xs font-bold text-white">+</span>
-            </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.more') }}</span>
-            <span
-              class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-dark-700 dark:text-dark-400"
-              >{{ t('home.providers.soon') }}</span
-            >
-          </div>
+            <span class="flex items-center gap-2 px-5 py-3">
+              <span
+                class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br"
+                :class="provider.iconClass"
+              >
+                <span class="text-xs font-bold text-white">{{ provider.initial }}</span>
+              </span>
+              <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
+                provider.labelKey ? t(provider.labelKey) : provider.label
+              }}</span>
+              <span
+                v-if="provider.supported"
+                class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
+                >{{ t('home.providers.supported') }}</span
+              >
+              <span
+                v-else
+                class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-dark-700 dark:text-dark-400"
+                >{{ t('home.providers.soon') }}</span
+              >
+            </span>
+          </LiquidGlass>
         </div>
       </div>
     </main>
@@ -478,10 +446,71 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore, useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
+import LiquidGlass from '@/components/common/LiquidGlass.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
 
 const { t } = useI18n()
+
+// Hero feature tag pills
+const featureTags = [
+  { icon: 'swap', labelKey: 'home.tags.subscriptionToApi' },
+  { icon: 'shield', labelKey: 'home.tags.stickySession' },
+  { icon: 'chart', labelKey: 'home.tags.realtimeBilling' }
+] as const
+
+// Supported provider chips
+const providerChips = [
+  {
+    label: 'Claude',
+    labelKey: 'home.providers.claude',
+    initial: 'C',
+    iconClass: 'from-orange-400 to-orange-500',
+    supported: true
+  },
+  {
+    label: 'GPT',
+    labelKey: '',
+    initial: 'G',
+    iconClass: 'from-green-500 to-green-600',
+    supported: true
+  },
+  {
+    label: 'Gemini',
+    labelKey: 'home.providers.gemini',
+    initial: 'G',
+    iconClass: 'from-blue-500 to-blue-600',
+    supported: true
+  },
+  {
+    label: 'Antigravity',
+    labelKey: 'home.providers.antigravity',
+    initial: 'A',
+    iconClass: 'from-rose-500 to-pink-600',
+    supported: true
+  },
+  {
+    label: 'Grok',
+    labelKey: 'home.providers.grok',
+    initial: 'X',
+    iconClass: 'from-gray-700 to-gray-900',
+    supported: true
+  },
+  {
+    label: 'DeepSeek',
+    labelKey: 'home.providers.deepseek',
+    initial: 'D',
+    iconClass: 'from-indigo-500 to-blue-700',
+    supported: true
+  },
+  {
+    label: 'More',
+    labelKey: 'home.providers.more',
+    initial: '+',
+    iconClass: 'from-gray-500 to-gray-600',
+    supported: false
+  }
+]
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
@@ -553,6 +582,39 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* Floating background blobs (give the liquid glass something to refract) */
+.glass-blob {
+  animation: blob-float 18s ease-in-out infinite;
+}
+
+.glass-blob--slow {
+  animation-duration: 26s;
+}
+
+.glass-blob--reverse {
+  animation-direction: reverse;
+  animation-duration: 22s;
+}
+
+@keyframes blob-float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(40px, -30px) scale(1.08);
+  }
+  66% {
+    transform: translate(-30px, 24px) scale(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-blob {
+    animation: none;
+  }
+}
+
 /* Terminal Container */
 .terminal-container {
   position: relative;

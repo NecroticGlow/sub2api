@@ -110,6 +110,14 @@ const qwenModels = [
 // DeepSeek
 const deepseekModels = [
   'deepseek-chat', 'deepseek-coder', 'deepseek-reasoner',
+  'deepseek-v4-pro', 'deepseek-v4-flash',
+  // ClinePass 上游全系模型（base_url = https://api.cline.bot/api/v1；计费按各厂商官方价）
+  'cline-pass/deepseek-v4-pro', 'cline-pass/deepseek-v4-flash',
+  'cline-pass/glm-5.2',
+  'cline-pass/kimi-k3', 'cline-pass/kimi-k2.7-code', 'cline-pass/kimi-k2.6',
+  'cline-pass/mimo-v2.5', 'cline-pass/mimo-v2.5-pro',
+  'cline-pass/minimax-m3',
+  'cline-pass/qwen3.8-max', 'cline-pass/qwen3.7-max', 'cline-pass/qwen3.7-plus',
   'deepseek-v3', 'deepseek-v3-0324',
   'deepseek-r1', 'deepseek-r1-0528',
   'deepseek-r1-distill-qwen-32b', 'deepseek-r1-distill-qwen-14b', 'deepseek-r1-distill-qwen-7b',
@@ -321,6 +329,21 @@ const grokPresetMappings = [
   { label: 'Imagine Video', from: 'grok-imagine-video-1.5', to: 'grok-imagine-video-1.5', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' }
 ]
 
+// DeepSeek 预设映射
+const deepseekPresetMappings = [
+  { label: 'Chat', from: 'deepseek-chat', to: 'deepseek-chat', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  { label: 'Reasoner', from: 'deepseek-reasoner', to: 'deepseek-reasoner', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
+  { label: 'R1→Reasoner', from: 'deepseek-r1', to: 'deepseek-reasoner', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
+  { label: 'V3→Chat', from: 'deepseek-v3', to: 'deepseek-chat', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
+  { label: 'Claude→Chat', from: 'claude-*', to: 'deepseek-chat', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'GPT→Chat', from: 'gpt-*', to: 'deepseek-chat', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  // ClinePass 上游（base_url = https://api.cline.bot/api/v1）：请求模型映射到 cline-pass slug；计费仍按 DeepSeek 官方价
+  { label: 'Chat→CP Flash', from: 'deepseek-chat', to: 'cline-pass/deepseek-v4-flash', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  { label: 'Reasoner→CP Pro', from: 'deepseek-reasoner', to: 'cline-pass/deepseek-v4-pro', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'V4 Pro→CP', from: 'deepseek-v4-pro', to: 'cline-pass/deepseek-v4-pro', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
+  { label: 'V4 Flash→CP', from: 'deepseek-v4-flash', to: 'cline-pass/deepseek-v4-flash', color: 'bg-lime-100 text-lime-700 hover:bg-lime-200 dark:bg-lime-900/30 dark:text-lime-400' }
+]
+
 // Antigravity 预设映射（支持通配符）
 const antigravityPresetMappings = [
   // Claude 通配符映射
@@ -444,6 +467,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
+  if (platform === 'deepseek') return deepseekPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
