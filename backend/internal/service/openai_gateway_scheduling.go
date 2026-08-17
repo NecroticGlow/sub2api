@@ -244,7 +244,7 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 }
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
-// while preserving the compact-specific error when applicable.
+// while preserving the legacy /responses/compact error when applicable.
 func normalizeOpenAICompatiblePlatform(platform string) string {
 	if platform == PlatformGrok {
 		return PlatformGrok
@@ -443,6 +443,9 @@ func grokQuotaSnapshotStaleForPause(snapshot *xai.QuotaSnapshot, now time.Time) 
 
 func shouldAutoPauseOpenAIAccountByQuota(ctx context.Context, account *Account) (bool, openAIQuotaAutoPauseDecision) {
 	if account == nil || !account.IsOpenAI() {
+		return false, openAIQuotaAutoPauseDecision{}
+	}
+	if codexQuotaOverdraftBypassesSchedulingThreshold(ctx, account) {
 		return false, openAIQuotaAutoPauseDecision{}
 	}
 	// Per-account explicit-disable flags must take precedence over the global default.
@@ -685,17 +688,44 @@ func prioritizeOpenAICompactAccounts(accounts []*Account) []*Account {
 }
 
 // resolveOpenAIAccountUpstreamModelForRequest resolves the upstream model that
-// would be sent for a given request, honouring compact-only mappings when the
-// caller is on the /responses/compact path.
+// would be sent for a given request, honoring the legacy compact-only mapping
+// when the caller is on the /responses/compact path.
 func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedModel string, requireCompact bool) string {
+	// Forward checks the raw Chat Completions fallback before passthrough.
+	// These API-key accounts therefore apply normal account model_mapping and
+	// upstream normalization, but never compact_model_mapping.
+	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
+		return normalizeOpenAIModelForUpstream(account, upstreamModel)
+	}
+
+	// Passthrough accounts only replace authentication. Their Forward path
+	// keeps the channel-mapped model in the request body and does not apply the
+	// account's normal model_mapping. Legacy /responses/compact is the one
+	// exception: forwardOpenAIPassthrough applies compact_model_mapping
+	// directly to that channel-mapped model.
+	if account != nil && account.IsOpenAIPassthroughEnabled() {
+		upstreamModel := strings.TrimSpace(requestedModel)
+		if upstreamModel == "" {
+			return ""
+		}
+		if requireCompact {
+			return resolveOpenAICompactForwardModel(account, upstreamModel)
+		}
+		return upstreamModel
+	}
+
 	upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
 	if upstreamModel == "" {
 		return ""
 	}
 	if requireCompact {
-		return resolveOpenAICompactForwardModel(account, upstreamModel)
+		compactModel := resolveOpenAICompactForwardModel(account, upstreamModel)
+		if compactModel != upstreamModel {
+			return compactModel
+		}
 	}
-	return upstreamModel
+	return normalizeOpenAIModelForUpstream(account, upstreamModel)
 }
 
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, error) {
@@ -815,7 +845,8 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 // selectBestAccount selects the best account from candidates (priority + LRU).
 // Returns nil if no available account. The second return reports whether at
 // least one candidate was filtered out solely because it lacks compact support
-// (only meaningful when requireCompact=true); the third contains deterministic
+// (only meaningful when the legacy /responses/compact requireCompact flag is
+// true); the third contains deterministic
 // exclusion diagnostics for the evaluated snapshot.
 func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, platform string, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, bool, openAISelectionFilterStats) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
@@ -1277,11 +1308,15 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
+	if accounts, handled, err := s.listCodexQuotaOverdraftSchedulableAccounts(ctx, groupID, platform); handled {
+		return accounts, err
+	}
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
 		if err != nil {
 			return accounts, err
 		}
+		accounts = normalizeCodexQuotaOverdraftAccountsForScheduling(ctx, accounts)
 		accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
 		if platform == PlatformGrok {
 			accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
@@ -1300,6 +1335,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
+	accounts = normalizeCodexQuotaOverdraftAccountsForScheduling(ctx, accounts)
 	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
 	if platform == PlatformGrok {
 		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
@@ -1339,6 +1375,7 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccountBeforeProfit(
 		}
 		fresh = current
 	}
+	fresh = normalizeCodexQuotaOverdraftAccountForScheduling(ctx, fresh)
 
 	if !isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, fresh, platform, requestedModel, requireCompact, requiredCapability) {
 		return nil
@@ -1408,6 +1445,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if err != nil || latest == nil {
 		return nil
 	}
+	latest = normalizeCodexQuotaOverdraftAccountForScheduling(ctx, latest)
 	if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
 		return nil
 	}
@@ -1449,6 +1487,7 @@ func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accoun
 	if err != nil || account == nil {
 		return account, err
 	}
+	account = normalizeCodexQuotaOverdraftAccountForScheduling(ctx, account)
 	if s.isOpenAIAccountBlockedBySchedulingThreshold(ctx, account) {
 		return nil, nil
 	}
@@ -1487,6 +1526,9 @@ func (s *OpenAIGatewayService) filterOpenAIAccountsBySchedulingThreshold(ctx con
 
 func (s *OpenAIGatewayService) isOpenAIAccountBlockedBySchedulingThreshold(ctx context.Context, account *Account) bool {
 	if s == nil || s.rateLimitService == nil || account == nil {
+		return false
+	}
+	if codexQuotaOverdraftBypassesSchedulingThreshold(ctx, account) {
 		return false
 	}
 	return s.rateLimitService.ApplyAccountSchedulingThreshold(ctx, account)
