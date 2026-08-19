@@ -260,6 +260,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
 
 		SettingKeyAllowUserViewErrorRequests: "false",
+		SettingKeyMiscBillingPolicyEnabled:   "true",
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -968,11 +969,18 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
 
+	// 「其他」：杂项计费策略开关。缺省关闭（fail-safe）：仅显式 "true" 开启；
+	// 全新安装由 initDefaults 种子为 "true"，存量库升级后需在设置页开启。
+	result.MiscBillingPolicyEnabled = settings[SettingKeyMiscBillingPolicyEnabled] == "true"
+
 	// Publish Grok default model_mapping options for accounts with empty mapping.
 	xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{
 		DefaultText:          result.GrokDefaultTextModel,
 		EnableCrossClientMap: result.GrokCrossClientModelMapEnabled,
 	})
+
+	// 发布杂项计费策略运行时开关（计费热路径读原子布尔）。
+	SetGPT56SolBillingSurchargeEnabled(result.MiscBillingPolicyEnabled)
 
 	return result
 }

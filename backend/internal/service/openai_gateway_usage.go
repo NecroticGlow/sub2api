@@ -193,6 +193,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
 		billingModel = input.OriginalModel
 	}
+	// DeepSeek V4 uses official Beijing-time peak/off-peak pricing. Apply its
+	// 2x peak factor here as well as in the shared GatewayService path, because
+	// OpenAI-compatible usage recording has its own billing implementation.
+	multiplier = applyDeepSeekPeakMultiplier(billingModel, multiplier, pricingAt)
 	billingModels := usageBillingModelCandidates(
 		billingModel,
 		result.BillingModel,

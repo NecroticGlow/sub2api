@@ -251,6 +251,8 @@ const defaultClientTab = computed(() => {
       return 'gemini'
     case 'antigravity':
       return 'claude'
+    case 'deepseek':
+      return 'claude'
     default:
       return 'claude'
   }
@@ -366,6 +368,11 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'grok', label: t('keys.useKeyModal.cliTabs.grokCli'), icon: TerminalIcon },
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
+    case 'deepseek':
+      return [
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
     default:
@@ -519,6 +526,8 @@ const currentFiles = computed((): FileConfig[] => {
         ]
       case 'grok':
         return [generateOpenCodeConfig('grok', apiBase, apiKey)]
+      case 'deepseek':
+        return [generateOpenCodeConfig('deepseek', apiBase, apiKey)]
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
@@ -548,6 +557,8 @@ const currentFiles = computed((): FileConfig[] => {
         return generateGrokCodexFiles(apiBase, apiKey)
       }
       return generateGrokFiles(apiBase, apiKey)
+    case 'deepseek':
+      return generateDeepSeekClaudeFiles(baseRoot, apiKey)
     default:
       return generateAnthropicFiles(baseUrl, apiKey)
   }
@@ -618,6 +629,64 @@ function generateGrokClaudeFiles(baseUrl: string, apiKey: string): FileConfig[] 
     ANTHROPIC_DEFAULT_HAIKU_MODEL: 'grok-4.5',
     ANTHROPIC_DEFAULT_FABLE_MODEL: 'grok-4.5',
     CLAUDE_CODE_SUBAGENT_MODEL: 'grok-4.5',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    CLAUDE_CODE_ATTRIBUTION_HEADER: '0'
+  }
+  let path: string
+  let content: string
+
+  switch (activeTab.value) {
+    case 'unix':
+      path = 'Terminal'
+      content = Object.entries(environment)
+        .map(([name, value]) => `export ${name}="${value}"`)
+        .join('\n')
+      break
+    case 'cmd':
+      path = 'Command Prompt'
+      content = Object.entries(environment)
+        .map(([name, value]) => `set ${name}=${value}`)
+        .join('\n')
+      break
+    case 'powershell':
+      path = 'PowerShell'
+      content = Object.entries(environment)
+        .map(([name, value]) => `$env:${name}="${value}"`)
+        .join('\n')
+      break
+    default:
+      path = 'Terminal'
+      content = ''
+  }
+
+  const settingsPath = activeTab.value === 'unix'
+    ? '~/.claude/settings.json'
+    : '%USERPROFILE%\\.claude\\settings.json'
+
+  return [
+    { path, content },
+    {
+      path: settingsPath,
+      content: JSON.stringify({
+        $schema: 'https://json.schemastore.org/claude-code-settings.json',
+        env: environment
+      }, null, 2),
+      hint: t('keys.useKeyModal.claudeSettingsHint')
+    }
+  ]
+}
+
+function generateDeepSeekClaudeFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  // Mirrors DeepSeek's official Anthropic-API integration guidance:
+  // point Claude Code at the gateway and pin models to deepseek-chat/reasoner.
+  const environment = {
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_AUTH_TOKEN: apiKey,
+    ANTHROPIC_MODEL: 'deepseek-chat',
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-reasoner',
+    ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-chat',
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-chat',
+    CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-chat',
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_CODE_ATTRIBUTION_HEADER: '0'
   }
@@ -1522,6 +1591,27 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     provider[platform].npm = '@ai-sdk/openai-compatible'
     provider[platform].name = 'Grok via Sub2API'
     provider[platform].models = grokModels
+  } else if (platform === 'deepseek') {
+    provider[platform].npm = '@ai-sdk/openai-compatible'
+    provider[platform].name = 'DeepSeek via Sub2API'
+    provider[platform].models = {
+      'deepseek-chat': {
+        name: 'DeepSeek Chat',
+        limit: { context: 128000, output: 8000 }
+      },
+      'deepseek-reasoner': {
+        name: 'DeepSeek Reasoner',
+        limit: { context: 128000, output: 64000 }
+      },
+      'deepseek-v4-pro': {
+        name: 'DeepSeek V4 Pro',
+        limit: { context: 128000, output: 64000 }
+      },
+      'deepseek-v4-flash': {
+        name: 'DeepSeek V4 Flash',
+        limit: { context: 128000, output: 8000 }
+      }
+    }
   }
 
   const agent =
