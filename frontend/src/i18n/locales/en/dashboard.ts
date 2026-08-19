@@ -209,19 +209,13 @@ export default {
     ipBlacklistHint: 'One IP or CIDR per line. These IPs will be blocked from using this key.',
     ipRestrictionEnabled: 'IP restriction enabled',
     ccSwitchNotInstalled: 'CC-Switch is not installed or the protocol handler is not registered. Please install CC-Switch first or manually copy the API key.',
-    ccsImport: {
-      title: 'Fill in CC Switch',
-      app: 'Application',
-      name: 'Name',
-      namePlaceholder: 'Name this provider',
-      mainModel: 'Main Model',
-      haikuModel: 'Haiku Model',
-      sonnetModel: 'Sonnet Model',
-      opusModel: 'Opus Model',
-      modelPlaceholder: 'Select or enter a model name',
-      loadingModels: 'Loading models...',
-      open: 'Open CC Switch',
-      grokBuild: 'Grok Build',
+    ccsClientSelect: {
+      title: 'Select Client',
+      description: 'Please select the client type to import to CC-Switch:',
+      claudeCode: 'Claude Code',
+      claudeCodeDesc: 'Import as Claude Code configuration',
+      geminiCli: 'Gemini CLI',
+      geminiCliDesc: 'Import as Gemini CLI configuration',
     },
     // Quota and expiration
     quotaLimit: 'Quota Limit',
@@ -444,7 +438,38 @@ export default {
       anthropic: 'Anthropic',
       gemini: 'Gemini',
       grok: 'Grok',
+      antigravity: 'Antigravity',
+      kimi: 'Kimi',
+      zhipu: 'Zhipu GLM',
       deepseek: 'DeepSeek'
+    },
+    // Check modes (how a monitor performs its checks)
+    checkMode: {
+      probe: 'Probe',
+      quota: 'Quota',
+      quota_probe: 'Probe + Quota'
+    },
+    // Quota snapshot rendering (MonitorQuotaView, shared by admin + user views)
+    quota: {
+      unavailable: 'Quota unavailable',
+      resetSoon: 'resetting',
+      windows: {
+        '5h': '5h',
+        '7d': '7d',
+        '7dSonnet': '7d Sonnet',
+        '7dFable': '7d Fable',
+        weekly: 'Weekly',
+        daily: 'Daily',
+        '30d': '30d',
+        total: 'Total'
+      },
+      labels: {
+        requests: 'Requests',
+        tokens: 'Tokens',
+        shared: 'Shared',
+        pro: 'Pro',
+        flash: 'Flash'
+      }
     },
     extraModelsHeader: 'Extra Models',
     extraModelsEmpty: 'No extra models',

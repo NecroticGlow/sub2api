@@ -138,7 +138,7 @@ func openAICompatibleSelectionErrorForLog(err error, platform string) error {
 	switch platform {
 	case service.PlatformGrok:
 		replacement = "Grok accounts"
-	case service.PlatformDeepSeek:
+	case service.PlatformDeepseek:
 		replacement = "DeepSeek accounts"
 	default:
 		return err

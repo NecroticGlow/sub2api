@@ -214,19 +214,13 @@ export default {
     ipRestrictionEnabled: '已配置 IP 限制',
     ccSwitchNotInstalled:
       'CC-Switch 未安装或协议处理程序未注册。请先安装 CC-Switch 或手动复制 API 密钥。',
-    ccsImport: {
-      title: '填入 CC Switch',
-      app: '应用',
-      name: '名称',
-      namePlaceholder: '为该配置命名',
-      mainModel: '主模型',
-      haikuModel: 'Haiku 模型',
-      sonnetModel: 'Sonnet 模型',
-      opusModel: 'Opus 模型',
-      modelPlaceholder: '选择或输入模型名称',
-      loadingModels: '正在加载模型列表...',
-      open: '打开 CC Switch',
-      grokBuild: 'Grok Build'
+    ccsClientSelect: {
+      title: '选择客户端',
+      description: '请选择您要导入到 CC-Switch 的客户端类型：',
+      claudeCode: 'Claude Code',
+      claudeCodeDesc: '导入为 Claude Code 配置',
+      geminiCli: 'Gemini CLI',
+      geminiCliDesc: '导入为 Gemini CLI 配置'
     },
     // 配额和有效期
     quotaLimit: '额度限制',
@@ -449,7 +443,38 @@ export default {
       anthropic: 'Anthropic',
       gemini: 'Gemini',
       grok: 'Grok',
+      antigravity: 'Antigravity',
+      kimi: 'Kimi',
+      zhipu: '智谱 GLM',
       deepseek: 'DeepSeek'
+    },
+    // 检查模式（监控条目的工作方式）
+    checkMode: {
+      probe: '探活',
+      quota: '配额',
+      quota_probe: '探活 + 配额'
+    },
+    // 配额快照展示（MonitorQuotaView，管理端与用户端共用）
+    quota: {
+      unavailable: '配额信息不可用',
+      resetSoon: '即将重置',
+      windows: {
+        '5h': '5 小时',
+        '7d': '7 天',
+        '7dSonnet': '7 天 Sonnet',
+        '7dFable': '7 天 Fable',
+        weekly: '周',
+        daily: '日',
+        '30d': '30 天',
+        total: '总量'
+      },
+      labels: {
+        requests: '请求',
+        tokens: 'Token',
+        shared: '共享',
+        pro: 'Pro',
+        flash: 'Flash'
+      }
     },
     extraModelsHeader: '附加模型',
     extraModelsEmpty: '无附加模型',
