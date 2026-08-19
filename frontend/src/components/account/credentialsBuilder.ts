@@ -12,6 +12,16 @@ export function applyInterceptWarmup(
 
 export const ANTIGRAVITY_PROJECT_ID_CREDENTIAL_KEY = 'antigravity_project_id'
 
+export interface DeepSeekBaseUrlPreset {
+  labelKey: string
+  url: string
+}
+
+export const DEEPSEEK_BASE_URL_PRESETS: DeepSeekBaseUrlPreset[] = [
+  { labelKey: 'official', url: 'https://api.deepseek.com' },
+  { labelKey: 'clinepass', url: 'https://api.cline.bot/api/v1' }
+]
+
 export function applyAntigravityProjectID(
   credentials: Record<string, unknown>,
   projectId: string,
