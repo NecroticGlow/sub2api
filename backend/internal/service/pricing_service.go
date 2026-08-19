@@ -566,17 +566,7 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 		return data
 	}
 	merged := 0
-	deepSeekOverrides := 0
 	for modelName, pricing := range fallbackData {
-		// DeepSeek V4 uses an official Beijing-time peak/off-peak tariff that is
-		// newer than some LiteLLM snapshots. Always overlay the bundled official
-		// RMB/7 base rates so the admin UI and pricing APIs cannot regress after
-		// the remote catalog refreshes the persistent data file.
-		if isDeepSeekV4Model(modelName) {
-			data[modelName] = pricing
-			deepSeekOverrides++
-			continue
-		}
 		if _, ok := data[modelName]; ok {
 			continue
 		}
@@ -585,9 +575,6 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 	}
 	if merged > 0 {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Merged %d fallback-only models", merged)
-	}
-	if deepSeekOverrides > 0 {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Applied %d official DeepSeek pricing overrides", deepSeekOverrides)
 	}
 	return data
 }

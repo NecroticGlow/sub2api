@@ -11,7 +11,6 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/deepseek"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -248,10 +247,6 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return ids
 	case PlatformGrok:
 		return xai.DefaultModelIDs()
-	case PlatformDeepseek:
-		// 官方模型 + ClinePass 上游模型都进入候选，方便分组按上游勾选区分。
-		ids := deepseek.DefaultModelIDs()
-		return append(ids, deepseek.ClinePassModelIDs()...)
 	case PlatformComposite:
 		return compositeDefaultModelsListCandidateIDs()
 	default:
@@ -272,7 +267,7 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 func compositeDefaultModelsListCandidateIDs() []string {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0)
-	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformDeepseek} {
+	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok} {
 		for _, id := range defaultModelsListCandidateIDs(platform) {
 			if _, ok := seen[id]; ok {
 				continue

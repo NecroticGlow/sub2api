@@ -131,19 +131,10 @@ func classifyOpenAICompatibleNoAccountErrorFromGin(
 }
 
 func openAICompatibleSelectionErrorForLog(err error, platform string) error {
-	if err == nil {
+	if err == nil || platform != service.PlatformGrok {
 		return err
 	}
-	var replacement string
-	switch platform {
-	case service.PlatformGrok:
-		replacement = "Grok accounts"
-	case service.PlatformDeepseek:
-		replacement = "DeepSeek accounts"
-	default:
-		return err
-	}
-	message := strings.ReplaceAll(err.Error(), "OpenAI accounts", replacement)
+	message := strings.ReplaceAll(err.Error(), "OpenAI accounts", "Grok accounts")
 	if message == err.Error() {
 		return err
 	}

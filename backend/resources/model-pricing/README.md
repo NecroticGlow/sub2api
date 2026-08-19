@@ -2,11 +2,6 @@
 
 This directory contains a local copy of the mirrored model pricing data as a fallback mechanism.
 
-DeepSeek V4 Flash/Pro are stored at the official off-peak RMB rates converted
-with the deployment billing rate of 1 USD = 7 RMB. The gateway applies the
-official 2x peak multiplier automatically during Beijing time 09:00-12:00 and
-14:00-18:00; all other times use the stored off-peak rate.
-
 ## Source
 The original file is maintained by the LiteLLM project and mirrored into the `price-mirror` branch of this repository via GitHub Actions:
 - Mirror branch (configurable via `PRICE_MIRROR_REPO`): https://raw.githubusercontent.com/<your-repo>/price-mirror/model_prices_and_context_window.json

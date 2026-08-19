@@ -830,11 +830,6 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
 	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
 	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
-	// DeepSeek V4's upstream tariff has independent peak/off-peak prices. The
-	// local model cards store the exact RMB/7 off-peak USD rates; apply the
-	// official 2x peak factor only to token billing (image billing keeps its
-	// existing group multiplier semantics).
-	multiplier = applyDeepSeekPeakMultiplier(billingModel, multiplier, pricingAt)
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model

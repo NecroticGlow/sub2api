@@ -237,7 +237,7 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 		group = loaded
 	}
 	if group == nil || !group.ProfitControlEnabled ||
-		(group.Platform != PlatformOpenAI && group.Platform != PlatformGrok && group.Platform != PlatformDeepseek) {
+		(group.Platform != PlatformOpenAI && group.Platform != PlatformGrok) {
 		return nil
 	}
 
