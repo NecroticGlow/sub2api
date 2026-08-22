@@ -1110,7 +1110,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 官方 RMB/7 低谷价格；峰值 2x 由 usage 计费路径按请求时间叠加。
 	if isDeepSeekV4Model(model) {
 		if officialPricing := s.getFallbackPricing(model); officialPricing != nil {
-			return s.applyModelSpecificPricingPolicy(model, officialPricing), nil
+			return applyGPT56SolBillingSurcharge(model, s.applyModelSpecificPricingPolicy(model, officialPricing)), nil
 		}
 	}
 
@@ -1540,7 +1540,7 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled), nil
 }
 
-// gpt56SolBillingSurchargeMultiplier 对 gpt-5.6-sol / gpt-5.6-luna 的计费加倍系数。
+// gpt56SolBillingSurchargeMultiplier 对 gpt-5.6-sol / gpt-5.6-luna / DeepSeek V4 的计费加倍系数。
 // 仅作用于实际扣费（GetModelPricing 的目录价出口）；模型广场等展示路径
 // 直接读取 PricingService 的 LiteLLM 原始目录，仍显示官方原价。
 const gpt56SolBillingSurchargeMultiplier = 2.0
@@ -1556,7 +1556,9 @@ func SetGPT56SolBillingSurchargeEnabled(enabled bool) {
 }
 
 // applyGPT56SolBillingSurcharge 把 gpt-5.6-sol（含 gpt-5.6 裸名等 Sol 别名）
-// 和 gpt-5.6-luna（均由 normalizeKnownOpenAICodexModel 归一）的全部 token 单价乘以加倍系数。
+// 和 gpt-5.6-luna（均由 normalizeKnownOpenAICodexModel 归一），以及 DeepSeek V4
+// 系列的全部 token 单价乘以加倍系数。DeepSeek 峰谷倍率在 usage 路径随后叠加，
+// 因此低谷为官方低谷价 2x，峰值为官方低谷价 2x 峰值倍率 2x。
 // 渠道/分组管理员显式配置的价格不经过本函数（显式配价视为最终价）。
 // 返回克隆对象，绝不修改共享的 fallbackPrices 指针。
 func applyGPT56SolBillingSurcharge(model string, pricing *ModelPricing) *ModelPricing {
@@ -1567,7 +1569,7 @@ func applyGPT56SolBillingSurcharge(model string, pricing *ModelPricing) *ModelPr
 		return pricing
 	}
 	normalized := normalizeKnownOpenAICodexModel(model)
-	if normalized != "gpt-5.6-sol" && normalized != "gpt-5.6-luna" {
+	if normalized != "gpt-5.6-sol" && normalized != "gpt-5.6-luna" && !isDeepSeekV4Model(model) {
 		return pricing
 	}
 	cloned := *pricing
