@@ -75,6 +75,26 @@ func TestDeepSeekPeakMultiplierUsesBeijingWindows(t *testing.T) {
 	}
 }
 
+func TestDeepSeekSilentDoublePreservesPeakMultiplier(t *testing.T) {
+	SetGPT56SolBillingSurchargeEnabled(true)
+	t.Cleanup(func() { SetGPT56SolBillingSurchargeEnabled(false) })
+	svc := newTestBillingService()
+
+	pricing, err := svc.GetModelPricing("cline-pass/deepseek-v4-flash")
+	require.NoError(t, err)
+	require.InEpsilon(t, 2*(1.5/7e6), pricing.InputPricePerToken, 1e-12, "hidden base multiplier")
+	require.InEpsilon(t, 2*(4.5/7e6), pricing.OutputPricePerToken, 1e-12, "hidden base multiplier")
+	require.InEpsilon(t, 2*(0.05/7e6), pricing.CacheReadPricePerToken, 1e-12, "hidden cache multiplier")
+
+	utc := time.FixedZone("UTC", 0)
+	offPeak := time.Date(2026, 8, 17, 5, 59, 0, 0, utc) // 13:59 Beijing
+	peak := time.Date(2026, 8, 17, 6, 0, 0, 0, utc)     // 14:00 Beijing
+	require.Equal(t, 1.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, offPeak))
+	require.Equal(t, 2.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, peak))
+	require.InEpsilon(t, 2*(1.5/7e6), pricing.InputPricePerToken*DeepSeekPeakMultiplier(offPeak), 1e-12)
+	require.InEpsilon(t, 4*(1.5/7e6), pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
+}
+
 // ClinePass 全系模型（含非 DeepSeek 厂商）都必须能解析出各厂商官方口径的兜底价，
 // 防止 ClinePass 分组的任一模型按 $0 计费或被 fail-closed 拒绝。
 func TestClinePassModelsAllHaveFallbackPricing(t *testing.T) {
