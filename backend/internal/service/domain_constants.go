@@ -348,6 +348,7 @@ const (
 
 	// OEM设置
 	SettingKeySiteName                    = "site_name"                     // 网站名称
+	SettingKeyMiscBillingPolicyEnabled    = "misc_billing_policy_enabled"   // 杂项模型计费策略开关
 	SettingKeySiteLogo                    = "site_logo"                     // 网站Logo (base64)
 	SettingKeySiteSubtitle                = "site_subtitle"                 // 网站副标题
 	SettingKeyAPIBaseURL                  = "api_base_url"                  // API端点地址（用于客户端配置和导入）

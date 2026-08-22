@@ -92,7 +92,7 @@ func validateAPIMode(provider, apiMode string) error {
 	case MonitorAPIModeChatCompletions:
 		return nil
 	case MonitorAPIModeResponses:
-		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderDeepSeek {
+		if provider == "" || provider == MonitorProviderOpenAI || provider == MonitorProviderDeepseek {
 			return nil
 		}
 		return ErrChannelMonitorInvalidAPIMode
