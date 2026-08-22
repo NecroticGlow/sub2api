@@ -470,15 +470,21 @@ func (s *BillingService) initFallbackPricing() {
 	// Source: https://api-docs.deepseek.com/quick_start/pricing
 	// （deepseek-chat / deepseek-reasoner 为 deepseek-v4-flash 的兼容别名，2026/07/24 弃用）
 	s.fallbackPrices["deepseek-v4-pro"] = &ModelPricing{
-		InputPricePerToken:     4.5 / 7e6,  // ¥4.50 / 7 per MTok, off-peak
-		OutputPricePerToken:    13.5 / 7e6, // ¥13.50 / 7 per MTok, off-peak
-		CacheReadPricePerToken: 0.15 / 7e6, // ¥0.15 / 7 per MTok, off-peak
+		InputPricePerToken:     0.66e-6,
+		OutputPricePerToken:    1.98e-6,
+		CacheReadPricePerToken: 0.022e-6,
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["deepseek-v4-flash"] = &ModelPricing{
-		InputPricePerToken:     1.5 / 7e6,  // ¥1.50 / 7 per MTok, off-peak
-		OutputPricePerToken:    4.5 / 7e6,  // ¥4.50 / 7 per MTok, off-peak
-		CacheReadPricePerToken: 0.05 / 7e6, // ¥0.05 / 7 per MTok, off-peak
+		InputPricePerToken:     0.22e-6,
+		OutputPricePerToken:    0.66e-6,
+		CacheReadPricePerToken: 0.007e-6,
+		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["deepseek-v4-flash-vision-exp"] = &ModelPricing{
+		InputPricePerToken:     0.22e-6,
+		OutputPricePerToken:    0.66e-6,
+		CacheReadPricePerToken: 0.007e-6,
 		SupportsCacheBreakdown: false,
 	}
 
@@ -844,6 +850,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 
 	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
 	// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
+	if strings.Contains(modelLower, "deepseek-v4-flash-vision-exp") {
+		return s.fallbackPrices["deepseek-v4-flash-vision-exp"]
+	}
 	if strings.Contains(modelLower, "deepseek-v4-flash") {
 		return s.fallbackPrices["deepseek-v4-flash"]
 	}
@@ -1540,7 +1549,7 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled), nil
 }
 
-// gpt56SolBillingSurchargeMultiplier 对 gpt-5.6-luna / DeepSeek V4 的计费加倍系数。
+// gpt56SolBillingSurchargeMultiplier 对 gpt-5.6-luna 的计费加倍系数。
 // 仅作用于实际扣费（GetModelPricing 的目录价出口）；模型广场等展示路径
 // 直接读取 PricingService 的 LiteLLM 原始目录，仍显示官方原价。
 const gpt56SolBillingSurchargeMultiplier = 2.0
@@ -1556,9 +1565,7 @@ func SetGPT56SolBillingSurchargeEnabled(enabled bool) {
 }
 
 // applyGPT56SolBillingSurcharge 把 gpt-5.6-luna（由 normalizeKnownOpenAICodexModel
-// 归一）以及 DeepSeek V4
-// 系列的全部 token 单价乘以加倍系数。DeepSeek 峰谷倍率在 usage 路径随后叠加，
-// 因此低谷为官方低谷价 2x，峰值为官方低谷价 2x 峰值倍率 2x。
+// 归一）的全部 token 单价乘以加倍系数。
 // 渠道/分组管理员显式配置的价格不经过本函数（显式配价视为最终价）。
 // 返回克隆对象，绝不修改共享的 fallbackPrices 指针。
 func applyGPT56SolBillingSurcharge(model string, pricing *ModelPricing) *ModelPricing {
@@ -1569,7 +1576,7 @@ func applyGPT56SolBillingSurcharge(model string, pricing *ModelPricing) *ModelPr
 		return pricing
 	}
 	normalized := normalizeKnownOpenAICodexModel(model)
-	if normalized != "gpt-5.6-luna" && !isDeepSeekV4Model(model) {
+	if normalized != "gpt-5.6-luna" {
 		return pricing
 	}
 	cloned := *pricing

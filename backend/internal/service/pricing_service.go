@@ -570,7 +570,7 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 	for modelName, pricing := range fallbackData {
 		// DeepSeek V4 uses an official Beijing-time peak/off-peak tariff that is
 		// newer than some LiteLLM snapshots. Always overlay the bundled official
-		// RMB/7 base rates so the admin UI and pricing APIs cannot regress after
+		// USD base rates so the admin UI and pricing APIs cannot regress after
 		// the remote catalog refreshes the persistent data file.
 		if isDeepSeekV4Model(modelName) {
 			data[modelName] = pricing

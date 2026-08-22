@@ -20,6 +20,7 @@ var deepSeekBeijingLocation = time.FixedZone("Asia/Shanghai", deepSeekBeijingUTC
 func isDeepSeekV4Model(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
 	return strings.Contains(m, "deepseek-v4-flash") ||
+		strings.Contains(m, "deepseek-v4-flash-vision-exp") ||
 		strings.Contains(m, "deepseek-v4-pro") ||
 		strings.Contains(m, "deepseek-chat") ||
 		strings.Contains(m, "deepseek-reasoner")
