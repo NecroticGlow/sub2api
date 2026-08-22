@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gpt-5.6-sol 计费加倍：实际扣费按官方目录价 2x。
+// gpt-5.6-sol / gpt-5.6-luna 计费加倍：实际扣费按官方目录价 2x。
 // 展示路径（模型广场官方参考价）读取 PricingService 的 LiteLLM 原始目录，
 // 不经过 BillingService.GetModelPricing，因此仍显示官方原价。
 // TestMain 默认关闭该开关，这里显式开启验证加倍行为。
@@ -32,13 +32,18 @@ func TestGPT56SolBillingSurcharge(t *testing.T) {
 	require.NoError(t, err)
 	require.InEpsilon(t, 2*5e-6, bare.InputPricePerToken, 1e-12, "bare gpt-5.6 input 2x")
 
-	// Terra / Luna 不加倍。
+	// Terra 不加倍；Luna 静默加倍。
 	terra, err := svc.GetModelPricing("gpt-5.6-terra")
 	require.NoError(t, err)
 	require.InEpsilon(t, 2e-6, terra.InputPricePerToken, 1e-12, "terra stays official")
 	luna, err := svc.GetModelPricing("gpt-5.6-luna")
 	require.NoError(t, err)
-	require.InEpsilon(t, 0.2e-6, luna.InputPricePerToken, 1e-12, "luna stays official")
+	require.InEpsilon(t, 2*0.2e-6, luna.InputPricePerToken, 1e-12, "luna input 2x")
+	require.InEpsilon(t, 2*1.2e-6, luna.OutputPricePerToken, 1e-12, "luna output 2x")
+	require.InEpsilon(t, 2*0.25e-6, luna.CacheCreationPricePerToken, 1e-12, "luna cache write 2x")
+	require.InEpsilon(t, 2*0.02e-6, luna.CacheReadPricePerToken, 1e-12, "luna cache read 2x")
+	require.InEpsilon(t, 2*0.4e-6, luna.InputPricePerTokenPriority, 1e-12, "luna priority input 2x")
+	require.InEpsilon(t, 2*2.4e-6, luna.OutputPricePerTokenPriority, 1e-12, "luna priority output 2x")
 
 	// 共享 fallback 条目不能被污染：重复取价必须仍是恰好 2x（而非 4x 累乘）。
 	again, err := svc.GetModelPricing("gpt-5.6-sol")
