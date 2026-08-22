@@ -9,7 +9,7 @@ export const DEEPSEEK_CC_SWITCH_MODEL = 'deepseek-chat'
  * CC Switch target applications supported by the ccswitch:// v1 deeplink.
  * `grokbuild` is only meaningful for grok-platform groups.
  */
-export type CcSwitchApp = 'claude' | 'codex' | 'gemini' | 'grokbuild'
+export type CcSwitchApp = 'claude' | 'codex' | 'gemini' | 'grokbuild' | 'opencode'
 
 export interface CcSwitchImportDeeplinkInput {
   baseUrl: string
@@ -83,7 +83,12 @@ export function resolveCcSwitchEndpoint(
 }
 
 export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput): string {
-  const endpoint = resolveCcSwitchEndpoint(input.platform, input.baseUrl)
+  // OpenCode's @ai-sdk/openai-compatible provider expects the OpenAI-compatible
+  // API root, including /v1. Other CC Switch clients retain their historical
+  // endpoint shapes.
+  const endpoint = input.app === 'opencode'
+    ? withV1Endpoint(input.baseUrl)
+    : resolveCcSwitchEndpoint(input.platform, input.baseUrl)
   const entries: [string, string][] = [
     ['resource', 'provider'],
     ['app', input.app],
@@ -118,4 +123,16 @@ export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput):
   }
 
   return `ccswitch://v1/import?${new URLSearchParams(entries).toString()}`
+}
+
+/**
+ * Candidate URLs for loading the gateway model catalog in the browser.
+ * Prefer the current origin so split public/API domains cannot make the picker
+ * fail on CORS; keep the configured public endpoint as a deployment fallback.
+ */
+export function ccSwitchModelsUrls(baseUrl: string, currentOrigin: string): string[] {
+  const urls = [withV1Endpoint(currentOrigin) + '/models']
+  const configured = withV1Endpoint(baseUrl) + '/models'
+  if (!urls.includes(configured)) urls.push(configured)
+  return urls
 }

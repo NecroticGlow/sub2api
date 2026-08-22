@@ -5,6 +5,7 @@ import {
   GROK_CC_SWITCH_MODEL,
   OPENAI_CC_SWITCH_CODEX_MODEL,
   buildCcSwitchImportDeeplink,
+  ccSwitchModelsUrls,
   defaultCcSwitchAppForPlatform,
   defaultCcSwitchModelForPlatform,
   resolveCcSwitchEndpoint
@@ -72,6 +73,31 @@ describe('ccswitchImport utils', () => {
     expect(params.get('endpoint')).toBe(baseInput.baseUrl)
     expect(params.get('model')).toBe(OPENAI_CC_SWITCH_CODEX_MODEL)
     expect(atob(params.get('usageScript') || '')).toBe(baseInput.usageScript)
+  })
+
+  it('imports OpenCode with an OpenAI-compatible /v1 endpoint', () => {
+    const params = paramsFromDeeplink(
+      buildCcSwitchImportDeeplink({
+        ...baseInput,
+        platform: 'openai',
+        app: 'opencode',
+        model: 'gpt-5.6-sol'
+      })
+    )
+
+    expect(params.get('app')).toBe('opencode')
+    expect(params.get('endpoint')).toBe('https://api.example.com/v1')
+    expect(params.get('model')).toBe('gpt-5.6-sol')
+  })
+
+  it('loads models from same origin first and keeps a configured endpoint fallback', () => {
+    expect(ccSwitchModelsUrls('https://api.example.com/', 'https://panel.example.com')).toEqual([
+      'https://panel.example.com/v1/models',
+      'https://api.example.com/v1/models'
+    ])
+    expect(ccSwitchModelsUrls('https://panel.example.com', 'https://panel.example.com')).toEqual([
+      'https://panel.example.com/v1/models'
+    ])
   })
 
   it.each([

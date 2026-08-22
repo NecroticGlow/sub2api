@@ -46,11 +46,12 @@
             {{ t('keys.ccsImport.loadingModels') }}
           </span>
         </label>
-        <input
+        <Select
           v-model="mainModel"
-          type="text"
-          class="input"
-          :list="datalistId"
+          :options="modelOptions"
+          searchable
+          creatable
+          :loading="loadingModels"
           :placeholder="t('keys.ccsImport.modelPlaceholder')"
         />
       </div>
@@ -61,11 +62,11 @@
           <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
             {{ t('keys.ccsImport.haikuModel') }}
           </label>
-          <input
+          <Select
             v-model="haikuModel"
-            type="text"
-            class="input"
-            :list="datalistId"
+            :options="modelOptions"
+            searchable
+            creatable
             :placeholder="t('keys.ccsImport.modelPlaceholder')"
           />
         </div>
@@ -73,11 +74,11 @@
           <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
             {{ t('keys.ccsImport.sonnetModel') }}
           </label>
-          <input
+          <Select
             v-model="sonnetModel"
-            type="text"
-            class="input"
-            :list="datalistId"
+            :options="modelOptions"
+            searchable
+            creatable
             :placeholder="t('keys.ccsImport.modelPlaceholder')"
           />
         </div>
@@ -85,19 +86,16 @@
           <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
             {{ t('keys.ccsImport.opusModel') }}
           </label>
-          <input
+          <Select
             v-model="opusModel"
-            type="text"
-            class="input"
-            :list="datalistId"
+            :options="modelOptions"
+            searchable
+            creatable
             :placeholder="t('keys.ccsImport.modelPlaceholder')"
           />
         </div>
       </template>
 
-      <datalist :id="datalistId">
-        <option v-for="model in models" :key="model" :value="model" />
-      </datalist>
     </div>
 
     <template #footer>
@@ -117,10 +115,12 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores'
 import type { ApiKey, PublicSettings } from '@/types'
 import {
   buildCcSwitchImportDeeplink,
+  ccSwitchModelsUrls,
   defaultCcSwitchAppForPlatform,
   defaultCcSwitchModelForPlatform,
   type CcSwitchApp
@@ -139,8 +139,6 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 
-const datalistId = 'ccs-import-model-options'
-
 const app = ref<CcSwitchApp>('claude')
 const providerName = ref('')
 const mainModel = ref('')
@@ -156,7 +154,8 @@ const appOptions = computed<{ value: CcSwitchApp; label: string }[]>(() => {
   const options: { value: CcSwitchApp; label: string }[] = [
     { value: 'claude', label: 'Claude' },
     { value: 'codex', label: 'Codex' },
-    { value: 'gemini', label: 'Gemini' }
+    { value: 'gemini', label: 'Gemini' },
+    { value: 'opencode', label: 'OpenCode' }
   ]
   if (platform.value === 'grok') {
     options.push({ value: 'grokbuild', label: t('keys.ccsImport.grokBuild') })
@@ -165,6 +164,7 @@ const appOptions = computed<{ value: CcSwitchApp; label: string }[]>(() => {
 })
 
 const canOpen = computed(() => mainModel.value.trim().length > 0)
+const modelOptions = computed(() => models.value.map((model) => ({ value: model, label: model })))
 
 const gatewayBaseUrl = computed(() =>
   (props.publicSettings?.api_base_url || window.location.origin).replace(/\/+$/, '')
@@ -202,17 +202,24 @@ async function fetchModels() {
   if (!row) return
   loadingModels.value = true
   try {
-    const response = await fetch(`${gatewayBaseUrl.value}/v1/models`, {
-      headers: { Authorization: `Bearer ${row.key}` }
-    })
-    if (!response.ok) return
-    const payload: unknown = await response.json()
-    const data = (payload as { data?: unknown })?.data
-    if (!Array.isArray(data)) return
-    const ids = data
-      .map((item) => (item as { id?: unknown })?.id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0)
-    models.value = Array.from(new Set(ids))
+    for (const url of ccSwitchModelsUrls(gatewayBaseUrl.value, window.location.origin)) {
+      try {
+        const response = await fetch(url, {
+          headers: { Authorization: `Bearer ${row.key}` }
+        })
+        if (!response.ok) continue
+        const payload: unknown = await response.json()
+        const data = (payload as { data?: unknown })?.data
+        if (!Array.isArray(data)) continue
+        const ids = data
+          .map((item) => (item as { id?: unknown })?.id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+        models.value = Array.from(new Set(ids))
+        if (models.value.length > 0) break
+      } catch {
+        // Try the configured public endpoint after a same-origin failure.
+      }
+    }
     if (!mainModel.value && models.value.length > 0) {
       mainModel.value = models.value[0]
     }
