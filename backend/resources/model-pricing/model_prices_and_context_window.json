@@ -746,14 +746,14 @@
     "supports_xhigh_reasoning_effort": true
   },
   "deepseek-chat": {
-    "cache_read_input_token_cost": 7e-09,
-    "input_cost_per_token": 2.2e-07,
+    "cache_read_input_token_cost": 5e-08,
+    "input_cost_per_token": 1.5e-06,
     "litellm_provider": "deepseek",
     "max_input_tokens": 131072,
     "max_output_tokens": 8192,
     "max_tokens": 8192,
     "mode": "chat",
-    "output_cost_per_token": 6.6e-07,
+    "output_cost_per_token": 4.5e-06,
     "source": "https://api-docs.deepseek.com/quick_start/pricing",
     "supported_endpoints": [
       "/v1/chat/completions"
@@ -811,13 +811,13 @@
     "supports_tool_choice": true
   },
   "deepseek-v4-pro": {
-    "cache_read_input_token_cost": 2.2e-08,
-    "input_cost_per_token": 6.6e-07,
+    "cache_read_input_token_cost": 1.5e-07,
+    "input_cost_per_token": 4.5e-06,
     "litellm_provider": "deepseek",
     "max_input_tokens": 1000000,
     "max_output_tokens": 384000,
     "mode": "chat",
-    "output_cost_per_token": 1.98e-06,
+    "output_cost_per_token": 1.35e-05,
     "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
     "supported_endpoints": [
       "/v1/chat/completions",
@@ -833,13 +833,13 @@
     "supports_tool_choice": true
   },
   "deepseek-v4-flash-vision-exp": {
-    "cache_read_input_token_cost": 7e-09,
-    "input_cost_per_token": 2.2e-07,
+    "cache_read_input_token_cost": 5e-08,
+    "input_cost_per_token": 1.5e-06,
     "litellm_provider": "deepseek",
     "max_input_tokens": 1000000,
     "max_output_tokens": 384000,
     "mode": "chat",
-    "output_cost_per_token": 6.6e-07,
+    "output_cost_per_token": 4.5e-06,
     "source": "https://api-docs.deepseek.com/quick_start/pricing",
     "supported_endpoints": [
       "/v1/chat/completions",

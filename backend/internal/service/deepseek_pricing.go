@@ -6,7 +6,8 @@ import (
 )
 
 // DeepSeek V4 uses Beijing-time peak windows.  The official price page defines
-// peak hours as 09:00-12:00 and 14:00-18:00 (UTC+8); off-peak is half price.
+// peak hours as 09:00-12:00 and 14:00-18:00 (UTC+8). This deployment treats
+// Saturday and Sunday as off-peak for the entire Beijing-time calendar day.
 const (
 	deepSeekPeakMultiplier   = 2.0
 	deepSeekBeijingUTCOffset = 8 * 60 * 60
@@ -34,6 +35,9 @@ func IsDeepSeekPeakTime(at time.Time) bool {
 		at = time.Now()
 	}
 	local := at.In(deepSeekBeijingLocation)
+	if local.Weekday() == time.Saturday || local.Weekday() == time.Sunday {
+		return false
+	}
 	minutes := local.Hour()*60 + local.Minute()
 	return (minutes >= 9*60 && minutes < 12*60) ||
 		(minutes >= 14*60 && minutes < 18*60)

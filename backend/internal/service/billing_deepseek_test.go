@@ -15,8 +15,8 @@ import (
 func TestDeepSeekPricingUsesOfficialRates(t *testing.T) {
 	svc := newTestBillingService()
 
-	officialV4Pro := struct{ in, out, cache float64 }{0.66e-6, 1.98e-6, 0.022e-6}
-	officialV4Flash := struct{ in, out, cache float64 }{0.22e-6, 0.66e-6, 0.007e-6}
+	officialV4Pro := struct{ in, out, cache float64 }{4.5e-6, 13.5e-6, 0.15e-6}
+	officialV4Flash := struct{ in, out, cache float64 }{1.5e-6, 4.5e-6, 0.05e-6}
 
 	cases := []struct {
 		model string
@@ -56,9 +56,9 @@ func TestDeepSeekPricingOverridesStaleDynamicCatalog(t *testing.T) {
 
 	pricing, err := svc.GetModelPricing("deepseek-v4-pro")
 	require.NoError(t, err)
-	require.InEpsilon(t, 0.66e-6, pricing.InputPricePerToken, 1e-12)
-	require.InEpsilon(t, 1.98e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InEpsilon(t, 0.022e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InEpsilon(t, 4.5e-6, pricing.InputPricePerToken, 1e-12)
+	require.InEpsilon(t, 13.5e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InEpsilon(t, 0.15e-6, pricing.CacheReadPricePerToken, 1e-12)
 }
 
 func TestDeepSeekPeakMultiplierUsesBeijingWindows(t *testing.T) {
@@ -71,6 +71,8 @@ func TestDeepSeekPeakMultiplierUsesBeijingWindows(t *testing.T) {
 		{"peak-morning", time.Date(2026, 8, 17, 1, 0, 0, 0, utc), 2},   // 09:00 Beijing
 		{"peak-afternoon", time.Date(2026, 8, 17, 6, 0, 0, 0, utc), 2}, // 14:00 Beijing
 		{"off-peak", time.Date(2026, 8, 17, 5, 59, 0, 0, utc), 1},      // 13:59 Beijing
+		{"saturday-morning", time.Date(2026, 8, 22, 1, 0, 0, 0, utc), 1}, // 09:00 Beijing Saturday
+		{"sunday-afternoon", time.Date(2026, 8, 23, 6, 0, 0, 0, utc), 1}, // 14:00 Beijing Sunday
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, DeepSeekPeakMultiplier(tc.at))
@@ -85,17 +87,17 @@ func TestDeepSeekOfficialPricingIgnoresLunaSurchargeAndPreservesPeakMultiplier(t
 
 	pricing, err := svc.GetModelPricing("cline-pass/deepseek-v4-flash")
 	require.NoError(t, err)
-	require.InEpsilon(t, 0.22e-6, pricing.InputPricePerToken, 1e-12, "official off-peak input")
-	require.InEpsilon(t, 0.66e-6, pricing.OutputPricePerToken, 1e-12, "official off-peak output")
-	require.InEpsilon(t, 0.007e-6, pricing.CacheReadPricePerToken, 1e-12, "official off-peak cache hit")
+	require.InEpsilon(t, 1.5e-6, pricing.InputPricePerToken, 1e-12, "official off-peak input")
+	require.InEpsilon(t, 4.5e-6, pricing.OutputPricePerToken, 1e-12, "official off-peak output")
+	require.InEpsilon(t, 0.05e-6, pricing.CacheReadPricePerToken, 1e-12, "official off-peak cache hit")
 
 	utc := time.FixedZone("UTC", 0)
 	offPeak := time.Date(2026, 8, 17, 5, 59, 0, 0, utc) // 13:59 Beijing
 	peak := time.Date(2026, 8, 17, 6, 0, 0, 0, utc)     // 14:00 Beijing
 	require.Equal(t, 1.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, offPeak))
 	require.Equal(t, 2.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, peak))
-	require.InEpsilon(t, 0.22e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(offPeak), 1e-12)
-	require.InEpsilon(t, 0.44e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
+	require.InEpsilon(t, 1.5e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(offPeak), 1e-12)
+	require.InEpsilon(t, 3.0e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
 }
 
 // ClinePass 全系模型（含非 DeepSeek 厂商）都必须能解析出各厂商官方口径的兜底价，
