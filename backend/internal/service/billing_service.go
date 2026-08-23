@@ -468,23 +468,24 @@ func (s *BillingService) initFallbackPricing() {
 
 	// ---- DeepSeek V4 系列 ----
 	// Source: https://api-docs.deepseek.com/quick_start/pricing
+	// 站点充值与额度 1:1，人民币价格的数值直接作为每百万 Token 的额度价格。
 	// （deepseek-chat / deepseek-reasoner 为 deepseek-v4-flash 的兼容别名，2026/07/24 弃用）
 	s.fallbackPrices["deepseek-v4-pro"] = &ModelPricing{
-		InputPricePerToken:     0.66e-6,
-		OutputPricePerToken:    1.98e-6,
-		CacheReadPricePerToken: 0.022e-6,
+		InputPricePerToken:     4.5e-6,
+		OutputPricePerToken:    13.5e-6,
+		CacheReadPricePerToken: 0.15e-6,
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["deepseek-v4-flash"] = &ModelPricing{
-		InputPricePerToken:     0.22e-6,
-		OutputPricePerToken:    0.66e-6,
-		CacheReadPricePerToken: 0.007e-6,
+		InputPricePerToken:     1.5e-6,
+		OutputPricePerToken:    4.5e-6,
+		CacheReadPricePerToken: 0.05e-6,
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["deepseek-v4-flash-vision-exp"] = &ModelPricing{
-		InputPricePerToken:     0.22e-6,
-		OutputPricePerToken:    0.66e-6,
-		CacheReadPricePerToken: 0.007e-6,
+		InputPricePerToken:     1.5e-6,
+		OutputPricePerToken:    4.5e-6,
+		CacheReadPricePerToken: 0.05e-6,
 		SupportsCacheBreakdown: false,
 	}
 
