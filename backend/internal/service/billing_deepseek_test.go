@@ -68,9 +68,9 @@ func TestDeepSeekPeakMultiplierUsesBeijingWindows(t *testing.T) {
 		at   time.Time
 		want float64
 	}{
-		{"peak-morning", time.Date(2026, 8, 17, 1, 0, 0, 0, utc), 2},   // 09:00 Beijing
-		{"peak-afternoon", time.Date(2026, 8, 17, 6, 0, 0, 0, utc), 2}, // 14:00 Beijing
-		{"off-peak", time.Date(2026, 8, 17, 5, 59, 0, 0, utc), 1},      // 13:59 Beijing
+		{"peak-morning", time.Date(2026, 8, 17, 1, 0, 0, 0, utc), 2},     // 09:00 Beijing
+		{"peak-afternoon", time.Date(2026, 8, 17, 6, 0, 0, 0, utc), 2},   // 14:00 Beijing
+		{"off-peak", time.Date(2026, 8, 17, 5, 59, 0, 0, utc), 1},        // 13:59 Beijing
 		{"saturday-morning", time.Date(2026, 8, 22, 1, 0, 0, 0, utc), 1}, // 09:00 Beijing Saturday
 		{"sunday-afternoon", time.Date(2026, 8, 23, 6, 0, 0, 0, utc), 1}, // 14:00 Beijing Sunday
 	} {

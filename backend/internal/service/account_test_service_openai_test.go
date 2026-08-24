@@ -208,7 +208,8 @@ func TestAccountTestService_OpenAIOAuthOverdraftTestInjectsAndObservesSnapshot(t
 	require.Len(t, upstream.requests, 1)
 	body, err := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, err)
-	require.Equal(t, "message", gjson.GetBytes(body, "input.0.type").String())
+	require.Equal(t, "user", gjson.GetBytes(body, "input.0.role").String())
+	require.Equal(t, "input_text", gjson.GetBytes(body, "input.0.content.0.type").String())
 	require.Equal(t, "custom_tool_call", gjson.GetBytes(body, "input.1.type").String())
 	require.Equal(t, "custom_tool_call_output", gjson.GetBytes(body, "input.2.type").String())
 	require.Equal(t, gjson.GetBytes(body, "input.1.call_id").String(), gjson.GetBytes(body, "input.2.call_id").String())
@@ -245,7 +246,8 @@ func TestAccountTestService_OpenAIOAuthTestNormalizesGPT56Alias(t *testing.T) {
 	body, err := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(body, "model").String())
-	require.Equal(t, "message", gjson.GetBytes(body, "input.0.type").String())
+	require.Equal(t, "user", gjson.GetBytes(body, "input.0.role").String())
+	require.Equal(t, "input_text", gjson.GetBytes(body, "input.0.content.0.type").String())
 	require.False(t, gjson.GetBytes(body, "input.1").Exists())
 }
 
