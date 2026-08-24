@@ -689,10 +689,10 @@ func (s *BillingService) initFallbackPricing() {
 		SupportsCacheBreakdown:     false,
 	}
 	s.fallbackPrices["qwen3.7-max"] = &ModelPricing{
-		InputPricePerToken:         2.5e-6,    // $2.50 per MTok
-		OutputPricePerToken:        7.5e-6,    // $7.50 per MTok
-		CacheCreationPricePerToken: 3.125e-6,  // $3.125 per MTok (cache write)
-		CacheReadPricePerToken:     0.5e-6,    // $0.50 per MTok
+		InputPricePerToken:         2.5e-6,   // $2.50 per MTok
+		OutputPricePerToken:        7.5e-6,   // $7.50 per MTok
+		CacheCreationPricePerToken: 3.125e-6, // $3.125 per MTok (cache write)
+		CacheReadPricePerToken:     0.5e-6,   // $0.50 per MTok
 		SupportsCacheBreakdown:     false,
 	}
 	s.fallbackPrices["qwen3.7-plus"] = &ModelPricing{
