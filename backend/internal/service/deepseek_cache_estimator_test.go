@@ -67,8 +67,10 @@ func TestDeepSeekCacheEstimatorKeepsLargePromptAcrossUnrelatedRequests(t *testin
 
 func TestApplyDeepSeekCacheEstimateChatCompletionsUsage(t *testing.T) {
 	c, _ := gin.CreateTestContext(nil)
-	c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{commonBytes: 900, currentBytes: 1000})
+	c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{
+		commonBytes: 900, currentBytes: 1000, confidencePercent: 85,
+	})
 	out, estimated := applyDeepSeekCacheEstimate(c, []byte(`{"usage":{"prompt_tokens":2000,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":0}}}`))
-	require.Positive(t, estimated)
+	require.Equal(t, 1421, estimated)
 	require.Equal(t, int64(estimated), gjson.GetBytes(out, "usage.prompt_tokens_details.cached_tokens").Int())
 }

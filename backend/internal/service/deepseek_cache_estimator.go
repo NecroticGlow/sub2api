@@ -16,17 +16,19 @@ import (
 )
 
 const (
-	SettingKeyDeepSeekCacheEstimate = "deepseek_cache_estimate"
-	deepSeekCacheEstimateContextKey = "deepseek_cache_estimate_candidate"
-	deepSeekCacheEstimateDefaultLRU = 16
+	SettingKeyDeepSeekCacheEstimate        = "deepseek_cache_estimate"
+	deepSeekCacheEstimateContextKey        = "deepseek_cache_estimate_candidate"
+	deepSeekCacheEstimateDefaultLRU        = 16
+	deepSeekCacheEstimateDefaultConfidence = 85
 )
 
 type deepSeekCacheEstimateSettings struct {
-	Enabled         bool      `json:"enabled"`
-	AccountGroups   [][]int64 `json:"account_groups"`
-	TTLSeconds      int       `json:"ttl_seconds"`
-	BlockBytes      int       `json:"block_bytes"`
-	MaxFingerprints int       `json:"max_fingerprints"`
+	Enabled           bool      `json:"enabled"`
+	AccountGroups     [][]int64 `json:"account_groups"`
+	TTLSeconds        int       `json:"ttl_seconds"`
+	BlockBytes        int       `json:"block_bytes"`
+	MaxFingerprints   int       `json:"max_fingerprints"`
+	ConfidencePercent int       `json:"confidence_percent"`
 }
 
 type deepSeekCacheFingerprint struct {
@@ -36,8 +38,9 @@ type deepSeekCacheFingerprint struct {
 }
 
 type deepSeekCacheCandidate struct {
-	commonBytes  int
-	currentBytes int
+	commonBytes       int
+	currentBytes      int
+	confidencePercent int
 }
 
 type deepSeekCacheEstimator struct {
@@ -60,6 +63,7 @@ func (e *deepSeekCacheEstimator) loadConfig(ctx context.Context) deepSeekCacheEs
 	}
 	cfg := deepSeekCacheEstimateSettings{
 		TTLSeconds: 900, BlockBytes: 256, MaxFingerprints: deepSeekCacheEstimateDefaultLRU,
+		ConfidencePercent: deepSeekCacheEstimateDefaultConfidence,
 	}
 	if e.settings != nil && e.settings.settingRepo != nil {
 		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayForwardingDBTimeout)
@@ -81,6 +85,9 @@ func (e *deepSeekCacheEstimator) loadConfig(ctx context.Context) deepSeekCacheEs
 	}
 	if cfg.MaxFingerprints < 2 || cfg.MaxFingerprints > 128 {
 		cfg.MaxFingerprints = deepSeekCacheEstimateDefaultLRU
+	}
+	if cfg.ConfidencePercent < 1 || cfg.ConfidencePercent > 100 {
+		cfg.ConfidencePercent = deepSeekCacheEstimateDefaultConfidence
 	}
 	e.config, e.loadedAt = cfg, time.Now()
 	return cfg
@@ -190,7 +197,10 @@ func (e *deepSeekCacheEstimator) prepare(ctx context.Context, c *gin.Context, ac
 	e.states[key] = append(kept, current)
 	e.mu.Unlock()
 	if bestCommonBytes > 0 {
-		c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{commonBytes: bestCommonBytes, currentBytes: current.bytes})
+		c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{
+			commonBytes: bestCommonBytes, currentBytes: current.bytes,
+			confidencePercent: cfg.ConfidencePercent,
+		})
 	}
 }
 
@@ -227,6 +237,11 @@ func applyDeepSeekCacheEstimate(c *gin.Context, body []byte) ([]byte, int) {
 	}
 	estimated := int(input) * candidate.commonBytes / candidate.currentBytes
 	estimated = max(0, min(estimated-128, int(input)-1))
+	confidencePercent := candidate.confidencePercent
+	if confidencePercent < 1 || confidencePercent > 100 {
+		confidencePercent = deepSeekCacheEstimateDefaultConfidence
+	}
+	estimated = estimated * confidencePercent / 100
 	if estimated <= 0 {
 		return body, 0
 	}
