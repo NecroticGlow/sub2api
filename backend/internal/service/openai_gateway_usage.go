@@ -194,6 +194,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
 		billingModel = input.OriginalModel
 	}
+	multiplier = applyDeepSeekPeakMultiplier(billingModel, multiplier, pricingAt)
 	billingModels := usageBillingModelCandidates(
 		billingModel,
 		result.BillingModel,

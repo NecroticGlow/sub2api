@@ -461,7 +461,7 @@ func (s *BillingService) initFallbackPricing() {
 	}
 
 	// ============================================================
-	// 国产 LLM 兜底定价（数据源：各家官方定价页/USD 口径）
+	// 国产 LLM 兜底定价（站内额度按人民币数值 1:1 计费）
 	// 顺序：DeepSeek → 智谱 GLM → 月之暗面 Kimi → MiniMax
 	// 覆盖逻辑见同文件 getFallbackPricing()
 	// ============================================================
@@ -470,15 +470,21 @@ func (s *BillingService) initFallbackPricing() {
 	// Source: https://api-docs.deepseek.com/quick_start/pricing
 	// （deepseek-chat / deepseek-reasoner 为 deepseek-v4-flash 的兼容别名，2026/07/24 弃用）
 	s.fallbackPrices["deepseek-v4-pro"] = &ModelPricing{
-		InputPricePerToken:     4.35e-7,  // $0.435 per MTok (cache miss)
-		OutputPricePerToken:    8.7e-7,   // $0.87 per MTok
-		CacheReadPricePerToken: 3.625e-9, // $0.003625 per MTok (cache hit)
+		InputPricePerToken:     4.5e-6,
+		OutputPricePerToken:    13.5e-6,
+		CacheReadPricePerToken: 0.15e-6,
 		SupportsCacheBreakdown: false,
 	}
 	s.fallbackPrices["deepseek-v4-flash"] = &ModelPricing{
-		InputPricePerToken:     1.4e-7, // $0.14 per MTok (cache miss)
-		OutputPricePerToken:    2.8e-7, // $0.28 per MTok
-		CacheReadPricePerToken: 2.8e-9, // $0.0028 per MTok (cache hit)
+		InputPricePerToken:     1.5e-6,
+		OutputPricePerToken:    4.5e-6,
+		CacheReadPricePerToken: 0.05e-6,
+		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["deepseek-v4-flash-vision-exp"] = &ModelPricing{
+		InputPricePerToken:     1.5e-6,
+		OutputPricePerToken:    4.5e-6,
+		CacheReadPricePerToken: 0.05e-6,
 		SupportsCacheBreakdown: false,
 	}
 
@@ -798,6 +804,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 
 	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
 	// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
+	if strings.Contains(modelLower, "deepseek-v4-flash-vision-exp") {
+		return s.fallbackPrices["deepseek-v4-flash-vision-exp"]
+	}
 	if strings.Contains(modelLower, "deepseek-v4-flash") {
 		return s.fallbackPrices["deepseek-v4-flash"]
 	}
@@ -1035,6 +1044,15 @@ func (s *BillingService) HasIdentifiedTokenPricing(model string) bool {
 func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
+
+	// DeepSeek V4 必须使用本站人民币数值 1:1 的官方低峰价，不能被
+	// LiteLLM/远程目录中的美元价格覆盖。高峰 2x 在 usage 计费路径按
+	// 北京时间叠加，周六、周日全天保持低峰。
+	if isDeepSeekV4Model(model) {
+		if officialPricing := s.getFallbackPricing(model); officialPricing != nil {
+			return s.applyModelSpecificPricingPolicy(model, officialPricing), nil
+		}
+	}
 
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {

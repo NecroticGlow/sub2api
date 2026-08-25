@@ -566,7 +566,13 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 		return data
 	}
 	merged := 0
+	deepSeekOverrides := 0
 	for modelName, pricing := range fallbackData {
+		if isDeepSeekV4Model(modelName) {
+			data[modelName] = pricing
+			deepSeekOverrides++
+			continue
+		}
 		if _, ok := data[modelName]; ok {
 			continue
 		}
@@ -575,6 +581,9 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 	}
 	if merged > 0 {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Merged %d fallback-only models", merged)
+	}
+	if deepSeekOverrides > 0 {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Applied %d DeepSeek official RMB pricing overrides", deepSeekOverrides)
 	}
 	return data
 }
