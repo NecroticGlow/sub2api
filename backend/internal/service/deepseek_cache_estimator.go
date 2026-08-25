@@ -18,13 +18,15 @@ import (
 const (
 	SettingKeyDeepSeekCacheEstimate = "deepseek_cache_estimate"
 	deepSeekCacheEstimateContextKey = "deepseek_cache_estimate_candidate"
+	deepSeekCacheEstimateDefaultLRU = 16
 )
 
 type deepSeekCacheEstimateSettings struct {
-	Enabled       bool      `json:"enabled"`
-	AccountGroups [][]int64 `json:"account_groups"`
-	TTLSeconds    int       `json:"ttl_seconds"`
-	BlockBytes    int       `json:"block_bytes"`
+	Enabled         bool      `json:"enabled"`
+	AccountGroups   [][]int64 `json:"account_groups"`
+	TTLSeconds      int       `json:"ttl_seconds"`
+	BlockBytes      int       `json:"block_bytes"`
+	MaxFingerprints int       `json:"max_fingerprints"`
 }
 
 type deepSeekCacheFingerprint struct {
@@ -43,11 +45,11 @@ type deepSeekCacheEstimator struct {
 	mu       sync.Mutex
 	loadedAt time.Time
 	config   deepSeekCacheEstimateSettings
-	states   map[string]deepSeekCacheFingerprint
+	states   map[string][]deepSeekCacheFingerprint
 }
 
 func newDeepSeekCacheEstimator(settings *SettingService) *deepSeekCacheEstimator {
-	return &deepSeekCacheEstimator{settings: settings, states: make(map[string]deepSeekCacheFingerprint)}
+	return &deepSeekCacheEstimator{settings: settings, states: make(map[string][]deepSeekCacheFingerprint)}
 }
 
 func (e *deepSeekCacheEstimator) loadConfig(ctx context.Context) deepSeekCacheEstimateSettings {
@@ -56,7 +58,9 @@ func (e *deepSeekCacheEstimator) loadConfig(ctx context.Context) deepSeekCacheEs
 	if time.Since(e.loadedAt) < 15*time.Second {
 		return e.config
 	}
-	cfg := deepSeekCacheEstimateSettings{TTLSeconds: 900, BlockBytes: 256}
+	cfg := deepSeekCacheEstimateSettings{
+		TTLSeconds: 900, BlockBytes: 256, MaxFingerprints: deepSeekCacheEstimateDefaultLRU,
+	}
 	if e.settings != nil && e.settings.settingRepo != nil {
 		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayForwardingDBTimeout)
 		raw, err := e.settings.settingRepo.GetValue(dbCtx, SettingKeyDeepSeekCacheEstimate)
@@ -74,6 +78,9 @@ func (e *deepSeekCacheEstimator) loadConfig(ctx context.Context) deepSeekCacheEs
 	}
 	if cfg.BlockBytes < 64 || cfg.BlockBytes > 4096 {
 		cfg.BlockBytes = 256
+	}
+	if cfg.MaxFingerprints < 2 || cfg.MaxFingerprints > 128 {
+		cfg.MaxFingerprints = deepSeekCacheEstimateDefaultLRU
 	}
 	e.config, e.loadedAt = cfg, time.Now()
 	return cfg
@@ -147,23 +154,43 @@ func (e *deepSeekCacheEstimator) prepare(ctx context.Context, c *gin.Context, ac
 		return
 	}
 	key := deepSeekCacheGroup(account.ID, cfg.AccountGroups) + "\x00" + strings.ToLower(model)
+	now := time.Now()
+	cutoff := now.Add(-time.Duration(cfg.TTLSeconds) * time.Second)
 	e.mu.Lock()
-	previous, ok := e.states[key]
-	e.states[key] = current
+	previous := e.states[key]
+	kept := make([]deepSeekCacheFingerprint, 0, min(len(previous)+1, cfg.MaxFingerprints))
+	bestCommonBytes := 0
+	for i := len(previous) - 1; i >= 0; i-- {
+		candidate := previous[i]
+		if candidate.at.Before(cutoff) {
+			continue
+		}
+		commonBlocks := 0
+		for commonBlocks < len(candidate.blocks) && commonBlocks < len(current.blocks) &&
+			candidate.blocks[commonBlocks] == current.blocks[commonBlocks] {
+			commonBlocks++
+		}
+		commonBytes := commonBlocks * cfg.BlockBytes
+		if commonBlocks == len(current.blocks) {
+			commonBytes = current.bytes
+		}
+		if commonBytes > bestCommonBytes {
+			bestCommonBytes = commonBytes
+		}
+		kept = append(kept, candidate)
+		if len(kept) >= cfg.MaxFingerprints-1 {
+			break
+		}
+	}
+	// kept was collected newest-first; order is irrelevant for matching, and
+	// appending current keeps it at the newest end for the next LRU scan.
+	for left, right := 0, len(kept)-1; left < right; left, right = left+1, right-1 {
+		kept[left], kept[right] = kept[right], kept[left]
+	}
+	e.states[key] = append(kept, current)
 	e.mu.Unlock()
-	if !ok || time.Since(previous.at) > time.Duration(cfg.TTLSeconds)*time.Second {
-		return
-	}
-	commonBlocks := 0
-	for commonBlocks < len(previous.blocks) && commonBlocks < len(current.blocks) && previous.blocks[commonBlocks] == current.blocks[commonBlocks] {
-		commonBlocks++
-	}
-	commonBytes := commonBlocks * cfg.BlockBytes
-	if commonBlocks == len(current.blocks) {
-		commonBytes = current.bytes
-	}
-	if commonBytes > 0 {
-		c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{commonBytes: commonBytes, currentBytes: current.bytes})
+	if bestCommonBytes > 0 {
+		c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{commonBytes: bestCommonBytes, currentBytes: current.bytes})
 	}
 }
 
@@ -213,4 +240,3 @@ func applyDeepSeekCacheEstimate(c *gin.Context, body []byte) ([]byte, int) {
 	}
 	return updated, estimated
 }
-

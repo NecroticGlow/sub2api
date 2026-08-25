@@ -25,7 +25,7 @@ func TestDeepSeekCacheGroup(t *testing.T) {
 func TestDeepSeekCacheEstimatorPrepareAndApply(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	estimator := newDeepSeekCacheEstimator(nil)
-	estimator.config = deepSeekCacheEstimateSettings{Enabled: true, AccountGroups: [][]int64{{971, 979}, {990}}, TTLSeconds: 900, BlockBytes: 64}
+	estimator.config = deepSeekCacheEstimateSettings{Enabled: true, AccountGroups: [][]int64{{971, 979}, {990}}, TTLSeconds: 900, BlockBytes: 64, MaxFingerprints: 16}
 	estimator.loadedAt = time.Now()
 	prefix := "This is a deliberately long stable system prompt used to exercise block matching."
 	first := []byte(`{"model":"deepseek-v4-flash:0731","instructions":"` + prefix + `","input":[{"role":"user","content":"one"}]}`)
@@ -39,6 +39,32 @@ func TestDeepSeekCacheEstimatorPrepareAndApply(t *testing.T) {
 	require.Equal(t, int64(estimated), gjson.GetBytes(out, "usage.input_tokens_details.cached_tokens").Int())
 }
 
+func TestDeepSeekCacheEstimatorKeepsLargePromptAcrossUnrelatedRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	estimator := newDeepSeekCacheEstimator(nil)
+	estimator.config = deepSeekCacheEstimateSettings{
+		Enabled: true, AccountGroups: [][]int64{{971, 979}}, TTLSeconds: 900,
+		BlockBytes: 64, MaxFingerprints: 4,
+	}
+	estimator.loadedAt = time.Now()
+	account := &Account{ID: 979, Credentials: map[string]any{"base_url": "https://ollama.com"}}
+	stable := "This stable prefix is intentionally longer than one fingerprint block so it can be matched."
+	largeFirst := []byte(`{"instructions":"` + stable + `","messages":[{"role":"user","content":"first"}]}`)
+	unrelated := []byte(`{"messages":[{"role":"user","content":"unrelated short request"}]}`)
+	largeNext := []byte(`{"instructions":"` + stable + `","messages":[{"role":"user","content":"first"},{"role":"user","content":"next"}]}`)
+
+	seed, _ := gin.CreateTestContext(nil)
+	estimator.prepare(context.Background(), seed, account, "deepseek-v4-flash:0731", largeFirst)
+	noise, _ := gin.CreateTestContext(nil)
+	estimator.prepare(context.Background(), noise, account, "deepseek-v4-flash:0731", unrelated)
+	current, _ := gin.CreateTestContext(nil)
+	estimator.prepare(context.Background(), current, account, "deepseek-v4-flash:0731", largeNext)
+
+	out, estimated := applyDeepSeekCacheEstimate(current, []byte(`{"usage":{"prompt_tokens":800000,"completion_tokens":5}}`))
+	require.Positive(t, estimated)
+	require.Greater(t, gjson.GetBytes(out, "usage.prompt_tokens_details.cached_tokens").Int(), int64(100000))
+}
+
 func TestApplyDeepSeekCacheEstimateChatCompletionsUsage(t *testing.T) {
 	c, _ := gin.CreateTestContext(nil)
 	c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{commonBytes: 900, currentBytes: 1000})
@@ -46,5 +72,3 @@ func TestApplyDeepSeekCacheEstimateChatCompletionsUsage(t *testing.T) {
 	require.Positive(t, estimated)
 	require.Equal(t, int64(estimated), gjson.GetBytes(out, "usage.prompt_tokens_details.cached_tokens").Int())
 }
-
-
