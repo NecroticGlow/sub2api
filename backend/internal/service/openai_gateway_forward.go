@@ -139,6 +139,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	originalBody := body
 	requestView := newOpenAIRequestView(body)
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
+	if s.deepSeekCacheEstimator != nil {
+		s.deepSeekCacheEstimator.prepare(ctx, c, account, reqModel, body)
+	}
 	originalModel := reqModel
 
 	if account.Platform == PlatformGrok {
