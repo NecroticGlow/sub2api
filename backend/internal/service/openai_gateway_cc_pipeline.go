@@ -273,6 +273,13 @@ func (s *OpenAIGatewayService) scanCCStream(
 			st.SawDone = true
 			break
 		}
+		// Responses/Messages → Chat Completions fallback uses this shared
+		// scanner instead of the native OpenAI response handler. Apply the
+		// DeepSeek cache estimate before extracting usage and before converting
+		// the chunk back to the inbound protocol.
+		if estimatedPayload, estimated := applyDeepSeekCacheEstimate(c, []byte(payload)); estimated > 0 {
+			payload = string(estimatedPayload)
+		}
 		// 观察上游 CC chunk 回显的 model / service_tier（计费以回显为准）。
 		// CC chunk 无 type 字段，按 untyped payload 观察（上游约束：只有终止
 		// 事件与无类型 body 报告实际处理档位）。
@@ -332,6 +339,7 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 		}
 		return nil, OpenAIUsage{}, fmt.Errorf("read upstream body: %w", err)
 	}
+	respBody, _ = applyDeepSeekCacheEstimate(c, respBody)
 
 	var ccResp apicompat.ChatCompletionsResponse
 	if err := json.Unmarshal(respBody, &ccResp); err != nil {
