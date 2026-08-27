@@ -43,7 +43,6 @@ func TestDeepSeekPricingUsesOfficialRates(t *testing.T) {
 		})
 	}
 }
-
 func TestDeepSeekPricingOverridesStaleDynamicCatalog(t *testing.T) {
 	stale := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
 		"deepseek-v4-pro": {
@@ -129,4 +128,3 @@ func TestClinePassModelsAllHaveFallbackPricing(t *testing.T) {
 		})
 	}
 }
-

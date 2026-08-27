@@ -59,5 +59,3 @@ func applyDeepSeekPeakMultiplier(model string, base float64, at time.Time) float
 	}
 	return base * DeepSeekPeakMultiplier(at)
 }
-
-
