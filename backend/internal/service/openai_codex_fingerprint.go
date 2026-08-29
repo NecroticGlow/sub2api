@@ -86,7 +86,7 @@ type codexFingerprintMode string
 const (
 	// codexFingerprintOff 不做任何收敛，原样透传客户端标识。
 	// 账号 extra 未显式配置模式时，GetCodexFingerprintMode 返回此值；
-	// 出站请求是否按全局开关提升到 device 模式由 resolveCodexFingerprintMode 决定。
+	// 出站请求是否按全局开关提升到 account_device 模式由 resolveCodexFingerprintMode 决定。
 	codexFingerprintOff codexFingerprintMode = "off"
 	// codexFingerprintAccountDevice 使用账号 ID（已有系统种子优先）派生
 	// 唯一且稳定的设备指纹，仅收敛 installation_id。这是全局默认行为的
@@ -236,7 +236,7 @@ func (a *Account) GetCodexFingerprintMode() codexFingerprintMode {
 
 // resolveCodexFingerprintMode resolves the effective account mode. An explicit
 // per-account value always wins; when the global switch is enabled and the
-// account has no mode key, device-level convergence is enabled by default.
+// account has no mode key, account-unique device convergence is enabled by default.
 func resolveCodexFingerprintMode(account *Account, enabled bool) (codexFingerprintMode, bool) {
 	if account == nil || !account.IsOpenAIOAuth() {
 		return codexFingerprintOff, false
@@ -248,7 +248,7 @@ func resolveCodexFingerprintMode(account *Account, enabled bool) (codexFingerpri
 		}
 	}
 	if enabled {
-		return codexFingerprintDevice, true
+		return codexFingerprintAccountDevice, true
 	}
 	return codexFingerprintOff, false
 }

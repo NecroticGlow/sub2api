@@ -153,7 +153,7 @@ func TestResolveCodexFingerprintIDsFromRequest_DefaultEnabledIsStablePerAccount(
 	require.NotNil(t, first)
 	require.NotNil(t, second)
 	require.NotNil(t, other)
-	assert.Equal(t, codexFingerprintDevice, first.mode)
+	assert.Equal(t, codexFingerprintAccountDevice, first.mode)
 	assert.Equal(t, first.installationID, second.installationID)
 	assert.NotEqual(t, first.installationID, other.installationID)
 	assert.Nil(t, resolveCodexFingerprintIDsFromRequest(account, nil, false))

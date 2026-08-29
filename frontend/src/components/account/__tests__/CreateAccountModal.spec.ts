@@ -251,10 +251,18 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     )
   })
 
+  it('defaults the Codex fingerprint mode to account-unique device', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+
+    expect((wrapper.vm as any).codexFingerprintMode).toBe('account_device')
+  })
+
   it('enables upstream billing probes by default for new OpenAI API key accounts', async () => {
     await submitApiKeyAccount('openai')
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(true)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBeUndefined()
   })
 
   it('waits for the initial upstream billing probe before refreshing the account list', async () => {
@@ -402,6 +410,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
     expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBeUndefined()
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBe('account_device')
   })
 
   it('leaves Codex PAT import billing ownership to the backend', async () => {
@@ -443,5 +452,23 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+
+  it('persists an explicit off mode for Codex session import', async () => {
+    const wrapper = await openCodexImportStep()
+    ;(wrapper.vm as any).codexFingerprintMode = 'off'
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBe('off')
+  })
+
+  it('persists an explicit off mode for Codex PAT import', async () => {
+    const wrapper = await openCodexImportStep()
+    ;(wrapper.vm as any).codexFingerprintMode = 'off'
+    await wrapper.get('[data-testid="import-codex-pat"]').trigger('click')
+    await flushPromises()
+
+    expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBe('off')
   })
 })

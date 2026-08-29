@@ -600,6 +600,28 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
 
+  it('defaults an OpenAI OAuth account without an override to account-unique device', () => {
+    const wrapper = mountModal(buildOpenAIOAuthParentAccount())
+
+    expect((wrapper.get('[data-testid="edit-codex-fingerprint-mode-select"]').element as HTMLSelectElement).value)
+      .toBe('account_device')
+  })
+
+  it('persists an explicit off override for an OpenAI OAuth account', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { codex_fingerprint_mode: 'off' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect((wrapper.get('[data-testid="edit-codex-fingerprint-mode-select"]').element as HTMLSelectElement).value)
+      .toBe('off')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_fingerprint_mode).toBe('off')
+  })
+
   it('loads and clears the OAuth-only Codex namespace flatten toggle', async () => {
     const account = buildAccount()
     account.type = 'oauth'
