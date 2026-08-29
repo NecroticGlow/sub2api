@@ -4,6 +4,7 @@ export const OPENAI_CC_SWITCH_CODEX_MODEL = 'gpt-5.6-sol'
 export const GROK_CC_SWITCH_MODEL = 'grok-4.6'
 export const ANTHROPIC_CC_SWITCH_MODEL = 'claude-opus-4-8'
 export const DEEPSEEK_CC_SWITCH_MODEL = 'deepseek-chat'
+export const CC_SWITCH_PROVIDER_HOMEPAGE = 'https://wanwuplus.com'
 
 export type CcSwitchApp = 'claude' | 'codex' | 'gemini' | 'grokbuild' | 'opencode'
 
@@ -65,7 +66,7 @@ export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput):
     : resolveCcSwitchEndpoint(input.platform, input.baseUrl)
   const entries: [string, string][] = [
     ['resource', 'provider'], ['app', input.app], ['name', input.providerName],
-    ['homepage', input.baseUrl], ['endpoint', endpoint], ['apiKey', input.apiKey],
+    ['homepage', CC_SWITCH_PROVIDER_HOMEPAGE], ['endpoint', endpoint], ['apiKey', input.apiKey],
     ['configFormat', 'json'], ['usageEnabled', 'true'],
     ['usageScript', btoa(input.usageScript)], ['usageAutoInterval', '30']
   ]

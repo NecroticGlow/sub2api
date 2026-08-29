@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CC_SWITCH_PROVIDER_HOMEPAGE,
   GROK_CC_SWITCH_MODEL,
   OPENAI_CC_SWITCH_CODEX_MODEL,
   buildCcSwitchImportDeeplink
@@ -18,6 +19,23 @@ describe('ccswitchImport utils', () => {
 
   it('defaults Grok Build imports to the current Grok model', () => {
     expect(GROK_CC_SWITCH_MODEL).toBe('grok-4.6')
+  })
+
+  it('hard-codes the imported provider homepage to wanwuplus.com', () => {
+    const params = paramsFromDeeplink(
+      buildCcSwitchImportDeeplink({
+        baseUrl: 'https://configured-gateway.example.com',
+        platform: 'openai',
+        app: 'codex',
+        providerName: 'Sub2API',
+        apiKey: 'sk-test',
+        usageScript: 'return true'
+      })
+    )
+
+    expect(CC_SWITCH_PROVIDER_HOMEPAGE).toBe('https://wanwuplus.com')
+    expect(params.get('homepage')).toBe('https://wanwuplus.com')
+    expect(params.get('endpoint')).toBe('https://configured-gateway.example.com')
   })
 
   const baseInput = {
