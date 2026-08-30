@@ -272,6 +272,23 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect((wrapper.vm as any).codexFingerprintMode).toBe('account_device')
   })
 
+  it('defaults Codex quota overdraft to enabled and submits the explicit account setting', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+
+    expect((wrapper.vm as any).codexQuotaOverdraftEnabled).toBe(true)
+    expect(wrapper.get('[data-testid="create-codex-quota-overdraft-toggle"]').attributes('aria-checked'))
+      .toBe('true')
+
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Codex import')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_quota_overdraft_enabled).toBe(true)
+  })
+
   it('enables upstream billing probes by default for new OpenAI API key accounts', async () => {
     await submitApiKeyAccount('openai')
 

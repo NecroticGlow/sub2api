@@ -20,7 +20,7 @@ const (
 	SettingKeyDeepSeekCacheEstimate        = "deepseek_cache_estimate"
 	deepSeekCacheEstimateContextKey        = "deepseek_cache_estimate_candidate"
 	deepSeekCacheEstimateDefaultLRU        = 16
-	deepSeekCacheEstimateDefaultConfidence = 65
+	deepSeekCacheEstimateDefaultConfidence = 50
 	deepSeekCacheEstimateDefaultJitter     = 10
 )
 

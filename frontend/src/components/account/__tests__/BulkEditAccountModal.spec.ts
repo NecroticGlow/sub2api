@@ -393,6 +393,26 @@ describe('BulkEditAccountModal', () => {
       .toBe('account_device')
   })
 
+  it('OpenAI OAuth 批量编辑启用账号级透支字段后提交布尔值', async () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['oauth']
+    })
+
+    ;(wrapper.vm as any).enableCodexQuotaOverdraft = true
+    await nextTick()
+    await wrapper.get('[data-testid="bulk-codex-quota-overdraft-toggle"]').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      extra: {
+        codex_quota_overdraft_enabled: false
+      }
+    })
+  })
+
   it('OpenAI OAuth 批量编辑可显式提交 off 覆盖全局默认', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],

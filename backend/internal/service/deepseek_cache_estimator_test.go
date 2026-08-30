@@ -20,18 +20,22 @@ func TestDeepSeekCacheGroup(t *testing.T) {
 	groups := [][]int64{{971, 979}, {990}}
 	require.Equal(t, deepSeekCacheGroup(971, groups), deepSeekCacheGroup(979, groups))
 	require.NotEqual(t, deepSeekCacheGroup(971, groups), deepSeekCacheGroup(990, groups))
+	require.Equal(t, "account:979", deepSeekCacheGroup(979, nil))
+	require.Equal(t, "account:990", deepSeekCacheGroup(990, [][]int64{}))
+	require.NotEqual(t, deepSeekCacheGroup(979, nil), deepSeekCacheGroup(990, nil))
 }
 
 func TestDeepSeekCacheConfidenceIsStableAndBounded(t *testing.T) {
 	fingerprint := fingerprintDeepSeekPrompt(
 		[]byte(`{"messages":[{"role":"user","content":"stable request"}]}`), 64,
 	)
-	first := deepSeekCacheConfidence(fingerprint, 65, 10)
-	second := deepSeekCacheConfidence(fingerprint, 65, 10)
+	require.Equal(t, 50, deepSeekCacheEstimateDefaultConfidence)
+	first := deepSeekCacheConfidence(fingerprint, deepSeekCacheEstimateDefaultConfidence, 10)
+	second := deepSeekCacheConfidence(fingerprint, deepSeekCacheEstimateDefaultConfidence, 10)
 	require.Equal(t, first, second)
-	require.GreaterOrEqual(t, first, 55)
-	require.LessOrEqual(t, first, 75)
-	require.Equal(t, 65, deepSeekCacheConfidence(fingerprint, 65, 0))
+	require.GreaterOrEqual(t, first, 40)
+	require.LessOrEqual(t, first, 60)
+	require.Equal(t, 50, deepSeekCacheConfidence(fingerprint, deepSeekCacheEstimateDefaultConfidence, 0))
 }
 
 func TestDeepSeekCacheEstimatorPrepareAndApply(t *testing.T) {

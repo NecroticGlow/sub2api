@@ -17,7 +17,7 @@ func deepSeekCacheFallbackTestContext() *gin.Context {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{
-		commonBytes: 1000, currentBytes: 1000, confidencePercent: 65,
+		commonBytes: 1000, currentBytes: 1000, confidencePercent: deepSeekCacheEstimateDefaultConfidence,
 	})
 	return c
 }
@@ -33,7 +33,7 @@ func TestScanCCStreamAppliesDeepSeekCacheEstimate(t *testing.T) {
 	state := (&OpenAIGatewayService{}).scanCCStream(
 		c, resp, "test", "request-id", time.Now(), func(_ *apicompat.ChatCompletionsChunk) {},
 	)
-	require.Equal(t, 566, state.Usage.CacheReadInputTokens)
+	require.Equal(t, 436, state.Usage.CacheReadInputTokens)
 	require.Equal(t, 1000, state.Usage.InputTokens)
 	require.True(t, state.SawDone)
 }
@@ -48,6 +48,6 @@ func TestReadCCUpstreamJSONResponseAppliesDeepSeekCacheEstimate(t *testing.T) {
 
 	_, usage, err := (&OpenAIGatewayService{}).readCCUpstreamJSONResponse(c, resp, writeError)
 	require.NoError(t, err)
-	require.Equal(t, 566, usage.CacheReadInputTokens)
+	require.Equal(t, 436, usage.CacheReadInputTokens)
 	require.Equal(t, 1000, usage.InputTokens)
 }

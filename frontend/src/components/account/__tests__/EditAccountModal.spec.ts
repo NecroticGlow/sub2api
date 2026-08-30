@@ -624,6 +624,29 @@ describe('EditAccountModal', () => {
       .toBe('account_device')
   })
 
+  it('defaults Codex quota overdraft to enabled when the account has no override', () => {
+    const wrapper = mountModal(buildOpenAIOAuthParentAccount())
+
+    expect(wrapper.get('[data-testid="edit-codex-quota-overdraft-toggle"]').attributes('aria-checked'))
+      .toBe('true')
+  })
+
+  it('hydrates and persists an explicit Codex quota overdraft opt-out', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { codex_quota_overdraft_enabled: false }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="edit-codex-quota-overdraft-toggle"]').attributes('aria-checked'))
+      .toBe('false')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_quota_overdraft_enabled).toBe(false)
+  })
+
   it('persists an explicit off override for an OpenAI OAuth account', async () => {
     const account = buildOpenAIOAuthParentAccount()
     account.extra = { codex_fingerprint_mode: 'off' }
