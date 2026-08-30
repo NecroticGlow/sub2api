@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="sub2api-overdraft Logo" width="128" />
+<img src="assets/logo.svg" alt="sub2api-custom Logo" width="128" />
 
-# sub2api-overdraft
+# sub2api-custom
 
 [![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
@@ -10,34 +10,40 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-**Codex 5h / 7d クォータのオーバードラフト検証・集計・回復機能を追加した AI API ゲートウェイ**
+**ルーティング、クォータポリシー、各種プロバイダー拡張に対応した AI API ゲートウェイ**
 
 [English](README.md) | [中文](README_CN.md) | 日本語
 
 </div>
 
 > [!IMPORTANT]
-> これは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の非公式 Fork であり、Sub2API の公式リリースではありません。公式インストールスクリプトと `weishaw/sub2api:latest` イメージには、本 Fork のオーバードラフト機能は含まれていません。
+> これは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の非公式 Fork であり、Sub2API の公式リリースではありません。公式インストールスクリプトと `weishaw/sub2api:latest` イメージには、本 Fork の追加拡張は含まれていません。
 
-## Fork の追加機能
+## 拡張機能
 
-- Codex の 5h または 7d クォータが 100% に達した後、最大 5 回の実リクエストで利用可否を検証します。
-- 検証成功後もアカウントをスケジュール対象に保ち、リクエスト数、Token、コスト、回復時刻を表示します。
+- アカウント単位の上流 429 自動再試行に対応します。初回 429 の後、同じアカウントで既定 5 回（`0` で無効、最大 `10`）追加試行し、すべて失敗した場合のみ従来のエラー処理とフェイルオーバーを実行します。HTTP と WebSocket ハンドシェイクを対象とし、有効な出力を開始したストリームは再生しません。
+- グループごとにユーザー単位の同時実行上限を設定できます。「ユーザー + グループ」単位で独立して集計し、既存のユーザー単位・アカウント単位の同時実行制御と併用します。
+- API Key ごとに同一プラットフォームのフォールバックグループを選択できます。毎回プライマリグループを先に完全に試し、利用可能なアカウントがない場合のみフォールバックします。課金、クォータ、RPM、同時実行数、利用量の帰属はプライマリグループのままです。
+- OpenAI アカウント単位の透支機能スイッチと `CPA fingerprint egress` モードを提供します。CPA モードはアカウントごとに一意で安定したデバイス識別情報を維持しつつ、すべてのセッションやスレッドを同一化しません。
+- Codex の 5h / 7d 使用率が 95% に達すると通常の OAuth テキストリクエストへ透支用ペイロードを事前適用し、100% 到達後は実際の業務リクエスト結果を直接の判定根拠として使用します。
+- 注入済みリクエストが明確なクォータ 429 を返した場合、そのクォータ周期を `failed` として確定します。業務リクエストの根拠が得られない場合のみ、周期ごとに最大 1 回の独立プローブを実行します。
+- 検証成功後もアカウントをスケジュール対象に保ち、5h / 7d それぞれの透支リクエスト数、Token、コスト、回復時刻を記録します。
 - `pending`、`passed`、`failed`、`inconclusive`、`recovered` の状態を管理画面と PostgreSQL に保存します。
-- 判定不能な検証は 1 分、3 分、10 分後に再試行し、再起動後も PostgreSQL の保存状態から再開します。
+- 一時的な 429、タイムアウト、ネットワーク障害、5xx は `inconclusive` として扱い、バックグラウンドで自動再試行しません。
 - PostgreSQL の atomic claim により複数インスタンスで重複検証を防ぎ、最終失敗・アカウント停止・スケジューラ通知を同一トランザクションで保存します。追加の schema migration は不要です。
+- 設定スイッチで透支ロジックを直ちに無効化し、上流 Sub2API のスケジューリング動作へ戻せます。
 
 ソースビルド、既存環境からの移行、検証、更新、ロールバック、Nginx、トラブルシューティングについては、**[中国語のデプロイ・運用ガイド](CODEX_OVERDRAFT_DEPLOYMENT_CN.md)** を参照してください。
 
 ```bash
-git clone https://github.com/DeanZFC/sub2api-overdraft.git
-cd sub2api-overdraft/deploy
+git clone https://github.com/DeanZFC/sub2api-custom.git sub2api-custom
+cd sub2api-custom/deploy
 cp .env.example .env
 # .env に POSTGRES_PASSWORD、JWT_SECRET、TOTP_ENCRYPTION_KEY を設定
 mkdir -p data postgres_data redis_data
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   up -d --build
 ```
 

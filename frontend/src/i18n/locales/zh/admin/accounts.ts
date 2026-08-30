@@ -548,6 +548,8 @@ export default {
       bulkEdit: {
         title: '批量编辑账号',
         selectionInfo: '已选择 {count} 个账号。只更新您勾选或填写的字段，未勾选的字段保持不变。',
+        rateLimit429RetryCount: '429 自动重试次数',
+        rateLimit429RetryCountHint: '勾选后批量覆盖所选账号。0 表示关闭，默认 {default}，最大 {max}。',
         baseUrlPlaceholder: 'https://api.anthropic.com 或 https://api.openai.com',
         baseUrlNotice: '适用于 API Key 账号及 Grok OAuth 账号的转发端点，留空则不修改',
         submit: '批量更新',
@@ -698,6 +700,8 @@ export default {
         codexFingerprintDevice: '仅设备',
         codexFingerprintSession: '设备+会话',
         codexFingerprintFull: '完全收敛',
+        codexQuotaOverdraft: 'Codex 额度透支',
+        codexQuotaOverdraftDesc: '仅对 OpenAI OAuth 生效。开启后，额度探测确认上游仍可用时，本账号可继续使用 5 小时/7 天额度；关闭后完全采用官方调度和额度处理。',
         codexImageTool: 'Codex 图片桥接策略',
         codexImageToolDesc:
           '统一控制 Codex /responses 文本请求的 hosted image_generation 桥接和客户端图片工具声明。hosted 工具自动注入仅适用于非 Responses Lite 请求；账号级策略优先于渠道和全局配置，不影响独立图片生成接口。',
@@ -992,6 +996,8 @@ export default {
       proxy: '代理',
       noProxy: '无代理',
       concurrency: '并发数',
+      rateLimit429RetryCount: '429 自动重试次数',
+      rateLimit429RetryCountHint: '首次收到上游 429 后，在执行原有限流处理前自动重试。0 表示关闭，默认 {default}，最大 {max}。',
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',
       priority: '优先级',

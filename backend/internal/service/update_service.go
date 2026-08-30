@@ -31,10 +31,11 @@ var (
 
 const (
 	updateCacheTTL        = 1200 // 20 minutes
-	githubRepo            = "DeanZFC/sub2api-overdraft"
-	githubSourceBranch    = "codex-overdraft"
+	githubRepo            = "DeanZFC/sub2api-custom"
+	githubSourceBranch    = "sub2api-custom"
 	githubForkVersionFile = "FORK_VERSION"
-	githubSourceUpdateURL = "https://github.com/DeanZFC/sub2api-overdraft/commits/codex-overdraft"
+	githubSourceUpdateURL = "https://github.com/DeanZFC/sub2api-custom/commits/sub2api-custom"
+	projectDisplayName    = "sub2api-custom"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -468,7 +469,7 @@ func (s *UpdateService) fetchLatestSourceVersion(ctx context.Context) (*UpdateIn
 		LatestVersion:  latestVersion,
 		HasUpdate:      compareVersions(s.currentVersion, latestVersion) < 0,
 		ReleaseInfo: &ReleaseInfo{
-			Name:    "sub2api-overdraft " + latestVersion,
+			Name:    projectDisplayName + " " + latestVersion,
 			HTMLURL: githubSourceUpdateURL,
 		},
 		Cached:    false,

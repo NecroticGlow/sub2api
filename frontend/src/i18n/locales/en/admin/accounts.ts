@@ -462,6 +462,9 @@ export default {
         title: 'Bulk Edit Accounts',
         selectionInfo:
           '{count} account(s) selected. Only checked or filled fields will be updated; others stay unchanged.',
+        rateLimit429RetryCount: '429 Auto-Retry Count',
+        rateLimit429RetryCountHint:
+          'When checked, overrides the selected accounts. Use 0 to disable. Default {default}, maximum {max}.',
         baseUrlPlaceholder: 'https://api.anthropic.com or https://api.openai.com',
         baseUrlNotice: 'Applies to API Key accounts and the forwarding endpoint of Grok OAuth accounts; leave empty to keep existing value',
         submit: 'Update Accounts',
@@ -620,6 +623,8 @@ export default {
         codexFingerprintDevice: 'Device only',
         codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
+        codexQuotaOverdraft: 'Codex quota overdraft',
+        codexQuotaOverdraftDesc: 'Only applies to OpenAI OAuth. When enabled, this account may continue past the 5h/7d quota after the configured probe confirms upstream availability. Disable to use the official scheduling and quota handling for this account.',
         codexImageTool: 'Codex image bridge policy',
         codexImageToolDesc:
           'Controls the hosted image_generation bridge and client-declared image tools on Codex /responses text requests. Hosted auto-injection applies only to non-Responses Lite requests. Account policy takes precedence over channel and global settings; standalone image-generation endpoints are unaffected.',
@@ -920,6 +925,9 @@ export default {
       proxy: 'Proxy',
       noProxy: 'No Proxy',
       concurrency: 'Concurrency',
+      rateLimit429RetryCount: '429 Auto-Retry Count',
+      rateLimit429RetryCountHint:
+        'After the first upstream 429, retry automatically before applying the existing rate-limit handling. Use 0 to disable. Default {default}, maximum {max}.',
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',
       priority: 'Priority',

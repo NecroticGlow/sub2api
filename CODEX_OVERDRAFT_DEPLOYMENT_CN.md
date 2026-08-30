@@ -1,8 +1,10 @@
-# sub2api-overdraft 部署与运维指南
+# sub2api-custom 部署与运维指南
 
 本文档面向希望部署本项目、验证 Codex 5h / 7d 额度透支状态，以及后续安全升级的使用者。
 
-本项目是 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的非官方衍生版本，公开项目名为 **sub2api-overdraft**。内部二进制名、Docker 服务名、数据目录和 Go module 仍保留 `sub2api`，这是为了兼容原项目并降低同步上游更新时的冲突。
+本项目是 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的非官方衍生版本，公开项目名为 **sub2api-custom**。内部二进制名和 Go module 仍保留 `sub2api`，新 Docker 部署使用 `sub2api-custom` 前缀；旧部署继续使用原容器名，以兼容已有数据和升级流程。
+
+GitHub 仓库地址为 `DeanZFC/sub2api-custom`。历史地址 `DeanZFC/sub2api-overdraft` 由 GitHub 自动重定向，但新部署和服务器远端应使用新地址。
 
 ## 重要说明
 
@@ -11,7 +13,7 @@
 - 探测请求和透支期请求都可能产生真实上游用量和费用。
 - 此行为可能不符合上游服务条款。部署者必须自行确认合规性，并承担账号限制、服务中断等风险。
 - 官方 Sub2API 安装脚本和 `weishaw/sub2api:latest` 镜像不包含本 Fork 的透支功能。
-- 本 Fork 的后台更新检查读取 `DeanZFC/sub2api-overdraft`，不会把官方 Sub2API Release 当作本项目更新。
+- 本 Fork 的后台更新检查读取 `DeanZFC/sub2api-custom`，不会把官方 Sub2API Release 当作本项目更新。
 
 ## 功能范围
 
@@ -45,12 +47,12 @@
 ```bash
 sudo mkdir -p /opt
 cd /opt
-sudo git clone https://github.com/DeanZFC/sub2api-overdraft.git
-sudo chown -R "$(id -u):$(id -g)" /opt/sub2api-overdraft
-cd /opt/sub2api-overdraft/deploy
+sudo git clone https://github.com/DeanZFC/sub2api-custom.git /opt/sub2api-custom
+sudo chown -R "$(id -u):$(id -g)" /opt/sub2api-custom
+cd /opt/sub2api-custom/deploy
 ```
 
-仓库默认分支是 `codex-overdraft`。确认当前分支：
+仓库默认分支为 `sub2api-custom`。确认当前分支：
 
 ```bash
 git branch --show-current
@@ -59,7 +61,7 @@ git branch --show-current
 预期输出：
 
 ```text
-codex-overdraft
+sub2api-custom
 ```
 
 ### 2. 创建环境配置
@@ -101,9 +103,14 @@ GATEWAY_OPENAI_ACCOUNT_UNIQUE_FINGERPRINT_ENABLED=true
 它会按账号固定 Codex 设备指纹；单个账号可在 `extra` 中设置
 `codex_fingerprint_mode: off` 关闭。该开关只影响 OpenAI OAuth/Codex 账号，不影响 API Key。
 
-账号编辑页的“Codex 指纹收敛”下拉框新增“账号唯一设备（新增，推荐）”选项。选择后会写入
-`codex_fingerprint_mode: account_device`，只固定该账号的设备指纹，不收敛会话和线程；
+账号编辑页的“CPA 指纹出口”下拉框提供“CPA 指纹出口（推荐）”选项。选择后会写入
+`codex_fingerprint_mode: account_device`，按账号固定 installation identity；当前兼容模式不收敛会话和线程，
+与 CPA `identity-confuse` 对所有身份信号逐项映射的完整语义并不完全相同；
 不选择账号级覆盖时，仍由全局开关提供相同的默认行为。
+
+OpenAI OAuth 账号还可在同一区域单独关闭“Codex 额度透支”。未配置时继承全局
+`gateway.codex_quota_overdraft_enabled`；显式关闭后，该账号不注入探测 Payload、不执行独立探测、
+不绕过调度阈值，也不记录透支状态和统计，但普通 Codex 用量快照仍会照常更新。
 
 ### 3. 创建数据目录
 
@@ -120,27 +127,27 @@ mkdir -p data postgres_data redis_data
 ```bash
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   up -d --build
 ```
 
-`docker-compose.local.yml` 提供应用、PostgreSQL、Redis、网络和数据卷；`docker-compose.overdraft.yml` 把应用镜像切换为本仓库源码构建，并默认开启透支功能。
+`docker-compose.local.yml` 提供应用、PostgreSQL、Redis、网络和数据卷；`docker-compose.custom.yml` 把应用镜像切换为本仓库源码构建，并默认开启透支功能。
 
 查看容器状态：
 
 ```bash
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   ps
 ```
 
 三个容器应处于 `Up` 或 `healthy` 状态：
 
 ```text
-sub2api
-sub2api-postgres
-sub2api-redis
+sub2api-custom
+sub2api-custom-postgres
+sub2api-custom-redis
 ```
 
 查看启动日志：
@@ -148,11 +155,12 @@ sub2api-redis
 ```bash
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   logs -f sub2api
 ```
 
-默认访问地址为 `http://服务器IP:8080`。
+默认访问地址为 `http://服务器IP:8080`。如果服务器上已有脚本版占用 `8080`，请在 `.env` 中设置
+`SERVER_PORT=8081` 后再启动。
 
 ## 配置文件位置与优先级
 
@@ -161,7 +169,7 @@ docker compose \
 Compose 本地目录部署的实际配置通常位于：
 
 ```text
-/opt/sub2api-overdraft/deploy/data/config.yaml
+/opt/sub2api-custom/deploy/data/config.yaml
 ```
 
 它在容器内对应：
@@ -184,7 +192,7 @@ gateway:
 ```bash
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   exec sub2api sh -lc 'printf "%s\n" "$GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLED"'
 ```
 
@@ -206,17 +214,17 @@ git remote -v
 有未提交代码时先保存：
 
 ```bash
-git stash push -u -m "server changes before codex-overdraft switch"
+git stash push -u -m "server changes before sub2api-custom switch"
 ```
 
 然后连接本 Fork 并切换到公开分支：
 
 ```bash
-git remote set-url origin https://github.com/DeanZFC/sub2api-overdraft.git
+git remote set-url origin https://github.com/DeanZFC/sub2api-custom.git
 git fetch origin
-git switch codex-overdraft 2>/dev/null || \
-  git switch -c codex-overdraft --track origin/codex-overdraft
-git pull --ff-only origin codex-overdraft
+git switch sub2api-custom 2>/dev/null || \
+  git switch -c sub2api-custom --track origin/sub2api-custom
+git pull --ff-only origin sub2api-custom
 ```
 
 如果 Git 报 `detected dubious ownership`，确认目录确实是本项目后再执行：
@@ -225,7 +233,7 @@ git pull --ff-only origin codex-overdraft
 git config --global --add safe.directory /opt/sub2api
 ```
 
-已有的服务器专用 Compose 文件可以保留，但推荐改用仓库内公开的覆盖文件：
+已有的服务器专用 Compose 文件可以保留。迁移旧 Docker 部署时继续使用旧覆盖文件，避免同一数据目录被两套数据库同时使用：
 
 ```bash
 cd /opt/sub2api/deploy
@@ -242,13 +250,13 @@ docker compose \
 ### 第一层：确认运行的是源码构建镜像
 
 ```bash
-docker inspect sub2api --format '{{.Config.Image}}'
+docker inspect sub2api-custom --format '{{.Config.Image}}'
 ```
 
 预期输出：
 
 ```text
-sub2api-overdraft:local
+sub2api-custom:local
 ```
 
 如果输出 `weishaw/sub2api:latest`，说明当前仍在运行官方镜像，本功能不会生效。
@@ -256,7 +264,7 @@ sub2api-overdraft:local
 ### 第二层：确认开关已开启
 
 ```bash
-docker exec sub2api sh -lc 'printf "%s\n" "$GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLED"'
+docker exec sub2api-custom sh -lc 'printf "%s\n" "$GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLED"'
 ```
 
 预期输出 `true`。修改 `.env` 后必须重建或重新创建应用容器：
@@ -264,7 +272,7 @@ docker exec sub2api sh -lc 'printf "%s\n" "$GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLE
 ```bash
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   up -d --force-recreate sub2api
 ```
 
@@ -273,7 +281,7 @@ docker compose \
 账号 5h/7d 用量达到 95% 后开始注入；只有额度达到 100%，或者收到带明确额度信息的上游 429，才会产生透支确认状态。额度达到 100% 后，可以在管理页面对该 OpenAI OAuth 账号执行常规文本“测试账号连接”；测试请求本身会使用透支请求形态，并直接参与同一额度周期的判定。额度未耗尽时没有探测日志是正常现象。
 
 ```bash
-docker logs --since 30m sub2api 2>&1 | \
+docker logs --since 30m sub2api-custom 2>&1 | \
   grep -E 'codex_quota_overdraft_(probe|state|pause|stale_rate_limit)'
 ```
 
@@ -305,7 +313,7 @@ codex_quota_overdraft_business_passed
 ```bash
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   exec -T postgres sh -lc \
   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -x -c "
     SELECT id, name, extra->'\''codex_quota_overdraft_probe'\'' AS overdraft_probe
@@ -375,7 +383,7 @@ sudo systemctl reload nginx
 
 ## 日常升级本 Fork
 
-源码镜像的当前版本来自仓库根目录的 `FORK_VERSION`。后台检查更新时读取 GitHub 上 `codex-overdraft` 分支的同名文件：远端版本更高时显示更新提示，版本一致时显示最新。源码构建不会执行二进制在线更新或在线回退，以免官方程序覆盖 Fork 功能。
+源码镜像的当前版本来自仓库根目录的 `FORK_VERSION`。后台检查更新时读取 GitHub 上 `sub2api-custom` 分支的同名文件：远端版本更高时显示更新提示，版本一致时显示最新。源码构建不会执行二进制在线更新或在线回退，以免官方程序覆盖 Fork 功能。
 
 运行数据均位于被 Git 忽略的目录中，正常 `git pull` 不会覆盖：
 
@@ -389,34 +397,37 @@ deploy/redis_data/
 升级步骤：
 
 ```bash
-cd /opt/sub2api-overdraft
+cd /opt/sub2api-custom
 git status --short
-git switch codex-overdraft
-git pull --ff-only origin codex-overdraft
+git switch sub2api-custom
+git pull --ff-only origin sub2api-custom
 
 cd deploy
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   up -d --build
 ```
 
 如果服务器目录是 `/opt/sub2api`，只需替换第一条路径。升级完成后重新执行“判断功能是否生效”中的镜像、环境变量和日志检查。
 
-更新后可在管理后台点击刷新，版本应显示为类似 `v0.1.183-overdraft.6`，更新方式应提示源码构建使用 `git pull`。也可以直接检查容器内二进制版本：
+更新后可在管理后台点击刷新，版本应显示为类似 `v0.1.184-custom.1`，更新方式应提示源码构建使用 `git pull`。也可以直接检查容器内二进制版本：
 
 ```bash
-docker exec sub2api /app/sub2api -version
+docker exec sub2api-custom /app/sub2api -version
 ```
 
-维护者发布新的源码版本时必须递增 `FORK_VERSION`，例如从 `0.1.182-overdraft.5` 改为 `0.1.183-overdraft.6`。同步到新的上游 Sub2API 版本时，版本号应同时反映官方版本和 Fork 修订号，例如 `0.1.183-overdraft.6`。
+维护者发布新的源码版本时必须递增 `FORK_VERSION`。项目更名后的首个版本从 `0.1.183-overdraft.8` 切换为 `0.1.184-custom.1`；同一基础版本的后续修订依次使用 `0.1.184-custom.2`、`0.1.184-custom.3`。
+
+历史 `-overdraft.N` 标签继续保留且不重写。新版本将核心版本提升到 `0.1.184` 后再使用 `-custom.N`，确保旧版 SemVer 比较器会把 `0.1.184-custom.1` 正确判断为高于 `0.1.183-overdraft.8`。当前代码的官方合并基线仍单独记录为 Sub2API `v0.1.183`，两者不混淆。
 
 ## 合并 Sub2API 官方更新
 
-本仓库保留两个分支角色：
+本仓库保留三个分支角色：
 
 - `main`：尽量跟随官方 `Wei-Shaw/sub2api`，作为上游基线。
-- `codex-overdraft`：本项目默认分支，包含透支功能和公开文档。
+- `sub2api-custom`：本项目默认分支，包含全部二开功能和公开文档。
+- `codex-overdraft`：旧部署的过渡兼容分支；迁移期间与默认分支指向同一发布提交，不再作为新部署入口。
 
 维护者可这样合并官方更新：
 
@@ -424,7 +435,7 @@ docker exec sub2api /app/sub2api -version
 git remote get-url upstream >/dev/null 2>&1 || \
   git remote add upstream https://github.com/Wei-Shaw/sub2api.git
 git fetch upstream
-git switch codex-overdraft
+git switch sub2api-custom
 git merge upstream/main
 ```
 
@@ -447,7 +458,9 @@ pnpm exec vitest run \
 
 cd ..
 git diff --check
-git push origin codex-overdraft
+git push origin sub2api-custom
+# 兼容迁移期内同步旧更新通道；全部服务器切换后可停止执行。
+git push origin sub2api-custom:codex-overdraft
 ```
 
 更详细的实现文件和升级核对清单见 [CODEX_QUOTA_OVERDRAFT_CUSTOMIZATION.md](CODEX_QUOTA_OVERDRAFT_CUSTOMIZATION.md)。
@@ -465,7 +478,7 @@ GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLED=false
 ```bash
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   up -d --force-recreate sub2api
 ```
 
@@ -476,11 +489,11 @@ docker compose \
 数据库建议使用 `pg_dump` 做一致性备份：
 
 ```bash
-cd /opt/sub2api-overdraft/deploy
+cd /opt/sub2api-custom/deploy
 mkdir -p backups
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   exec -T postgres sh -lc \
   'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
   > "backups/sub2api-$(date +%Y%m%d-%H%M%S).dump"
@@ -508,7 +521,7 @@ docker compose \
 jsonb_build_object($1::text, $2::jsonb)
 ```
 
-拉取最新 `codex-overdraft` 分支并使用 `--build --force-recreate` 重建应用容器。
+拉取最新 `sub2api-custom` 分支并使用 `--build --force-recreate` 重建应用容器。
 
 ### API 返回 503 `no available accounts`
 
