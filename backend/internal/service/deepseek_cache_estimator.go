@@ -171,7 +171,15 @@ func deepSeekCacheConfidence(fingerprint deepSeekCacheFingerprint, mean, jitter 
 }
 
 func (e *deepSeekCacheEstimator) prepare(ctx context.Context, c *gin.Context, account *Account, model string, body []byte) {
-	if e == nil || c == nil || account == nil || !strings.HasPrefix(strings.ToLower(model), "deepseek-") || !ollamaCloudAccount(account) {
+	if e == nil || c == nil {
+		return
+	}
+	// A gateway failover reuses the same gin.Context across account attempts.
+	// Clear any candidate left by the previous account before evaluating the
+	// current one, otherwise a non-matching or ineligible fallback could be
+	// charged with another account's estimated cache hit.
+	c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{})
+	if account == nil || !strings.HasPrefix(strings.ToLower(model), "deepseek-") || !ollamaCloudAccount(account) {
 		return
 	}
 	cfg := e.loadConfig(ctx)

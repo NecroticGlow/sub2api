@@ -81,6 +81,37 @@ func TestDeepSeekCacheEstimatorKeepsLargePromptAcrossUnrelatedRequests(t *testin
 	require.Greater(t, gjson.GetBytes(out, "usage.prompt_tokens_details.cached_tokens").Int(), int64(100000))
 }
 
+func TestDeepSeekCacheEstimatorClearsCandidateWhenFailingOverToAnotherAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	estimator := newDeepSeekCacheEstimator(nil)
+	estimator.config = deepSeekCacheEstimateSettings{
+		Enabled: true, AccountGroups: nil, TTLSeconds: 900,
+		BlockBytes: 64, MaxFingerprints: 16,
+		ConfidencePercent: deepSeekCacheEstimateDefaultConfidence,
+	}
+	estimator.loadedAt = time.Now()
+	firstAccount := &Account{ID: 979, Credentials: map[string]any{"base_url": "https://ollama.com"}}
+	secondAccount := &Account{ID: 990, Credentials: map[string]any{"base_url": "https://ollama.com"}}
+	stable := "This stable prefix is intentionally longer than one fingerprint block for failover isolation."
+	seedBody := []byte(`{"instructions":"` + stable + `","messages":[{"role":"user","content":"first"}]}`)
+	matchingBody := []byte(`{"instructions":"` + stable + `","messages":[{"role":"user","content":"first"},{"role":"user","content":"next"}]}`)
+
+	seed, _ := gin.CreateTestContext(nil)
+	estimator.prepare(context.Background(), seed, firstAccount, "deepseek-v4-flash:0731", seedBody)
+	requestContext, _ := gin.CreateTestContext(nil)
+	estimator.prepare(context.Background(), requestContext, firstAccount, "deepseek-v4-flash:0731", matchingBody)
+	_, estimated := applyDeepSeekCacheEstimate(requestContext, []byte(`{"usage":{"prompt_tokens":1000,"completion_tokens":5}}`))
+	require.Positive(t, estimated)
+
+	// The same request context is reused by the gateway when it fails over.
+	// Account 990 has no previous fingerprint, so account 979's candidate must
+	// be cleared instead of leaking into the fallback response.
+	estimator.prepare(context.Background(), requestContext, secondAccount, "deepseek-v4-flash:0731", matchingBody)
+	out, estimated := applyDeepSeekCacheEstimate(requestContext, []byte(`{"usage":{"prompt_tokens":1000,"completion_tokens":5}}`))
+	require.Zero(t, estimated)
+	require.False(t, gjson.GetBytes(out, "usage.prompt_tokens_details.cached_tokens").Exists())
+}
+
 func TestApplyDeepSeekCacheEstimateChatCompletionsUsage(t *testing.T) {
 	c, _ := gin.CreateTestContext(nil)
 	c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{
