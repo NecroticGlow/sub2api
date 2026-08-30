@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
@@ -224,6 +226,69 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingClosesOpenBlockOnDone(t
 	require.Equal(t, 3, result.Usage.OutputTokens)
 	require.True(t, result.Stream)
 	require.NotNil(t, result.FirstTokenMs)
+}
+
+func TestForwardAsAnthropic_ForceChatCompletionsStreamingAppliesDeepSeekCacheEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	estimator := newDeepSeekCacheEstimator(nil)
+	estimator.config = deepSeekCacheEstimateSettings{
+		Enabled: true, TTLSeconds: 900, BlockBytes: 64, MaxFingerprints: 16,
+		ConfidencePercent: 50, ConfidenceJitterPercent: 0,
+	}
+	estimator.loadedAt = time.Now()
+
+	usageStream := func(id string) *http.Response {
+		body := strings.Join([]string{
+			`data: {"id":"` + id + `","object":"chat.completion.chunk","model":"deepseek-v4-flash:0731","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`,
+			"",
+			`data: {"id":"` + id + `","object":"chat.completion.chunk","model":"deepseek-v4-flash:0731","choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":2,"total_tokens":1002}}`,
+			"",
+			"data: [DONE]",
+			"",
+		}, "\n")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}
+	}
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		usageStream("chatcmpl_cache_seed"),
+		usageStream("chatcmpl_cache_hit"),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:                    rawChatCompletionsTestConfig(),
+		httpUpstream:           upstream,
+		deepSeekCacheEstimator: estimator,
+	}
+	account := forceChatMessagesFallbackAccount()
+	account.ID = 990
+	account.Credentials["base_url"] = "https://ollama.com"
+
+	stableSystem := strings.Repeat("stable DeepSeek cache prefix ", 32)
+	firstBody := []byte(`{"model":"deepseek-v4-flash","max_tokens":32,"system":"` + stableSystem + `","messages":[{"role":"user","content":"first"}],"stream":true}`)
+	secondBody := []byte(`{"model":"deepseek-v4-flash","max_tokens":32,"system":"` + stableSystem + `","messages":[{"role":"user","content":"first"},{"role":"assistant","content":"ok"},{"role":"user","content":"second"}],"stream":true}`)
+
+	forward := func(body []byte) (*OpenAIForwardResult, string) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		return result, rec.Body.String()
+	}
+
+	seed, _ := forward(firstBody)
+	require.Zero(t, seed.Usage.CacheReadInputTokens)
+
+	hit, output := forward(secondBody)
+	require.Positive(t, hit.Usage.CacheReadInputTokens)
+	require.Less(t, hit.Usage.CacheReadInputTokens, hit.Usage.InputTokens)
+	require.Contains(t, output, `"cache_read_input_tokens":`+strconv.Itoa(hit.Usage.CacheReadInputTokens))
 }
 
 // Covers multi-chunk tool_call fragments aggregated by index and finalized as

@@ -87,6 +87,14 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 			}
 		}
 	}
+	// The DeepSeek cache estimator fingerprints the final Chat Completions
+	// prompt, not the inbound Anthropic body. In particular, Anthropic's
+	// top-level system field is folded into chatBody.messages by the converter,
+	// so using the converted body keeps prefix matching aligned with what the
+	// Ollama upstream actually receives.
+	if s.deepSeekCacheEstimator != nil {
+		s.deepSeekCacheEstimator.prepare(ctx, c, account, originalModel, chatBody)
+	}
 	// Unlike forwardResponsesViaRawChatCompletions, applyOpenAIFastPolicyToBody
 	// is intentionally skipped: Anthropic Messages bodies carry no service_tier,
 	// so the converted Chat Completions body never contains one and the policy
