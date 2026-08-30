@@ -4,12 +4,12 @@ export const OPENAI_CC_SWITCH_CODEX_MODEL = 'gpt-5.6-sol'
 export const GROK_CC_SWITCH_MODEL = 'grok-4.6'
 export const ANTHROPIC_CC_SWITCH_MODEL = 'claude-opus-4-8'
 export const DEEPSEEK_CC_SWITCH_MODEL = 'deepseek-chat'
-export const CC_SWITCH_PROVIDER_HOMEPAGE = 'https://wanwuplus.com'
+export const CC_SWITCH_PROVIDER_API_BASE_URL = 'https://wanwuplus.com'
 
 export type CcSwitchApp = 'claude' | 'codex' | 'gemini' | 'grokbuild' | 'opencode'
 
 export interface CcSwitchImportDeeplinkInput {
-  baseUrl: string
+  homepage: string
   platform?: GroupPlatform | null
   app: CcSwitchApp
   providerName: string
@@ -62,11 +62,12 @@ export function resolveCcSwitchEndpoint(
 
 export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput): string {
   const endpoint = input.app === 'opencode'
-    ? withV1Endpoint(input.baseUrl)
-    : resolveCcSwitchEndpoint(input.platform, input.baseUrl)
+    ? withV1Endpoint(CC_SWITCH_PROVIDER_API_BASE_URL)
+    : resolveCcSwitchEndpoint(input.platform, CC_SWITCH_PROVIDER_API_BASE_URL)
+  const homepage = input.homepage.trim().replace(/\/+$/, '')
   const entries: [string, string][] = [
     ['resource', 'provider'], ['app', input.app], ['name', input.providerName],
-    ['homepage', CC_SWITCH_PROVIDER_HOMEPAGE], ['endpoint', endpoint], ['apiKey', input.apiKey],
+    ['homepage', homepage], ['endpoint', endpoint], ['apiKey', input.apiKey],
     ['configFormat', 'json'], ['usageEnabled', 'true'],
     ['usageScript', btoa(input.usageScript)], ['usageAutoInterval', '30']
   ]

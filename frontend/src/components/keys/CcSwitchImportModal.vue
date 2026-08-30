@@ -174,9 +174,8 @@ function buildUsageScript(): string {
 function handleOpen() {
   const row = props.apiKey
   if (!row || !mainModel.value.trim()) return
-  const baseUrl = props.publicSettings?.api_base_url || window.location.origin
   const deeplink = buildCcSwitchImportDeeplink({
-    baseUrl, platform: row.group?.platform, app: app.value,
+    homepage: window.location.origin, platform: row.group?.platform, app: app.value,
     providerName: providerName.value.trim() || 'sub2api', apiKey: row.key,
     usageScript: buildUsageScript(), model: mainModel.value,
     haikuModel: haikuModel.value, sonnetModel: sonnetModel.value, opusModel: opusModel.value
