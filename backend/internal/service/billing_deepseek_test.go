@@ -15,8 +15,9 @@ import (
 func TestDeepSeekPricingUsesOfficialRates(t *testing.T) {
 	svc := newTestBillingService()
 
-	officialV4Pro := struct{ in, out, cache float64 }{4.5e-6, 13.5e-6, 0.15e-6}
-	officialV4Flash := struct{ in, out, cache float64 }{1.5e-6, 4.5e-6, 0.05e-6}
+	officialV4Pro := struct{ in, out, cache float64 }{4.62e-6, 13.86e-6, 0.154e-6}
+	officialV4Flash := struct{ in, out, cache float64 }{10.5e-6, 31.5e-6, 0.35e-6}
+	officialV41Flash := struct{ in, out, cache float64 }{1.05e-6, 4.2e-6, 0.021e-6}
 
 	cases := []struct {
 		model string
@@ -26,7 +27,7 @@ func TestDeepSeekPricingUsesOfficialRates(t *testing.T) {
 	}{
 		{"deepseek-v4-pro", officialV4Pro.in, officialV4Pro.out, officialV4Pro.cache},
 		{"deepseek-v4-flash", officialV4Flash.in, officialV4Flash.out, officialV4Flash.cache},
-		{"deepseek-v4-flash-vision-exp", officialV4Flash.in, officialV4Flash.out, officialV4Flash.cache},
+		{"deepseek-v4-flash-vision-exp", officialV41Flash.in, officialV41Flash.out, officialV41Flash.cache},
 		// ClinePass 上游 slug：按官方 V4 价计费，而非 ClinePass 参考价。
 		{"cline-pass/deepseek-v4-pro", officialV4Pro.in, officialV4Pro.out, officialV4Pro.cache},
 		{"cline-pass/deepseek-v4-flash", officialV4Flash.in, officialV4Flash.out, officialV4Flash.cache},
@@ -55,9 +56,9 @@ func TestDeepSeekPricingOverridesStaleDynamicCatalog(t *testing.T) {
 
 	pricing, err := svc.GetModelPricing("deepseek-v4-pro")
 	require.NoError(t, err)
-	require.InEpsilon(t, 4.5e-6, pricing.InputPricePerToken, 1e-12)
-	require.InEpsilon(t, 13.5e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InEpsilon(t, 0.15e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InEpsilon(t, 4.62e-6, pricing.InputPricePerToken, 1e-12)
+	require.InEpsilon(t, 13.86e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InEpsilon(t, 0.154e-6, pricing.CacheReadPricePerToken, 1e-12)
 }
 
 func TestDeepSeekPeakMultiplierUsesBeijingWindows(t *testing.T) {
@@ -84,17 +85,17 @@ func TestDeepSeekOfficialPricingPreservesPeakMultiplier(t *testing.T) {
 
 	pricing, err := svc.GetModelPricing("cline-pass/deepseek-v4-flash")
 	require.NoError(t, err)
-	require.InEpsilon(t, 1.5e-6, pricing.InputPricePerToken, 1e-12, "official off-peak input")
-	require.InEpsilon(t, 4.5e-6, pricing.OutputPricePerToken, 1e-12, "official off-peak output")
-	require.InEpsilon(t, 0.05e-6, pricing.CacheReadPricePerToken, 1e-12, "official off-peak cache hit")
+	require.InEpsilon(t, 10.5e-6, pricing.InputPricePerToken, 1e-12, "legacy V4-Flash off-peak input")
+	require.InEpsilon(t, 31.5e-6, pricing.OutputPricePerToken, 1e-12, "legacy V4-Flash off-peak output")
+	require.InEpsilon(t, 0.35e-6, pricing.CacheReadPricePerToken, 1e-12, "legacy V4-Flash off-peak cache hit")
 
 	utc := time.FixedZone("UTC", 0)
 	offPeak := time.Date(2026, 8, 17, 5, 59, 0, 0, utc) // 13:59 Beijing
 	peak := time.Date(2026, 8, 17, 6, 0, 0, 0, utc)     // 14:00 Beijing
 	require.Equal(t, 1.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, offPeak))
 	require.Equal(t, 2.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, peak))
-	require.InEpsilon(t, 1.5e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(offPeak), 1e-12)
-	require.InEpsilon(t, 3.0e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
+	require.InEpsilon(t, 10.5e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(offPeak), 1e-12)
+	require.InEpsilon(t, 21.0e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
 }
 
 // ClinePass 全系模型（含非 DeepSeek 厂商）都必须能解析出各厂商官方口径的兜底价，

@@ -20,8 +20,9 @@ var deepSeekBeijingLocation = time.FixedZone("Asia/Shanghai", deepSeekBeijingUTC
 // compatibility and map to V4 Flash in the fallback pricing table.
 func isDeepSeekV4Model(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
-	return strings.Contains(m, "deepseek-v4-flash") ||
-		strings.Contains(m, "deepseek-v4-flash-vision-exp") ||
+	return strings.Contains(m, "deepseek-v4.1-flash") ||
+		strings.Contains(m, "deepseek-flash") ||
+		strings.Contains(m, "deepseek-v4-flash") ||
 		strings.Contains(m, "deepseek-v4-pro") ||
 		strings.Contains(m, "deepseek-chat") ||
 		strings.Contains(m, "deepseek-reasoner")

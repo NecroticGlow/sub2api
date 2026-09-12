@@ -659,8 +659,8 @@ func TestTryModelFilePricing_DeepSeekPeakPricing(t *testing.T) {
 		name                          string
 		input, output, cacheReadPrice float64
 	}{
-		{"deepseek-v4-flash", 1.5e-7, 6e-7, 3e-9},
-		{"deepseek-v4-pro", 6.6e-7, 1.98e-6, 2.2e-8},
+		{"deepseek-v4-flash", 1.05e-5, 3.15e-5, 3.5e-7},
+		{"deepseek-v4-pro", 4.62e-6, 1.386e-5, 1.54e-7},
 	} {
 		for _, usage := range []struct {
 			name   string
@@ -711,7 +711,7 @@ func TestResolveAccountStatsCost_DeepSeekPricingPriority(t *testing.T) {
 		noChannel    bool
 		want         float64
 	}{
-		{name: "catalog", want: 1000 * 1.5e-7 * 2},
+		{name: "catalog", want: 1000 * 1.05e-5 * 2},
 		{name: "custom_rule", customRule: true, want: 1},
 		{name: "custom_rule_before_customer_price", customRule: true, applyPricing: true, want: 1},
 		{name: "customer_price", applyPricing: true, want: 0.75},
