@@ -3596,6 +3596,18 @@ func TestExtractOpenAIUsageFromJSONBytes_AcceptsResponseAndChatUsageShapes(t *te
 	require.True(t, ok)
 	require.Zero(t, usage.CacheReadInputTokens, "官方嵌套缓存读取字段显式为零时仍应优先于兼容顶层别名")
 
+	// DeepSeek's native OpenAI-compatible usage breakdown uses the explicit
+	// prompt_cache_hit_tokens / prompt_cache_miss_tokens buckets.
+	usage, ok = extractOpenAIUsageFromJSONBytes([]byte(`{"usage":{"prompt_cache_hit_tokens":800,"prompt_cache_miss_tokens":400,"output_tokens":3}}`))
+	require.True(t, ok)
+	require.Equal(t, 1200, usage.InputTokens, "missing prompt total should be reconstructed from DeepSeek hit/miss buckets")
+	require.Equal(t, 800, usage.CacheReadInputTokens)
+	require.Equal(t, 3, usage.OutputTokens)
+
+	usage, ok = extractOpenAIUsageFromJSONBytes([]byte(`{"usage":{"prompt_tokens":1200,"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":1200}}`))
+	require.True(t, ok)
+	require.Zero(t, usage.CacheReadInputTokens, "an explicit DeepSeek cache miss must remain zero cache reads")
+
 	// xAI reports reasoning_tokens outside visible output_tokens. Only the
 	// arithmetic-consistent shape is independent; OpenAI's canonical shape
 	// already includes reasoning in completion/output_tokens.

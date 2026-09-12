@@ -117,7 +117,22 @@ func TestApplyDeepSeekCacheEstimateChatCompletionsUsage(t *testing.T) {
 	c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{
 		commonBytes: 900, currentBytes: 1000, confidencePercent: 85,
 	})
-	out, estimated := applyDeepSeekCacheEstimate(c, []byte(`{"usage":{"prompt_tokens":2000,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":0}}}`))
+	out, estimated := applyDeepSeekCacheEstimate(c, []byte(`{"usage":{"prompt_tokens":2000,"completion_tokens":5}}`))
 	require.Equal(t, 1421, estimated)
 	require.Equal(t, int64(estimated), gjson.GetBytes(out, "usage.prompt_tokens_details.cached_tokens").Int())
+}
+
+func TestApplyDeepSeekCacheEstimateDoesNotOverrideProviderCacheUsage(t *testing.T) {
+	c, _ := gin.CreateTestContext(nil)
+	c.Set(deepSeekCacheEstimateContextKey, deepSeekCacheCandidate{
+		commonBytes: 900, currentBytes: 1000, confidencePercent: 85,
+	})
+
+	out, estimated := applyDeepSeekCacheEstimate(c, []byte(`{"usage":{"prompt_tokens":2000,"prompt_cache_hit_tokens":1234,"prompt_cache_miss_tokens":766}}`))
+	require.Zero(t, estimated)
+	require.Equal(t, int64(1234), gjson.GetBytes(out, "usage.prompt_cache_hit_tokens").Int())
+
+	out, estimated = applyDeepSeekCacheEstimate(c, []byte(`{"usage":{"prompt_tokens":2000,"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":2000}}`))
+	require.Zero(t, estimated)
+	require.Zero(t, gjson.GetBytes(out, "usage.prompt_cache_hit_tokens").Int())
 }

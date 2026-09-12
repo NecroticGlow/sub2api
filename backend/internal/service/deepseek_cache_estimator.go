@@ -241,6 +241,13 @@ func applyDeepSeekCacheEstimate(c *gin.Context, body []byte) ([]byte, int) {
 	if c == nil {
 		return body, 0
 	}
+	// Once the upstream reports a cache bucket, its value is authoritative.
+	// In particular, an explicit zero means a real cache miss and must not be
+	// replaced by the heuristic estimate. This keeps the estimator as a
+	// compatibility fallback for older Ollama responses only.
+	if deepSeekResponseHasCacheUsage(body) {
+		return body, 0
+	}
 	raw, ok := c.Get(deepSeekCacheEstimateContextKey)
 	if !ok {
 		return body, 0
@@ -287,4 +294,34 @@ func applyDeepSeekCacheEstimate(c *gin.Context, body []byte) ([]byte, int) {
 		return body, 0
 	}
 	return updated, estimated
+}
+
+func deepSeekResponseHasCacheUsage(body []byte) bool {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return false
+	}
+	for _, path := range []string{
+		"usage",
+		"response.usage",
+		"data.usage",
+		"data.response.usage",
+	} {
+		usage := gjson.GetBytes(body, path)
+		if !usage.Exists() || !usage.IsObject() {
+			continue
+		}
+		for _, field := range []string{
+			"prompt_cache_hit_tokens",
+			"prompt_cache_miss_tokens",
+			"cache_read_input_tokens",
+			"cached_tokens",
+			"input_tokens_details.cached_tokens",
+			"prompt_tokens_details.cached_tokens",
+		} {
+			if usage.Get(field).Exists() {
+				return true
+			}
+		}
+	}
+	return false
 }

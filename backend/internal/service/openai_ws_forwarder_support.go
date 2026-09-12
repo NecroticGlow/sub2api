@@ -714,8 +714,8 @@ func openAIWSSemantic429Headers(account *Account, model string, headers http.Hea
 	return nil
 }
 
-func (s *OpenAIGatewayService) newOpenAIWSRateLimitFailoverError(account *Account, headers http.Header, responseBody []byte, message string) *UpstreamFailoverError {
-	return s.newOpenAIAccountFailoverError(
+func (s *OpenAIGatewayService) newOpenAIWSRateLimitFailoverError(account *Account, headers http.Header, responseBody []byte, message string, retryExhausted ...bool) *UpstreamFailoverError {
+	failoverErr := s.newOpenAIAccountFailoverError(
 		account,
 		http.StatusTooManyRequests,
 		headers,
@@ -724,6 +724,13 @@ func (s *OpenAIGatewayService) newOpenAIWSRateLimitFailoverError(account *Accoun
 		false,
 		false,
 	)
+	// Keep the optional argument for the custom WS handshake path. Upstream
+	// callers use the four-argument form; older/custom callers can mark that
+	// the transparent 429 retry budget was already exhausted.
+	if len(retryExhausted) > 0 && retryExhausted[0] {
+		failoverErr.Account429RetryExhausted = true
+	}
+	return failoverErr
 }
 
 func classifyOpenAIWSErrorEventFromRaw(codeRaw, errTypeRaw, msgRaw string) (string, bool) {
