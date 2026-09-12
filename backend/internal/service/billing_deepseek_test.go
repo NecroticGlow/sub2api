@@ -16,7 +16,7 @@ func TestDeepSeekPricingUsesOfficialRates(t *testing.T) {
 	svc := newTestBillingService()
 
 	officialV4Pro := struct{ in, out, cache float64 }{4.62e-6, 13.86e-6, 0.154e-6}
-	officialV4Flash := struct{ in, out, cache float64 }{10.5e-6, 31.5e-6, 0.35e-6}
+	officialV4Flash := struct{ in, out, cache float64 }{1.54e-6, 4.62e-6, 0.049e-6}
 	officialV41Flash := struct{ in, out, cache float64 }{1.05e-6, 4.2e-6, 0.021e-6}
 
 	cases := []struct {
@@ -85,16 +85,16 @@ func TestDeepSeekOfficialPricingPreservesPeakMultiplier(t *testing.T) {
 
 	pricing, err := svc.GetModelPricing("cline-pass/deepseek-v4-flash")
 	require.NoError(t, err)
-	require.InEpsilon(t, 10.5e-6, pricing.InputPricePerToken, 1e-12, "legacy V4-Flash off-peak input")
-	require.InEpsilon(t, 31.5e-6, pricing.OutputPricePerToken, 1e-12, "legacy V4-Flash off-peak output")
-	require.InEpsilon(t, 0.35e-6, pricing.CacheReadPricePerToken, 1e-12, "legacy V4-Flash off-peak cache hit")
+	require.InEpsilon(t, 1.54e-6, pricing.InputPricePerToken, 1e-12, "legacy V4-Flash off-peak input")
+	require.InEpsilon(t, 4.62e-6, pricing.OutputPricePerToken, 1e-12, "legacy V4-Flash off-peak output")
+	require.InEpsilon(t, 0.049e-6, pricing.CacheReadPricePerToken, 1e-12, "legacy V4-Flash off-peak cache hit")
 
 	utc := time.FixedZone("UTC", 0)
 	offPeak := time.Date(2026, 8, 17, 5, 59, 0, 0, utc) // 13:59 Beijing
 	peak := time.Date(2026, 8, 17, 6, 0, 0, 0, utc)     // 14:00 Beijing
 	require.Equal(t, 1.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, offPeak))
 	require.Equal(t, 2.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, peak))
-	require.InEpsilon(t, 10.5e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(offPeak), 1e-12)
+	require.InEpsilon(t, 1.54e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(offPeak), 1e-12)
 	require.InEpsilon(t, 21.0e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
 }
 

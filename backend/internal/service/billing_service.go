@@ -282,9 +282,9 @@ const (
 	deepseekV41FlashOffPeakOutputPrice = 4.2e-6  // $4.20 per MTok
 	deepseekV41FlashOffPeakCacheRead   = 2.1e-8  // $0.021 per MTok (cache hit)
 	// Legacy DeepSeek-V4-Flash: original $1.50/$4.50/$0.05 × 7.
-	deepseekV4FlashOffPeakInputPrice  = 1.05e-5 // $10.50 per MTok (cache miss)
-	deepseekV4FlashOffPeakOutputPrice = 3.15e-5 // $31.50 per MTok
-	deepseekV4FlashOffPeakCacheRead   = 3.5e-7  // $0.35 per MTok (cache hit)
+	deepseekV4FlashOffPeakInputPrice  = 1.54e-6 // $1.54 per MTok (cache miss; $0.22 USD x 7)
+	deepseekV4FlashOffPeakOutputPrice = 4.62e-6 // $4.62 per MTok ($0.66 USD x 7)
+	deepseekV4FlashOffPeakCacheRead   = 4.9e-8  // $0.049 per MTok (cache hit; $0.007 USD x 7)
 	// DeepSeek-V4-Pro: announcement $0.66/$1.98/$0.022 × 7.
 	deepseekProOffPeakInputPrice  = 4.62e-6  // $4.62 per MTok (cache miss)
 	deepseekProOffPeakOutputPrice = 1.386e-5 // $13.86 per MTok
