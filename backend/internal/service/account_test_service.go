@@ -149,6 +149,10 @@ type AccountTestService struct {
 	tlsFPProfileService       *TLSFingerprintProfileService
 	pluginManager             *PluginManager
 	codexQuotaOverdraft       codexQuotaOverdraftAccountTestCoordinator
+	modelMetadataRegistryMu   sync.Mutex
+	modelMetadataRegistry     map[string]modelsDevProvider
+	modelMetadataRegistryAt   time.Time
+	openaiGatewayService      *OpenAIGatewayService
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -166,6 +170,35 @@ func (s *AccountTestService) SetPluginManager(pluginManager *PluginManager) {
 	if s != nil {
 		s.pluginManager = pluginManager
 	}
+}
+
+func (s *AccountTestService) SetOpenAIGatewayService(gateway *OpenAIGatewayService) {
+	if s != nil {
+		s.openaiGatewayService = gateway
+	}
+}
+
+// FetchOpenAIAccountModels uses the shared cached discovery path for the test picker.
+func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, account *Account) ([]openai.Model, error) {
+	if s == nil || s.openaiGatewayService == nil {
+		return nil, errors.New("OpenAI model discovery service is unavailable")
+	}
+	response, err := s.openaiGatewayService.FetchOpenAIModelsList(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Data []openai.Model `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body, &payload); err != nil {
+		return nil, fmt.Errorf("decode OpenAI account models: %w", err)
+	}
+	for i := range payload.Data {
+		if strings.TrimSpace(payload.Data[i].DisplayName) == "" {
+			payload.Data[i].DisplayName = openaiCodexDisplayName(payload.Data[i].ID)
+		}
+	}
+	return payload.Data, nil
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -436,7 +469,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	} else {
 		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken)
+		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetAnthropicProtocolBaseURL())
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头

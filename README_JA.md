@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="sub2api-custom Logo" width="128" />
+<img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
 
-# sub2api-custom
+# Sub2API
 
 [![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
@@ -10,44 +10,13 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-**ルーティング、クォータポリシー、各種プロバイダー拡張に対応した AI API ゲートウェイ**
+<a href="https://trendshift.io/repositories/21823" target="_blank"><img src="https://trendshift.io/api/badge/repositories/21823" alt="Wei-Shaw%2Fsub2api | Trendshift" width="250" height="55"/></a>
+
+**サブスクリプションクォータ配分のための AI API ゲートウェイプラットフォーム**
 
 [English](README.md) | [中文](README_CN.md) | 日本語
 
 </div>
-
-> [!IMPORTANT]
-> これは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の非公式 Fork であり、Sub2API の公式リリースではありません。公式インストールスクリプトと `weishaw/sub2api:latest` イメージには、本 Fork の追加拡張は含まれていません。
-
-## 拡張機能
-
-- アカウント単位の上流 429 自動再試行に対応します。初回 429 の後、同じアカウントで既定 5 回（`0` で無効、最大 `10`）追加試行し、すべて失敗した場合のみ従来のエラー処理とフェイルオーバーを実行します。HTTP と WebSocket ハンドシェイクを対象とし、有効な出力を開始したストリームは再生しません。
-- グループごとにユーザー単位の同時実行上限を設定できます。「ユーザー + グループ」単位で独立して集計し、既存のユーザー単位・アカウント単位の同時実行制御と併用します。
-- API Key ごとに同一プラットフォームのフォールバックグループを選択できます。毎回プライマリグループを先に完全に試し、利用可能なアカウントがない場合のみフォールバックします。課金、クォータ、RPM、同時実行数、利用量の帰属はプライマリグループのままです。
-- OpenAI アカウント単位の透支機能スイッチと `CPA fingerprint egress` モードを提供します。CPA モードはアカウントごとに一意で安定したデバイス識別情報を維持しつつ、すべてのセッションやスレッドを同一化しません。
-- Codex の 5h / 7d 使用率が 95% に達すると通常の OAuth テキストリクエストへ透支用ペイロードを事前適用し、100% 到達後は実際の業務リクエスト結果を直接の判定根拠として使用します。
-- 注入済みリクエストが明確なクォータ 429 を返した場合、そのクォータ周期を `failed` として確定します。業務リクエストの根拠が得られない場合のみ、周期ごとに最大 1 回の独立プローブを実行します。
-- 検証成功後もアカウントをスケジュール対象に保ち、5h / 7d それぞれの透支リクエスト数、Token、コスト、回復時刻を記録します。
-- `pending`、`passed`、`failed`、`inconclusive`、`recovered` の状態を管理画面と PostgreSQL に保存します。
-- 一時的な 429、タイムアウト、ネットワーク障害、5xx は `inconclusive` として扱い、バックグラウンドで自動再試行しません。
-- PostgreSQL の atomic claim により複数インスタンスで重複検証を防ぎ、最終失敗・アカウント停止・スケジューラ通知を同一トランザクションで保存します。追加の schema migration は不要です。
-- 設定スイッチで透支ロジックを直ちに無効化し、上流 Sub2API のスケジューリング動作へ戻せます。
-
-ソースビルド、既存環境からの移行、検証、更新、ロールバック、Nginx、トラブルシューティングについては、**[中国語のデプロイ・運用ガイド](CODEX_OVERDRAFT_DEPLOYMENT_CN.md)** を参照してください。
-
-```bash
-git clone https://github.com/DeanZFC/sub2api-custom.git sub2api-custom
-cd sub2api-custom/deploy
-cp .env.example .env
-# .env に POSTGRES_PASSWORD、JWT_SECRET、TOTP_ENCRYPTION_KEY を設定
-mkdir -p data postgres_data redis_data
-docker compose \
-  -f docker-compose.local.yml \
-  -f docker-compose.custom.yml \
-  up -d --build
-```
-
-本 Fork は [GNU LGPL-3.0](LICENSE) を継承し、上流の著作権表示を保持します。以下の機能、デプロイ、スポンサー情報は上流 Sub2API の文書を継承したものであり、上流のスポンサーが本 Fork を支援または承認していることを意味しません。
 
 ## ⚠️ 重要なお知らせ
 
@@ -130,12 +99,6 @@ docker compose \
 </tr>
 
 <tr>
-<td width="180"><a href="https://sui-xiang.com/"><img src="assets/partners/logos/sui-xiang.jpg" alt="sui-xiang" width="150"></a></td>
-<td>随想AI ゲートウェイのご支援に感謝します！<a href="https://sui-xiang.com/">随想AI ゲートウェイ</a> は信頼性と効率に優れた API 中継サービスプロバイダーで、Claude、Codex、Gemini などの中継サービスを提供しています。プライバシー重視の中継ステーション・データ転売なし・モデル水増しなし、プライバシー・透明性・超高速アフターサービス。新規アカウント登録後、毎日サインインで 0.5 元のテストクレジットがもらえ、チャージは 1:1、サブスクリプション不要、従量課金。マルチライン冗長、クロスリージョン災害復旧、自動フェイルオーバー、長時間 SSE 接続が途切れません。99.9% の可用性、重要な呼び出しは決して遅れません。
-</td>
-</tr>
-
-<tr>
 <td width="180"><a href="https://www.proxy4free.com/?keyword=4yjqecpc"><img src="assets/partners/logos/proxy4free.png" alt="proxy4free" width="150"></a></td>
 <td>Proxy4Free のご支援に感謝します！Proxy4Free は開発者と AI アプリケーション向けのデータプロキシサービスプロバイダーで、住宅プロキシ、静的住宅プロキシ、ISP プロキシ、データセンタープロキシなど多様なプロキシソリューションを提供しており、Web Scraping、Browser Automation、AI Agent などのシナリオに適しています。グローバル IP リソース、安定した接続、柔軟な切り替えをサポートし、開発者のデータ収集成功率の向上と IP ブロックリスクの低減を支援します。<a href="https://www.proxy4free.com/?keyword=4yjqecpc">こちらのリンクから登録</a>して、より安定した効率的な自動化ワークフローを簡単に構築しましょう。
 </td>
@@ -158,11 +121,6 @@ docker compose \
 <tr>
 <td width="180"><a href="https://nagora.ai/"><img src="assets/partners/logos/nagora.png" alt="Nagora" width="150"></a></td>
 <td><a href="https://nagora.ai/">Nagora</a>は、開発者やチーム向けに設計されたマルチモデルAI APIゲートウェイです。1つのアカウントと1つのAPIキーだけで、26種類以上の主要なテキストモデルおよび画像モデルを一元的に利用できます。OpenAI、Anthropic、Geminiの各プロトコルに対応し、Claude Code、Codex、Gemini CLIなどの開発ツールにもシームレスに接続できます。 プラットフォームには、インテリジェントルーティング、自動フェイルオーバー、透明性の高い料金体系、請求の一元管理に加え、予算管理、レート制限、同時実行数の制御機能が備わっています。これにより、個人開発、チームでの共同作業、本番環境におけるAI APIの利用を、より安定的かつ柔軟に管理できます。 既存のアプリケーションを改修する必要はありません。Base URLとAPIキーを置き換えるだけで、最短1分で導入を完了できます。</td>
-</tr>
-
-<tr>
-<td width="180"><a href="https://www.novada.com/?sub2api/"><img src="assets/partners/logos/novada.png" alt="Novada" width="150"></a></td>
-<td>Novada のご支援に感謝します！<a href="https://www.novada.com/?sub2api/">Novada</a> は、AI アプリケーションや自動化ワークフローを構築する開発者向けに、レジデンシャル、ISP、データセンター、モバイルプロキシに加え、Web Unlocker と Scraper API を提供しています。グローバルな IP カバレッジ、柔軟なローテーション／スティッキーセッション、精密なジオターゲティングにより、AI エージェントワークフロー、クロスリージョンテスト、Web リサーチ、ブラウザ自動化などのシーンで、チームが Web データへ確実にアクセスできるよう支援します。Novada で、より安定しスケーラブルな AI ワークフローを構築しましょう。</td>
 </tr>
 
 <tr>
@@ -198,6 +156,26 @@ docker compose \
 <tr>
 <td width="180"><a href="https://www.duckip.cn/?keyword=cu7oog6y"><img src="assets/partners/logos/duckip.png" alt="DuckIP" width="150"></a></td>
 <td><a href="https://www.duckip.cn/?keyword=cu7oog6y">DuckIP</a> - 195 以上の国と地域にわたる 9,000 万以上のグローバルレジデンシャルネットワークリソース。ローテーションとスティッキーセッションに対応し、パブリックデータ収集、RAG 更新、モデル評価、マルチリージョンデータワークロードに最適。🟢レジデンシャルプロキシ - 20% オフ；🟢スタティックレジデンシャルプロキシ - ¥50.00/IP から；🟢無制限レジデンシャルプロキシ - ¥19.8/時間 から。✅500M 無料トライアルを取得。</td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://go.apimart.ai/gh-sub2api"><img src="assets/partners/logos/apimart.jpg" alt="APIMart" width="150"></a></td>
+<td>APIMart のご支援に感謝します！<a href="https://go.apimart.ai/gh-sub2api">APIMart</a> は AI 画像・動画生成に特化した低価格 API プラットフォームです。GPT-Image-2 は 1 枚 $0.006 から、1 ドルで 160 枚以上の画像を生成できます。画像と動画の両方に対応する非同期 API を 1 つで利用でき、タスクを送信して ID を取得し、ポーリングまたはコールバックで結果を取得できます。数万枚規模のバッチ処理でもタイムアウトせず、モデルを変更してもコードの変更は不要です。月額料金なしの従量課金制で、<a href="https://go.apimart.ai/gh-sub2api">こちらの登録リンク</a>からすぐに利用を開始できます。</td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://www.axisnow.io/"><img src="assets/partners/logos/axisnow.jpg" alt="AxisNow" width="150"></a></td>
+<td>AxisNow のご支援に感謝します！<a href="https://www.axisnow.io/">AxisNow</a> はウェブサイトと API を保護・高速化し、中国本土および世界中で快適なアクセス体験を実現します。クライアント SDK により、ネイティブ／モバイルアプリにも高速化・セキュリティ機能を拡張できます — <strong>自社構築・プライベートデプロイ CDN</strong>｜<strong>サブスクリプション型高防御 CDN</strong>｜<strong>自律制御で柔軟に組み合わせられる CDN ネットワーク</strong>。</td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://pp.dog/register?aff=SUB2API"><img src="assets/partners/logos/ppdog.png" alt="PP.dog" width="150"></a></td>
+<td><a href="https://pp.dog/register?aff=SUB2API">PP.dog</a> は自社運用の大規模アカウントプールを持つソースレベルの API ゲートウェイで、下流の中継ステーションや高頻度開発者向けに API ゲートウェイリレーサービスを提供し、アカウントプールの自主構築にかかるすべての手間を省きます。✅ ソース直供：自社運用の大規模アカウントプール、中間マージンなし；🧧 コスト最強：総合レート倍率わずか 0.03x、コストは公式の 0.35% のみ；🚀 超高速体験：ファーストトークンレイテンシ 1 秒未満、公式ネイティブ API に匹敵するスムーズさ。<a href="https://www.pp.dog/register?aff=SUB2API">今すぐ PP.dog に接続</a></td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://colaproxy.com/?utm_source=sub2api&utm_medium=sub2api&ref=sub2api"><img src="assets/partners/logos/cola-proxy.jpg" alt="ColaProxy" width="150"></a></td>
+<td>ColaProxy は、Web スクレイピング、自動化、マルチアカウント管理向けに構築された高品質な住宅プロキシを提供します。有効期限なしのトラフィックで無料トライアルが利用でき、料金は $0.3/GB から、無制限の同時接続とインテリジェントな IP ローテーションにより、よりスムーズで安定したプロキシ体験を実現します。割引コード COLA10 で 10% オフ、信頼性の高い住宅プロキシでプロジェクトを今すぐスケールしましょう。<a href="https://colaproxy.com/?utm_source=sub2api&utm_medium=sub2api&ref=sub2api">ColaProxy を始める</a></td>
 </tr>
 
 </table>

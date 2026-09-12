@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="sub2api-custom Logo" width="128" />
+<img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
 
-# sub2api-custom
+# Sub2API
 
 [![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
@@ -10,81 +10,14 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-**支持路由、额度策略和多种服务商扩展的 AI API 网关**
+<a href="https://trendshift.io/repositories/21823" target="_blank"><img src="https://trendshift.io/api/badge/repositories/21823" alt="Wei-Shaw%2Fsub2api | Trendshift" width="250" height="55"/></a>
+
+**AI API 网关平台 - 订阅配额分发管理**
 
 [English](README.md) | 中文 | [日本語](README_JA.md)
 
 </div>
 
-> [!IMPORTANT]
-> 这是基于 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的非官方 Fork，不是 Sub2API 官方发行版。官方安装脚本和 `weishaw/sub2api:latest` 镜像不包含本 Fork 的扩展功能，请按本仓库的源码构建文档部署。
-
-## 扩展功能
-
-- 支持账号级上游 429 自动重试：首次 429 后默认在同一账号额外重试 5 次，可在账号创建、编辑和批量编辑中配置为 `0..10`；一次用户请求内，同一账号的所有官方重试共享这份额外预算，不会重复领取。中间 429 不触发限流或冷却，预算耗尽后完整执行原有同账号重试、错误处理、冷却与切号逻辑。HTTP 请求和 WebSocket 握手均覆盖，流式响应一旦已输出有效内容则不会盲目重放。
-- 支持分组内每用户并发限制：可为每个分组单独配置并发上限，按“用户 + 分组”独立计数，并与原有用户级、账号级并发控制同时生效。
-- 支持 API Key 主分组与同平台兜底分组：每次请求一定先完整尝试主分组，仅在主分组明确无可用账号时进入兜底分组；计费、额度、RPM、并发及用量归属仍使用 API Key 主分组。
-- OpenAI 账号支持独立的透支功能开关和 `CPA 指纹出口`：关闭账号开关后不会执行透支逻辑；CPA 模式为每个账号提供唯一、稳定的设备身份，同时不强制所有会话和线程共用同一身份。
-- Codex 5h / 7d 用量达到 95% 后，为普通 OAuth 文本业务请求注入透支请求形态；达到 100% 后直接使用真实业务结果确认透支状态。
-- 注入业务请求成功即记为 `passed`；返回明确额度 429 即记为 `failed` 并切号冷却。缺少业务证据时，同一额度周期最多补充 1 次独立探测。
-- 确认成功后继续参与账号调度，并分别统计 5h / 7d 透支期请求数、Token 和金额。
-- 管理页面显示“透支探测中”“透支中”“已确认限额”“探测无法确认”和“额度已恢复”。
-- 网络、超时、5xx 和普通瞬时 429 不会被误判为额度耗尽；401/403、账号禁用和其他风控仍使用原有策略。
-- 多实例通过 PostgreSQL 原子领取（atomic claim）去重；状态保存在现有 `accounts.extra`，无需新增数据表。
-- 可通过一个配置开关立即关闭，恢复上游 Sub2API 的调度和请求行为。
-- 管理后台从本项目的 `sub2api-custom` 分支检查更新，不再使用官方 Sub2API 的版本结果。
-
-## 快速部署
-
-完整步骤、现有服务器迁移、Nginx、验证、升级和故障排查请阅读：
-
-**[sub2api-custom 部署与运维指南](CODEX_OVERDRAFT_DEPLOYMENT_CN.md)**
-
-最短部署流程：
-
-```bash
-git clone https://github.com/DeanZFC/sub2api-custom.git sub2api-custom
-cd sub2api-custom/deploy
-cp .env.example .env
-chmod 600 .env
-# 编辑 .env，至少设置 POSTGRES_PASSWORD、JWT_SECRET 和 TOTP_ENCRYPTION_KEY
-mkdir -p data postgres_data redis_data
-docker compose \
-  -f docker-compose.local.yml \
-  -f docker-compose.custom.yml \
-  up -d --build
-```
-
-源码中的 `deploy/config.example.yaml` 只是模板。运行配置通常位于 `deploy/data/config.yaml`。透支开关为：
-
-```yaml
-gateway:
-  codex_quota_overdraft_enabled: true
-```
-
-公开的 `docker-compose.custom.yml` 已通过环境变量默认开启该功能。
-
-源码镜像会把根目录的 `FORK_VERSION` 写入版本信息。管理后台检测到本项目新版本后只提示使用 `git pull` 更新源码，不会下载官方二进制覆盖扩展功能。完整更新命令见部署指南的“日常升级本 Fork”。
-
-## 如何确认透支成功
-
-账号额度达到 100% 后检查日志：
-
-```bash
-docker logs --since 30m sub2api-custom 2>&1 | \
-  grep -E 'codex_quota_overdraft_(probe|state|pause|stale_rate_limit)'
-```
-
-出现 `codex_quota_overdraft_business_passed` 或 `codex_quota_overdraft_probe_passed`，页面显示“透支中”，并且后续真实业务请求成功，即可确认透支功能完整生效。注入业务请求返回明确额度 429 时会出现 `codex_quota_overdraft_business_exhausted`，状态、账号暂停和调度通知会原子提交。网络错误、5xx、超时和普通瞬时 429 不会判定透支结束；独立探测为 `inconclusive` 后同周期不自动重试。OpenAI OAuth 常规文本“测试账号连接”也使用同一请求形态和状态机；API Key、Shadow、图片和 Compact 测试除外。额度未达到 95% 时没有透支注入，未达到 100% 时没有探测日志，均属正常现象。
-
-## 来源、许可证与风险
-
-- 上游项目：[Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)
-- 透支逻辑参考：[Mxucc/cpa-account-config-manager](https://github.com/Mxucc/cpa-account-config-manager)
-- 许可证：[GNU LGPL-3.0](LICENSE)，保留上游版权和许可证声明。
-- 本功能不保证上游一定允许超额调用，探测和后续请求可能产生真实用量，也可能触发账号限制。请自行核对上游服务条款并承担使用风险。
-
-下面的功能、部署和赞助信息继承自上游 Sub2API 文档。上游赞助关系不代表这些组织赞助或认可本 Fork；需要透支功能时，请以上方本 Fork 部署指南为准。
 
 ## ⚠️ 重要提醒
 
@@ -167,12 +100,6 @@ docker logs --since 30m sub2api-custom 2>&1 | \
 </tr>
 
 <tr>
-<td width="180"><a href="https://sui-xiang.com/"><img src="assets/partners/logos/sui-xiang.jpg" alt="sui-xiang" width="150"></a></td>
-<td>感谢 随想AI网关 赞助本项目！<a href="https://sui-xiang.com/">随想AI网关</a>  是一家可靠高效的 API 中继服务提供商，提供 Claude、Codex、Gemini 等的中继服务。注重隐私的中转站·无数据倒卖·无模型掺水，隐私，透明，极速售后。新账户注册每日签到就送 0.5 元测试额度，充值额度 1:1，无需订阅，按量付费。多线路冗余、跨区域容灾、自动故障切换,长链路 SSE 不中断。99.9% 可用性,关键调用从不掉队。
-</td>
-</tr>
-
-<tr>
 <td width="180"><a href="https://www.proxy4free.com/?keyword=4yjqecpc"><img src="assets/partners/logos/proxy4free.png" alt="proxy4free" width="150"></a></td>
 <td>感谢 Proxy4Free 赞助本项目！Proxy4Free 是面向开发者和 AI 应用的数据代理服务商，提供住宅代理、静态住宅代理、ISP 代理及数据中心代理等多种代理解决方案，适用于 Web Scraping、Browser Automation、AI Agent 等场景。支持全球 IP 资源、稳定连接与灵活切换，帮助开发者提升数据采集成功率，降低 IP 封禁风险。通过<a href="https://www.proxy4free.com/?keyword=4yjqecpc">此链接注册</a>即可开始体验，轻松构建更稳定、高效的自动化工作流。
 </td>
@@ -195,11 +122,6 @@ docker logs --since 30m sub2api-custom 2>&1 | \
 <tr>
 <td width="180"><a href="https://nagora.ai/"><img src="assets/partners/logos/nagora.png" alt="Nagora" width="150"></a></td>
 <td><a href="https://nagora.ai/">Nagora</a> 是专为开发者和团队打造的多模型 AI API 网关。通过一个账户和一枚 API Key，即可统一调用 26+ 款主流文本与图像模型，兼容 OpenAI、Anthropic 与 Gemini 协议，并可无缝接入 Claude Code、Codex、Gemini CLI 等开发工具。平台提供智能路由、自动故障转移、透明计费与统一账单，同时支持预算、限速、并发控制，让个人开发、团队协作和生产环境中的 AI 调用更稳定、更可控。无需改造现有应用，只需替换 Base URL 与 API Key，最快 1 分钟即可完成接入。</td>
-</tr>
-
-<tr>
-<td width="180"><a href="https://www.novada.com/?sub2api/"><img src="assets/partners/logos/novada.png" alt="Novada" width="150"></a></td>
-<td>感谢 <a href="https://www.novada.com/?sub2api/">Novada</a> 赞助本项目！Novada 为构建 AI 应用与自动化工作流的开发者提供住宅代理、ISP 代理、数据中心代理与移动代理，以及 Web Unlocker 和 Scraper API。凭借全球 IP 覆盖、灵活的轮换与粘性会话以及精准的地理定位，Novada 帮助团队在 AI Agent 工作流、跨区域测试、网络调研与浏览器自动化等场景中稳定获取网络数据。立即体验 Novada，构建更稳定、更可扩展的 AI 工作流。</td>
 </tr>
 
 <tr>
@@ -237,6 +159,26 @@ docker logs --since 30m sub2api-custom 2>&1 | \
 <td><a href="https://www.duckip.cn/?keyword=cu7oog6y">DuckIP</a> - 9000 万+ 全球住宅网络资源，覆盖 195+ 国家和地区，支持轮换和粘性会话，适用于公共数据采集、RAG 更新、模型评估和多区域数据工作负载。🟢住宅代理 - 8 折优惠；🟢静态住宅代理 - ¥50.00/IP 起；🟢无限住宅代理 - ¥19.8/小时 起。✅免费领取 500M 试用流量。</td>
 </tr>
 
+<tr>
+<td width="180"><a href="https://go.apimart.ai/gh-sub2api"><img src="assets/partners/logos/apimart.jpg" alt="APIMart" width="150"></a></td>
+<td>感谢 APIMart 赞助了本项目！<a href="https://go.apimart.ai/gh-sub2api">APIMart</a> 是专注于 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，1 美元可生成 160+ 张图片。图片、视频一套异步 API 通吃：提交任务获取 ID，通过轮询或回调获取结果；批量生成上万张图片也不会超时，切换模型无需修改代码。按量付费、无月费，通过<a href="https://go.apimart.ai/gh-sub2api">此注册链接</a>注册即可开始使用。</td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://www.axisnow.io/"><img src="assets/partners/logos/axisnow.jpg" alt="AxisNow" width="150"></a></td>
+<td>感谢 AxisNow 赞助了本项目！<a href="https://www.axisnow.io/">AxisNow</a> 保护并加速网站与 API，兼顾中国大陆及全球的访问体验，并通过客户端 SDK，将加速与安全能力延伸至原生/移动 App — <strong>自建私有部署 CDN</strong>｜<strong>订阅式高防 CDN</strong>｜<strong>自主可控、灵活组合的 CDN 网络</strong>。</td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://pp.dog/register?aff=SUB2API"><img src="assets/partners/logos/ppdog.png" alt="PP.dog" width="150"></a></td>
+<td><a href="https://pp.dog/register?aff=SUB2API">PP.dog</a> 是自建账号池的源头 API 网关，专注为下游中转站与高频开发者提供 API 网关中继服务，帮您省去自建号池的一切麻烦——✅ 源头直供：自持海量账号池，无中间商赚差价；🧧 成本屠夫：综合倍率低至 0.03x，成本仅为官方的千分之3.5；🚀 极速体验：首 Token 延迟 < 1s，流畅媲美官方原生 API。<a href="https://www.pp.dog/register?aff=SUB2API">立即接入PP.dog</a></td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://colaproxy.com/?utm_source=sub2api&utm_medium=sub2api&ref=sub2api"><img src="assets/partners/logos/cola-proxy.jpg" alt="ColaProxy" width="150"></a></td>
+<td>ColaProxy 提供专为网页抓取、自动化和多账号管理打造的高质量住宅代理。免费试用，流量永不过期，价格低至 $0.3/GB，支持无限并发连接和智能 IP 轮换，带来更流畅、更稳定的代理体验。使用优惠码 COLA10 立享 9 折优惠，立即开始使用可靠的住宅代理扩展您的项目。<a href="https://colaproxy.com/?utm_source=sub2api&utm_medium=sub2api&ref=sub2api">立即开始使用 ColaProxy</a></td>
+</tr>
+
 </table>
 
 ## 项目概述
@@ -249,31 +191,11 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 - **API Key 分发** - 为用户生成和管理 API Key
 - **精确计费** - Token 级别的用量追踪和成本计算
 - **智能调度** - 智能账号选择，支持粘性会话
-- **API Key 兜底分组** - 主分组无可用账号时自动切换到同平台兜底分组，并保证每次请求优先主分组
-- **并发控制** - 用户级、分组内每用户、账号级并发限制；分组并发按“用户 + 分组”独立计数
+- **并发控制** - 用户级和账号级并发限制
 - **速率限制** - 可配置的请求和 Token 速率限制
 - **内置支付系统** - 支持 EasyPay 易支付、支付宝官方、微信官方、Stripe，用户自助充值，无需独立部署支付服务（[配置指南](docs/PAYMENT_CN.md)）
 - **管理后台** - Web 界面进行监控和管理
 - **外部系统集成** - 支持通过 iframe 嵌入外部系统（如工单等），扩展管理后台功能
-
-### 分组用户并发限制
-
-管理员可在“分组”创建或编辑表单中设置“分组用户并发上限” (`user_concurrency_limit`)：
-
-- `0` 表示不启用分组并发限制；
-- 大于 `0` 时，限制维度为“用户 + 分组”，例如设置为 `3` 后，同一用户在该分组最多同时有 3 个请求；
-- 不同用户在同一分组分别计算，不同分组也分别计算；用户自身的全局并发上限仍同时生效，取更严格的限制；
-- 修改分组配置后，已缓存的 API Key 会自动失效并重新加载，无需手动清理缓存。
-
-### API Key 兜底分组
-
-用户可在创建或编辑 API Key 时选择一个同平台的“兜底分组”：
-
-- 每次请求都先完整尝试主分组，不会在主分组可用时轮询或分流到兜底分组；
-- 只有账号调度明确返回“无可用账号”时才尝试兜底分组，数据库、Redis、参数或权限错误不会触发；
-- 主分组与兜底分组必须不同且平台一致，兜底分组被禁用或删除后自动停止使用；
-- 兜底仅改变上游账号路由，计费、额度、RPM、并发和用量统计仍归属 API Key 的主分组；
-- 可在日志中搜索 `api_key_group_fallback_attempt` 和 `api_key_group_fallback_selected` 确认触发与选中情况。
 
 ## 生态项目
 
@@ -353,9 +275,12 @@ sudo systemctl enable sub2api
 
 #### 升级
 
-官方发行版可以直接在管理后台进行二进制在线升级。本项目使用源码构建，管理后台会读取本项目分支中的 `FORK_VERSION` 检测新版本，并提示使用 `git pull` 后重新构建；不会在线替换二进制。
+可以直接在 **管理后台** 左上角点击 **检测更新** 按钮进行在线升级。
 
-本 Fork 的升级命令见 [日常升级本 Fork](CODEX_OVERDRAFT_DEPLOYMENT_CN.md#日常升级本-fork)。源码构建不支持页面内一键升级和在线回退，避免误装官方二进制而丢失透支功能。
+网页升级功能支持：
+- 自动检测新版本
+- 一键下载并应用更新
+- 支持回滚
 
 #### 常用命令
 
@@ -780,6 +705,14 @@ go generate ./cmd/server
 ```
 
 ---
+
+## OpenAI 图片模型
+
+支持 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` 及其 `2026-09-08` 日期快照，可通过 `/v1/images/generations`、`/v1/images/edits` 调用。`quality` 支持 `xhigh`、`max`、`auto`，合法自定义尺寸和图片 usage 明细保持透传。
+
+OAuth / Setup Token 图片请求使用 Responses 主控模型调用 `image_generation` 工具，默认主控为 `gpt-5.6-luna`。可设置 `SUB2API_IMAGES_MAIN_MODEL` 切换为账号支持的文本模型；Docker Compose 用户修改 `.env` 后执行 `docker compose up -d` 重建容器。该配置不会替换所选图片模型，也不会覆盖 `/v1/responses` 请求中已经提供的文本主控模型。
+
+升级后，无模型限制的账号自动支持新模型。已有显式账号映射或分组白名单需要加入两个 2.5 模型（日期快照按需加入）；升级不会自动扩大管理员设置的模型权限。新模型内置价格包含官方文本输入、图片输入和图片输出 token 费率，远端价格表尚未更新时使用内置 2.5 价格；实际按次或按 token 计费仍由既有分组/渠道配置决定。
 
 ## 简易模式
 

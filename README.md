@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="sub2api-custom Logo" width="128" />
+<img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
 
-# sub2api-custom
+# Sub2API
 
 [![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
@@ -10,48 +10,13 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-**Extensible AI API gateway with routing, quota policies, and provider integrations**
+<a href="https://trendshift.io/repositories/21823" target="_blank"><img src="https://trendshift.io/api/badge/repositories/21823" alt="Wei-Shaw%2Fsub2api | Trendshift" width="250" height="55"/></a>
+
+**AI API Gateway Platform for Subscription Quota Distribution**
 
 English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 </div>
-
-> [!IMPORTANT]
-> This is an unofficial fork of [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api), not an official Sub2API release. The upstream install script and `weishaw/sub2api:latest` image do not contain this Fork's additional extensions. Build this fork from source as documented below.
-
-## Included Extensions
-
-- Supports per-account upstream 429 retries: five additional same-account attempts by default, configurable from `0` (disabled) to `10` in account create, edit, and bulk-edit forms. Intermediate 429 responses do not trigger cooldown or failover; the existing error path runs only after exhaustion. HTTP requests and WebSocket handshakes are covered, while a stream that has already emitted meaningful output is never blindly replayed.
-- Adds an optional per-user concurrency cap to every group. Usage is counted independently by user and group, while existing user-level and account-level concurrency controls remain in effect.
-- Lets each API key select a same-platform fallback group. Every request fully tries the primary group first and uses the fallback only when the primary group has no available account; billing, quotas, RPM, concurrency, and usage attribution remain on the primary API-key group.
-- Provides an OpenAI account-level overdraft switch and a `CPA fingerprint egress` mode. The fingerprint mode keeps the device identity stable and unique per account without forcing all sessions and threads to share one identity.
-- Pre-arms ordinary OAuth text traffic with the overdraft payload at 95% usage and uses successful business traffic as direct evidence after usage reaches 100%.
-- Marks an injected request's explicit quota 429 as terminal for that cycle; when business evidence is unavailable, runs at most one independent probe per quota cycle.
-- Keeps an account schedulable after a successful probe and tracks overdraft requests, tokens, cost, and recovery for both windows independently.
-- Exposes `pending`, `passed`, `failed`, `inconclusive`, and `recovered` states in the admin UI and PostgreSQL.
-- Treats transient 429s, timeouts, network failures, and 5xx responses as inconclusive without automatic background retries.
-- Uses an atomic PostgreSQL claim for multi-instance deployments and atomically commits terminal failure, account pause, and scheduler notification without a schema migration.
-- Supports an immediate configuration rollback to the upstream scheduling behavior.
-
-See the **[Chinese deployment and operations guide](CODEX_OVERDRAFT_DEPLOYMENT_CN.md)** for source builds, migration, verification, upgrades, rollback, Nginx, and troubleshooting. Maintainers should also read [CODEX_QUOTA_OVERDRAFT_CUSTOMIZATION.md](CODEX_QUOTA_OVERDRAFT_CUSTOMIZATION.md).
-
-Quick start:
-
-```bash
-git clone https://github.com/DeanZFC/sub2api-custom.git sub2api-custom
-cd sub2api-custom/deploy
-cp .env.example .env
-# Set POSTGRES_PASSWORD, JWT_SECRET, and TOTP_ENCRYPTION_KEY in .env
-mkdir -p data postgres_data redis_data
-docker compose \
-  -f docker-compose.local.yml \
-  -f docker-compose.custom.yml \
-  up -d --build
-```
-
-This fork remains licensed under [GNU LGPL-3.0](LICENSE) and preserves upstream attribution. Some optional quota behaviors may conflict with upstream provider terms and may incur real usage or account restrictions. Operators are responsible for compliance and risk.
-
-The remaining feature, deployment, sponsor, and license text is inherited from the upstream Sub2API documentation. Upstream sponsorship does not imply sponsorship or endorsement of this fork.
 
 ## ⚠️ Important Notice
 
@@ -132,12 +97,6 @@ Please read the following carefully before using this project:
 </tr>
 
 <tr>
-<td width="180"><a href="https://sui-xiang.com/"><img src="assets/partners/logos/sui-xiang.jpg" alt="sui-xiang" width="150"></a></td>
-<td>Thanks to Suixiang AI Gateway for sponsoring this project! <a href="https://sui-xiang.com/">Suixiang AI Gateway</a> is a reliable and efficient API relay service provider offering relay services for Claude, Codex, Gemini, and more. A privacy-focused relay — no data reselling, no model dilution; privacy, transparency, and lightning-fast after-sales support. New accounts get ¥0.5 in trial credit daily by signing in; top-ups are 1:1, no subscription required, pay-as-you-go. Multi-line redundancy, cross-region disaster recovery, automatic failover, and uninterrupted long-link SSE. 99.9% availability — critical calls never fall behind.
-</td>
-</tr>
-
-<tr>
 <td width="180"><a href="https://www.proxy4free.com/?keyword=4yjqecpc"><img src="assets/partners/logos/proxy4free.png" alt="proxy4free" width="150"></a></td>
 <td>Thanks to Proxy4Free for sponsoring this project! Proxy4Free is a data proxy service provider for developers and AI applications, offering residential proxies, static residential proxies, ISP proxies, and datacenter proxies for scenarios such as Web Scraping, Browser Automation, and AI Agents. With global IP resources, stable connections, and flexible switching, it helps developers improve data collection success rates and reduce the risk of IP bans. Register via <a href="https://www.proxy4free.com/?keyword=4yjqecpc">this link</a> to get started and easily build more stable and efficient automation workflows.
 </td>
@@ -160,11 +119,6 @@ Please read the following carefully before using this project:
 <tr>
 <td width="180"><a href="https://nagora.ai/"><img src="assets/partners/logos/nagora.png" alt="Nagora" width="150"></a></td>
 <td><a href="https://nagora.ai/">Nagora</a> is a multi-model AI API gateway built for developers and teams. With a single account and API key, you can access more than 26 leading text and image models through one unified interface. It is compatible with OpenAI, Anthropic, and Gemini protocols and integrates seamlessly with development tools such as Claude Code, Codex, and Gemini CLI. The platform provides intelligent routing, automatic failover, transparent pricing, and consolidated billing, along with budget management, rate limiting, and concurrency controls. This makes AI usage more reliable and manageable across individual development, team collaboration, and production environments. No changes to your existing application are required. Simply replace the Base URL and API key to complete the integration in as little as one minute.</td>
-</tr>
-
-<tr>
-<td width="180"><a href="https://www.novada.com/?sub2api/"><img src="assets/partners/logos/novada.png" alt="Novada" width="150"></a></td>
-<td>Thanks to <a href="https://www.novada.com/?sub2api/">Novada</a> for sponsoring this project! Novada provides residential, ISP, datacenter, and mobile proxies, along with Web Unlocker and Scraper APIs for developers building AI applications and automation workflows. With global IP coverage, flexible rotating and sticky sessions, and precise geo-targeting, Novada helps teams access web data reliably for AI agent workflows, cross-region testing, web research, and browser automation. Explore Novada to build more stable and scalable AI workflows.</td>
 </tr>
 
 <tr>
@@ -202,6 +156,26 @@ Please read the following carefully before using this project:
 <td><a href="https://www.duckip.cn/?keyword=cu7oog6y">DuckIP</a> - 90M+ global residential network resources across 195+ countries and regions, with rotation and sticky sessions for public data collection, RAG updates, model evaluation, and multi-region data workloads. 🟢Residential Proxy - 20% Off; 🟢Static Residential Proxy - Starting at ¥50.00/IP; 🟢Unlimited Residential Proxy - Starting at ¥19.8/Hour. ✅Get 500M Free Trial.</td>
 </tr>
 
+<tr>
+<td width="180"><a href="https://go.apimart.ai/gh-sub2api"><img src="assets/partners/logos/apimart.jpg" alt="APIMart" width="150"></a></td>
+<td>Thanks to APIMart for sponsoring this project! <a href="https://go.apimart.ai/gh-sub2api">APIMart</a> is a low-cost API platform for AI image and video generation — GPT-Image-2 from $0.006 per image, with 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, and retrieve results via polling or callback. Batch tens of thousands of images without timeouts, and switch models without changing code. Pay as you go with no monthly fee — <a href="https://go.apimart.ai/gh-sub2api">sign up here</a> to get started.</td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://www.axisnow.io/"><img src="assets/partners/logos/axisnow.jpg" alt="AxisNow" width="150"></a></td>
+<td>Thanks to AxisNow for sponsoring this project! <a href="https://www.axisnow.io/">AxisNow</a> protects and accelerates websites and APIs, delivering an optimal access experience across mainland China and globally, while extending acceleration and security capabilities to native/mobile apps through client SDKs — <strong>self-hosted private-deployment CDN</strong> | <strong>subscription-based DDoS-protected CDN</strong> | <strong>autonomous, flexibly composable CDN network</strong>.</td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://pp.dog/register?aff=SUB2API"><img src="assets/partners/logos/ppdog.png" alt="PP.dog" width="150"></a></td>
+<td><a href="https://pp.dog/register?aff=SUB2API">PP.dog</a> is a source-level API gateway with its own massive account pool, purpose-built as an upstream relay for downstream transit stations and high-frequency developers — saving you the hassle of building and maintaining your own account pool. ✅ Direct from source: self-operated account pool with no middleman markup; 🧧 Cost crusher: combined rate multiplier as low as 0.03x, just 0.35% of official pricing; 🚀 Blazing fast: first-token latency < 1s, on par with the official native API. <a href="https://www.pp.dog/register?aff=SUB2API">Get started with PP.dog now</a></td>
+</tr>
+
+<tr>
+<td width="180"><a href="https://colaproxy.com/?utm_source=sub2api&utm_medium=sub2api&ref=sub2api"><img src="assets/partners/logos/cola-proxy.jpg" alt="ColaProxy" width="150"></a></td>
+<td>ColaProxy provides high-quality residential proxies built for web scraping, automation, and multi-account management. Get a free trial with non-expiring traffic, pricing starting as low as $0.3/GB, unlimited concurrent connections, and intelligent IP rotation for a smoother, more stable proxy experience. Use discount code COLA10 to get 10% off and start scaling your projects with reliable residential proxies today. <a href="https://colaproxy.com/?utm_source=sub2api&utm_medium=sub2api&ref=sub2api">Get started with ColaProxy</a></td>
+</tr>
+
 </table>
 
 ## Overview
@@ -214,27 +188,12 @@ Sub2API is an AI API gateway platform designed to distribute and manage API quot
 - **API Key Distribution** - Generate and manage API Keys for users
 - **Precise Billing** - Token-level usage tracking and cost calculation
 - **Smart Scheduling** - Intelligent account selection with sticky sessions
-- **API-Key Fallback Group** - Automatically route to a same-platform fallback group only after the primary group has no available accounts
-- **Concurrency Control** - Per-user, per-group-per-user, and per-account concurrency limits; group limits are counted independently by user and group
+- **Concurrency Control** - Per-user and per-account concurrency limits
 - **Rate Limiting** - Configurable request and token rate limits
 - **Built-in Payment System** - Supports EasyPay, Alipay, WeChat Pay, and Stripe for user self-service top-up, no separate payment service needed ([Configuration Guide](docs/PAYMENT.md))
 - **Admin Dashboard** - Web interface for monitoring and management
 - **Composite Groups** - Admin routing layer that resolves requested models to concrete providers for multi-provider groups ([Operator Guide](docs/COMPOSITE_GROUPS.md))
 - **External System Integration** - Embed external systems (e.g. ticketing) via iframe to extend the admin dashboard
-
-### Per-user Group Concurrency
-
-Administrators can set `user_concurrency_limit` when creating or editing a group:
-
-- `0` disables the group-level limit;
-- A positive value limits each `(user, group)` pair independently. For example, `3` allows up to three simultaneous requests for one user in that group;
-- Different users and different groups have separate counters;
-- The existing user-wide concurrency limit still applies, so the stricter limit wins;
-- Updating a group invalidates cached API-key snapshots automatically.
-
-### API-Key Fallback Group
-
-Users can optionally select a same-platform fallback group when creating or editing an API key. Every request fully tries the primary group first; fallback is attempted only for an explicit no-available-accounts result, never for database, Redis, validation, or permission errors. Billing, quotas, RPM, concurrency, and usage attribution remain on the primary API-key group. The fallback is ignored automatically if it is disabled or deleted.
 
 ## Ecosystem
 
@@ -695,6 +654,32 @@ Or set `GATEWAY_OPENAI_WS_MODE_ROUTER_V2_ENABLED=true` in the environment.
 Use `http_bridge` for client-WebSocket/upstream-HTTP operation when rolling out
 or mitigating upstream WebSocket issues.
 
+#### Force OpenAI upstream HTTP/SSE
+
+When an egress proxy or network repeatedly reconnects OpenAI Responses
+WebSockets, set the global fallback in the persisted deployment configuration:
+
+```yaml
+gateway:
+  openai_ws:
+    force_http: true
+```
+
+For Compose and Apple container deployments, the equivalent `.env` setting is:
+
+```bash
+GATEWAY_OPENAI_WS_FORCE_HTTP=true
+```
+
+This selects HTTP/SSE for OpenAI upstream Responses traffic that would
+otherwise use WebSocket. It does not change the client-facing protocol or force
+HTTP/1.1; configure `gateway.openai_http2.enabled` (or
+`GATEWAY_OPENAI_HTTP2_ENABLED=false`) separately when a proxy is incompatible
+with HTTP/2. Unlike the account-level `http_bridge` mode, this global fallback
+takes effect without enabling `mode_router_v2_enabled`. Keep the setting in the
+deployment's persisted `.env` or `config.yaml`, rather than inside a running
+container, so it is read again after an image update or container recreation.
+
 #### ⚠️ Important: Creating the Admin Account
 
 The initial admin account is **only created via the setup wizard** (served at `http://<host>:8080` on first run). The `default.admin_email` / `default.admin_password` fields in `config.yaml` are **not used** to create it — they exist in the template for historical reasons.
@@ -773,7 +758,7 @@ Sub2API supports both Grok subscription accounts through xAI OAuth and standard 
 - Codex CLI style Responses WebSocket ingress is accepted on the Responses targets and bridged to xAI HTTP/SSE Responses upstream
 - Text models: `grok-4.5`, `grok-4.3`, `grok-build-0.1`, `grok-composer-2.5-fast`, `grok-4.20-0309-reasoning`, `grok-4.20-0309-non-reasoning`, and `grok-4.20-multi-agent-0309`
 - Media targets for Grok groups: `/v1/images/generations`, `/images/generations`, `/v1/images/edits`, `/images/edits`, `/v1/videos/generations`, `/videos/generations`, `/v1/videos/edits`, `/videos/edits`, `/v1/videos/extensions`, `/videos/extensions`, `/v1/videos/{request_id}`, and `/videos/{request_id}`. Generation, editing, and extension requests require the group image-generation permission.
-- Media models: `grok-imagine`, `grok-imagine-image-quality`, `grok-imagine-image`, `grok-imagine-edit`, `grok-imagine-video`, and `grok-imagine-video-1.5`
+- Media models: `grok-imagine`, `grok-imagine-image-quality`, `grok-imagine-image`, `grok-imagine-image-2.0`, `grok-imagine-edit`, `grok-imagine-video`, and `grok-imagine-video-1.5`
 - JSON image-edit and video-generation requests accept image references in `image`, `images`, `reference_images`, and `mask` objects. Use `url` for xAI-compatible payloads; the legacy `image_url` field remains accepted and is normalized to `url` before forwarding.
 - Out of scope for this provider: TTS, transcription, browser automation, cookies, and Grok web scraping
 
@@ -841,7 +826,7 @@ xAI quota is passive. Sub2API does not invent subscription quota values; it reco
 
 `401` responses temporarily remove accounts with invalid credentials from scheduling. `403` responses are treated as access or entitlement failures instead of token-refresh loops. `429` responses use `Retry-After` or a short cooldown to temporarily remove the account from scheduling.
 
-New Grok image and video generation requests use a media-specific eligibility check. API-key accounts remain eligible. OAuth accounts require positive paid-entitlement evidence from the xAI billing probe; Free, forbidden, missing, malformed, and inconclusive billing observations are excluded from new media generation. Unobserved OAuth accounts are probed before the first media request is forwarded, and imports run the billing-first quota probe proactively. Chat requests and video status lookups are not affected by this media-only quarantine. If no eligible account remains, the media endpoint returns HTTP `503` with error type `grok_media_no_eligible_account`.
+New Grok image and video generation requests use a media-specific eligibility check. API-key accounts remain eligible. OAuth accounts with explicit Free or forbidden billing evidence are excluded from new media generation. Missing or malformed observations are probed before dispatch; a successful but incomplete billing response is treated as `billing_inconclusive` and remains eligible for backwards compatibility, because an unknown billing schema is not proof that the account lacks media entitlement. Operators can quarantine a known-bad account with `extra.grok_media_eligible=false` or force-enable a verified account with `true`. Imports run the billing-first quota probe proactively. Chat requests and video status lookups are not affected by this media-only quarantine. If no eligible account remains, the media endpoint returns HTTP `503` with error type `grok_media_no_eligible_account`.
 
 Administrators can override automatic media eligibility through the account create/update API by setting `extra.grok_media_eligible` to `false` (exclude) or `true` (force eligible). On update, set it to `null` to remove the override and return to automatic probe-based behavior; omitting the field preserves the current override. A weekly allowance period alone is not treated as a paid tier signal. Successful image responses must contain at least one actual image output; empty HTTP `200` responses trigger account failover instead of being counted and returned as successful generations.
 

@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 22 // v22: API key fallback group routing
+const apiKeyAuthSnapshotVersion = 24 // v24: group model_allowlist field (renamed from models_list_config, enforcing semantics)
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -336,21 +336,20 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		return nil
 	}
 	snapshot := &APIKeyAuthSnapshot{
-		Version:         apiKeyAuthSnapshotVersion,
-		APIKeyID:        apiKey.ID,
-		UserID:          apiKey.UserID,
-		GroupID:         apiKey.GroupID,
-		FallbackGroupID: apiKey.FallbackGroupID,
-		Name:            apiKey.Name,
-		Status:          apiKey.Status,
-		IPWhitelist:     apiKey.IPWhitelist,
-		IPBlacklist:     apiKey.IPBlacklist,
-		Quota:           apiKey.Quota,
-		QuotaUsed:       apiKey.QuotaUsed,
-		ExpiresAt:       apiKey.ExpiresAt,
-		RateLimit5h:     apiKey.RateLimit5h,
-		RateLimit1d:     apiKey.RateLimit1d,
-		RateLimit7d:     apiKey.RateLimit7d,
+		Version:     apiKeyAuthSnapshotVersion,
+		APIKeyID:    apiKey.ID,
+		UserID:      apiKey.UserID,
+		GroupID:     apiKey.GroupID,
+		Name:        apiKey.Name,
+		Status:      apiKey.Status,
+		IPWhitelist: apiKey.IPWhitelist,
+		IPBlacklist: apiKey.IPBlacklist,
+		Quota:       apiKey.Quota,
+		QuotaUsed:   apiKey.QuotaUsed,
+		ExpiresAt:   apiKey.ExpiresAt,
+		RateLimit5h: apiKey.RateLimit5h,
+		RateLimit1d: apiKey.RateLimit1d,
+		RateLimit7d: apiKey.RateLimit7d,
 		User: APIKeyAuthUserSnapshot{
 			ID:                         apiKey.User.ID,
 			Status:                     apiKey.User.Status,
@@ -361,6 +360,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			Email:                      apiKey.User.Email,
 			Username:                   apiKey.User.Username,
 			BalanceNotifyEnabled:       apiKey.User.BalanceNotifyEnabled,
+			RestrictPublicGroups:       apiKey.User.RestrictPublicGroups,
 			BalanceNotifyThresholdType: apiKey.User.BalanceNotifyThresholdType,
 			BalanceNotifyThreshold:     apiKey.User.BalanceNotifyThreshold,
 			BalanceNotifyExtraEmails:   apiKey.User.BalanceNotifyExtraEmails,
@@ -418,12 +418,15 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			SupportedModelScopes:            apiKey.Group.SupportedModelScopes,
 			AllowMessagesDispatch:           apiKey.Group.AllowMessagesDispatch,
 			AllowLive:                       apiKey.Group.AllowLive,
+			ForceOpenAIFast:                 apiKey.Group.ForceOpenAIFast,
+			FreeOpenAIFast:                  apiKey.Group.FreeOpenAIFast,
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
-			ModelsListConfig:                apiKey.Group.ModelsListConfig,
+			ModelAllowlist:                  apiKey.Group.ModelAllowlist,
+			CodexModelsManifestConfig:       apiKey.Group.CodexModelsManifestConfig,
 			RPMLimit:                        apiKey.Group.RPMLimit,
-			UserConcurrencyLimit:            apiKey.Group.UserConcurrencyLimit,
 			MaxReasoningEffort:              apiKey.Group.MaxReasoningEffort,
+			MaxReasoningEffortOverLimit:     apiKey.Group.MaxReasoningEffortOverLimit,
 			ReasoningEffortMappings:         apiKey.Group.ReasoningEffortMappings,
 			PeakRateEnabled:                 apiKey.Group.PeakRateEnabled,
 			PeakStart:                       apiKey.Group.PeakStart,
@@ -434,14 +437,6 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ProfitSafetyBuffer:              apiKey.Group.ProfitSafetyBuffer,
 		}
 	}
-	if apiKey.FallbackGroup != nil && apiKey.FallbackGroup.IsActive() && s.canUserBindGroup(ctx, apiKey.User, apiKey.FallbackGroup) {
-		snapshot.FallbackGroup = &APIKeyAuthGroupSnapshot{
-			ID:       apiKey.FallbackGroup.ID,
-			Name:     apiKey.FallbackGroup.Name,
-			Platform: apiKey.FallbackGroup.Platform,
-			Status:   apiKey.FallbackGroup.Status,
-		}
-	}
 	return snapshot
 }
 
@@ -450,21 +445,20 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		return nil
 	}
 	apiKey := &APIKey{
-		ID:              snapshot.APIKeyID,
-		UserID:          snapshot.UserID,
-		GroupID:         snapshot.GroupID,
-		FallbackGroupID: snapshot.FallbackGroupID,
-		Key:             key,
-		Name:            snapshot.Name,
-		Status:          snapshot.Status,
-		IPWhitelist:     snapshot.IPWhitelist,
-		IPBlacklist:     snapshot.IPBlacklist,
-		Quota:           snapshot.Quota,
-		QuotaUsed:       snapshot.QuotaUsed,
-		ExpiresAt:       snapshot.ExpiresAt,
-		RateLimit5h:     snapshot.RateLimit5h,
-		RateLimit1d:     snapshot.RateLimit1d,
-		RateLimit7d:     snapshot.RateLimit7d,
+		ID:          snapshot.APIKeyID,
+		UserID:      snapshot.UserID,
+		GroupID:     snapshot.GroupID,
+		Key:         key,
+		Name:        snapshot.Name,
+		Status:      snapshot.Status,
+		IPWhitelist: snapshot.IPWhitelist,
+		IPBlacklist: snapshot.IPBlacklist,
+		Quota:       snapshot.Quota,
+		QuotaUsed:   snapshot.QuotaUsed,
+		ExpiresAt:   snapshot.ExpiresAt,
+		RateLimit5h: snapshot.RateLimit5h,
+		RateLimit1d: snapshot.RateLimit1d,
+		RateLimit7d: snapshot.RateLimit7d,
 		User: &User{
 			ID:                         snapshot.User.ID,
 			Status:                     snapshot.User.Status,
@@ -475,6 +469,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			Email:                      snapshot.User.Email,
 			Username:                   snapshot.User.Username,
 			BalanceNotifyEnabled:       snapshot.User.BalanceNotifyEnabled,
+			RestrictPublicGroups:       snapshot.User.RestrictPublicGroups,
 			BalanceNotifyThresholdType: snapshot.User.BalanceNotifyThresholdType,
 			BalanceNotifyThreshold:     snapshot.User.BalanceNotifyThreshold,
 			BalanceNotifyExtraEmails:   snapshot.User.BalanceNotifyExtraEmails,
@@ -525,12 +520,15 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			SupportedModelScopes:            snapshot.Group.SupportedModelScopes,
 			AllowMessagesDispatch:           snapshot.Group.AllowMessagesDispatch,
 			AllowLive:                       snapshot.Group.AllowLive,
+			ForceOpenAIFast:                 snapshot.Group.ForceOpenAIFast,
+			FreeOpenAIFast:                  snapshot.Group.FreeOpenAIFast,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
-			ModelsListConfig:                snapshot.Group.ModelsListConfig,
+			ModelAllowlist:                  snapshot.Group.ModelAllowlist,
+			CodexModelsManifestConfig:       snapshot.Group.CodexModelsManifestConfig,
 			RPMLimit:                        snapshot.Group.RPMLimit,
-			UserConcurrencyLimit:            snapshot.Group.UserConcurrencyLimit,
 			MaxReasoningEffort:              snapshot.Group.MaxReasoningEffort,
+			MaxReasoningEffortOverLimit:     snapshot.Group.MaxReasoningEffortOverLimit,
 			ReasoningEffortMappings:         snapshot.Group.ReasoningEffortMappings,
 			PeakRateEnabled:                 snapshot.Group.PeakRateEnabled,
 			PeakStart:                       snapshot.Group.PeakStart,
@@ -539,15 +537,6 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ProfitControlEnabled:            snapshot.Group.ProfitControlEnabled,
 			ProfitMinMargin:                 snapshot.Group.ProfitMinMargin,
 			ProfitSafetyBuffer:              snapshot.Group.ProfitSafetyBuffer,
-		}
-	}
-	if snapshot.FallbackGroup != nil {
-		apiKey.FallbackGroup = &Group{
-			ID:       snapshot.FallbackGroup.ID,
-			Name:     snapshot.FallbackGroup.Name,
-			Platform: snapshot.FallbackGroup.Platform,
-			Status:   snapshot.FallbackGroup.Status,
-			Hydrated: true,
 		}
 	}
 	s.compileAPIKeyIPRules(apiKey)
