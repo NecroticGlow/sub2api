@@ -57,12 +57,23 @@ type TestEvent struct {
 	Code     string `json:"code,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
 	// AudioURL / VideoURL are data: or https URLs for in-browser media players.
-	AudioURL string `json:"audio_url,omitempty"`
-	VideoURL string `json:"video_url,omitempty"`
-	MimeType string `json:"mime_type,omitempty"`
-	Data     any    `json:"data,omitempty"`
-	Success  bool   `json:"success,omitempty"`
-	Error    string `json:"error,omitempty"`
+	AudioURL string     `json:"audio_url,omitempty"`
+	VideoURL string     `json:"video_url,omitempty"`
+	MimeType string     `json:"mime_type,omitempty"`
+	Data     any        `json:"data,omitempty"`
+	Success  bool       `json:"success,omitempty"`
+	Error    string     `json:"error,omitempty"`
+	Usage    *TestUsage `json:"usage,omitempty"`
+}
+
+// TestUsage is the token usage returned by a Responses API probe. It is kept
+// separate from gateway billing types because account tests do not create a
+// usage log or charge a user's balance.
+type TestUsage struct {
+	InputTokens       int `json:"input_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	TotalTokens       int `json:"total_tokens"`
+	CachedInputTokens int `json:"cached_input_tokens,omitempty"`
 }
 
 // AccountTestOptions carries optional media for admin connectivity tests.
@@ -2999,6 +3010,11 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			if response, ok := data["response"].(map[string]any); ok {
+				if usage, ok := parseTestUsage(response["usage"]); ok {
+					s.sendEvent(c, TestEvent{Type: "usage", Usage: &usage})
+				}
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":
@@ -3021,6 +3037,40 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 			return s.sendErrorAndEnd(c, errorMsg)
 		}
 	}
+}
+
+func parseTestUsage(value any) (TestUsage, bool) {
+	usage, ok := value.(map[string]any)
+	if !ok {
+		return TestUsage{}, false
+	}
+	read := func(key string) int {
+		n, ok := usage[key].(float64)
+		if !ok || n < 0 {
+			return 0
+		}
+		return int(n)
+	}
+	result := TestUsage{
+		InputTokens:  read("input_tokens"),
+		OutputTokens: read("output_tokens"),
+		TotalTokens:  read("total_tokens"),
+	}
+	if details, ok := usage["input_tokens_details"].(map[string]any); ok {
+		result.CachedInputTokens = readNestedUsageInt(details, "cached_tokens")
+	}
+	if result.TotalTokens == 0 {
+		result.TotalTokens = result.InputTokens + result.OutputTokens
+	}
+	return result, result.InputTokens > 0 || result.OutputTokens > 0 || result.TotalTokens > 0
+}
+
+func readNestedUsageInt(values map[string]any, key string) int {
+	n, ok := values[key].(float64)
+	if !ok || n < 0 {
+		return 0
+	}
+	return int(n)
 }
 
 // testOpenAIImageAPIKey tests OpenAI image generation using an API Key account.
@@ -3305,6 +3355,11 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 
 // parseTestSSEOutput extracts response text and error message from captured SSE output.
 func parseTestSSEOutput(body string) (responseText, errMsg string) {
+	responseText, errMsg, _ = parseTestSSEOutputWithUsage(body)
+	return responseText, errMsg
+}
+
+func parseTestSSEOutputWithUsage(body string) (responseText, errMsg string, usage *TestUsage) {
 	var texts []string
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
@@ -3323,8 +3378,13 @@ func parseTestSSEOutput(body string) (responseText, errMsg string) {
 			}
 		case "error":
 			errMsg = event.Error
+		case "usage":
+			if event.Usage != nil {
+				copy := *event.Usage
+				usage = &copy
+			}
 		}
 	}
 	responseText = strings.Join(texts, "")
-	return
+	return responseText, errMsg, usage
 }

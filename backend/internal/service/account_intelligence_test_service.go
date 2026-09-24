@@ -32,14 +32,25 @@ type IntelligenceCheck struct {
 }
 
 type IntelligenceTestResult struct {
-	AccountID    int64               `json:"account_id"`
-	Model        string              `json:"model"`
-	Status       string              `json:"status"`
-	ResponseText string              `json:"response_text"`
-	Error        string              `json:"error,omitempty"`
-	Checks       []IntelligenceCheck `json:"checks"`
-	TestedAt     time.Time           `json:"tested_at"`
-	LatencyMS    int64               `json:"latency_ms"`
+	AccountID          int64                 `json:"account_id"`
+	Model              string                `json:"model"`
+	Status             string                `json:"status"`
+	ResponseText       string                `json:"response_text"`
+	Error              string                `json:"error,omitempty"`
+	Checks             []IntelligenceCheck   `json:"checks"`
+	TestedAt           time.Time             `json:"tested_at"`
+	LatencyMS          int64                 `json:"latency_ms"`
+	Usage              *TestUsage            `json:"usage,omitempty"`
+	Cost               *IntelligenceTestCost `json:"cost,omitempty"`
+	CurrentConcurrency int                   `json:"current_concurrency"`
+}
+
+type IntelligenceTestCost struct {
+	InputCostUSD       float64 `json:"input_cost_usd"`
+	CachedInputCostUSD float64 `json:"cached_input_cost_usd"`
+	OutputCostUSD      float64 `json:"output_cost_usd"`
+	TotalCostUSD       float64 `json:"total_cost_usd"`
+	PricingNote        string  `json:"pricing_note"`
 }
 
 // Deliberately conservative: lexical agreement is a screening signal, not proof
@@ -56,7 +67,8 @@ var intelligenceReference = []struct {
 	{"macos", "macOS Tahoe 26", regexp.MustCompile(`(?i)\bmacos\s+tahoe\s+26\b`)},
 	{"windows", "Windows 11, version 25H2", regexp.MustCompile(`(?i)\bwindows\s+11\b[^\n.!?]{0,60}\b25h2\b`)},
 }
-var intelligenceAmbiguous = regexp.MustCompile(`(?i)\b(uncertain|unsure|unknown|not|cannot|can't|don't|might|maybe|possibly|guess|speculat\w*)\b|不确定|不清楚|无法确认`)
+var intelligenceAmbiguous = regexp.MustCompile(`(?i)\b(uncertain|unsure|unknown|cannot|can't|might|maybe|possibly|guess|speculat\w*)\b|不确定|不清楚|无法确认`)
+var intelligenceNegated = regexp.MustCompile(`(?i)\b(?:not\s+(?:my|the|an?)\s+answers?|answer(?:s)?\s+(?:are|is)\s+not\s+correct|do\s+not\s+match)\b|不是答案|回答不正确`)
 var intelligencePro = regexp.MustCompile(`(?i)\b(?:iphone\s+17\s+)?pro\b`)
 var intelligenceProMax = regexp.MustCompile(`(?i)\bpro\s+max\b`)
 var intelligenceAnnouncement = regexp.MustCompile(`(?i)announc\w*|发布`)
@@ -84,7 +96,7 @@ func dateMatchesLabel(plain string, label, date, otherDate *regexp.Regexp) bool 
 func assessIntelligenceResponse(text string) (string, []IntelligenceCheck) {
 	plain := strings.NewReplacer("*", "", "`", "", "_", "", "|", " ", "\r", "", "’", "'").Replace(text)
 	checks := make([]IntelligenceCheck, 0, len(intelligenceReference))
-	matched := !intelligenceAmbiguous.MatchString(plain)
+	matched := !intelligenceAmbiguous.MatchString(plain) && !intelligenceNegated.MatchString(plain)
 	for _, claim := range intelligenceVersionClaims {
 		for _, hit := range claim.pattern.FindAllStringSubmatch(plain, -1) {
 			if strings.ToLower(hit[1]) != claim.expected {
@@ -148,7 +160,7 @@ func (s *AccountTestService) TestAccountIntelligence(ctx context.Context, accoun
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest("POST", "/", nil).WithContext(ctx)
 	testErr := s.testOpenAIAccountConnection(c, account, IntelligenceTestModel, IntelligenceTestPrompt, AccountTestModeDefault)
-	text, upstreamError := parseTestSSEOutput(recorder.Body.String())
+	text, upstreamError, usage := parseTestSSEOutputWithUsage(recorder.Body.String())
 	status, checks := assessIntelligenceResponse(text)
 	if testErr != nil || upstreamError != "" || strings.TrimSpace(text) == "" {
 		status = "error"
@@ -159,5 +171,31 @@ func (s *AccountTestService) TestAccountIntelligence(ctx context.Context, accoun
 			upstreamError = "Upstream returned no answer"
 		}
 	}
-	return &IntelligenceTestResult{AccountID: accountID, Model: IntelligenceTestModel, Status: status, ResponseText: text, Error: upstreamError, Checks: checks, TestedAt: started.UTC(), LatencyMS: time.Since(started).Milliseconds()}, nil
+	return &IntelligenceTestResult{AccountID: accountID, Model: IntelligenceTestModel, Status: status, ResponseText: text, Error: upstreamError, Checks: checks, TestedAt: started.UTC(), LatencyMS: time.Since(started).Milliseconds(), Usage: usage, Cost: intelligenceTestCost(usage)}, nil
+}
+
+// These are the built-in original USD rates for gpt-6-astra. Tests are
+// informational only and never use the caller's group multiplier or balance.
+func intelligenceTestCost(usage *TestUsage) *IntelligenceTestCost {
+	if usage == nil {
+		return nil
+	}
+	const inputRate = 10e-6
+	const cachedInputRate = 1e-6
+	const outputRate = 50e-6
+	cached := usage.CachedInputTokens
+	if cached > usage.InputTokens {
+		cached = usage.InputTokens
+	}
+	miss := usage.InputTokens - cached
+	inputCost := float64(miss) * inputRate
+	cachedCost := float64(cached) * cachedInputRate
+	outputCost := float64(usage.OutputTokens) * outputRate
+	return &IntelligenceTestCost{
+		InputCostUSD:       inputCost,
+		CachedInputCostUSD: cachedCost,
+		OutputCostUSD:      outputCost,
+		TotalCostUSD:       inputCost + cachedCost + outputCost,
+		PricingNote:        "gpt-6-astra 内置原价（USD/token），未套用分组倍率；缓存命中按上游 usage 计算",
+	}
 }

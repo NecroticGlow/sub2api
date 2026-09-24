@@ -32,6 +32,14 @@
         </div>
         <template v-if="results[account.id]">
           <p class="mt-3 text-xs text-gray-500">{{ new Date(results[account.id]!.tested_at).toLocaleString() }} · {{ (results[account.id]!.latency_ms / 1000).toFixed(1) }}s</p>
+          <div class="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <span>{{ t('admin.intelligence.concurrency') }}: {{ results[account.id]!.current_concurrency }}</span>
+            <span>{{ t('admin.intelligence.tokens') }}: {{ formatNumber(results[account.id]!.usage?.total_tokens) }}</span>
+            <span>{{ t('admin.intelligence.inputOutput') }}: {{ formatNumber(results[account.id]!.usage?.input_tokens) }} / {{ formatNumber(results[account.id]!.usage?.output_tokens) }}</span>
+            <span>{{ t('admin.intelligence.originalCost') }}: ${{ (results[account.id]!.cost?.total_cost_usd ?? 0).toFixed(6) }}</span>
+          </div>
+          <p v-if="results[account.id]!.cost" class="mt-1 text-xs text-gray-500">{{ results[account.id]!.cost!.pricing_note }}</p>
+          <p v-if="previousResults[account.id]" class="mt-2 text-xs text-gray-500">{{ t('admin.intelligence.previous') }}: {{ previousLabel(account.id) }}</p>
           <p v-if="results[account.id]!.error" role="alert" class="mt-3 whitespace-pre-wrap break-words text-sm text-red-600">{{ results[account.id]!.error }}</p>
           <details class="mt-3" :open="results[account.id]!.status === 'manual_review'">
             <summary class="cursor-pointer text-sm font-medium">{{ t('admin.intelligence.answer') }}</summary>
@@ -70,6 +78,8 @@ import type { AccountListItem } from '@/types'
 const { t } = useI18n()
 const accounts = ref<AccountListItem[]>([])
 const results = ref<Record<number, IntelligenceResult>>({})
+const previousResults = ref<Record<number, IntelligenceResult>>({})
+const previousManual = ref<Record<number, 'normal' | 'degraded'>>({})
 const manual = ref<Record<number, 'normal' | 'degraded'>>({})
 const running = ref<Record<number, boolean>>({})
 const controllers = new Map<number, AbortController>()
@@ -105,7 +115,10 @@ async function runTest(id: number) {
   const controller = new AbortController()
   controllers.set(id, controller)
   running.value[id] = true
-  delete results.value[id]
+  if (results.value[id]) {
+    previousResults.value[id] = results.value[id]
+    if (manual.value[id]) previousManual.value[id] = manual.value[id]
+  }
   delete manual.value[id]
   const started = Date.now()
   try {
@@ -113,7 +126,7 @@ async function runTest(id: number) {
     if (!controller.signal.aborted) results.value[id] = result
   } catch (error) {
     if (!controller.signal.aborted) results.value[id] = {
-      account_id: id, model: 'gpt-6-astra', status: 'error', response_text: '', checks: [],
+      account_id: id, model: 'gpt-6-astra', status: 'error', response_text: '', checks: [], current_concurrency: 0,
       error: error instanceof Error ? error.message : t('common.unknownError'),
       tested_at: new Date(started).toISOString(), latency_ms: Date.now() - started
     }
@@ -126,7 +139,17 @@ async function runTest(id: number) {
 function statusLabel(id: number) {
   if (running.value[id]) return t('admin.intelligence.testing')
   if (manual.value[id]) return t(`admin.intelligence.reviewed_${manual.value[id]}`)
-  return t(`admin.intelligence.${results.value[id]?.status ?? 'idle'}`)
+  return statusLabelFor(results.value[id]?.status ?? 'idle')
+}
+function statusLabelFor(status: IntelligenceResult['status'] | 'idle') {
+  return t(`admin.intelligence.${status}`)
+}
+function previousLabel(id: number) {
+  const decision = previousManual.value[id]
+  return decision ? t(`admin.intelligence.reviewed_${decision}`) : statusLabelFor(previousResults.value[id]!.status)
+}
+function formatNumber(value: number | undefined) {
+  return new Intl.NumberFormat().format(value ?? 0)
 }
 function statusClass(id: number) {
   if (manual.value[id] === 'degraded' || results.value[id]?.status === 'error') return 'text-sm text-red-600'

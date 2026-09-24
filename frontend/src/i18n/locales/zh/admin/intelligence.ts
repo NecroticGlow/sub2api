@@ -6,7 +6,7 @@ export default {
     search: '搜索账号名称', empty: '没有 OpenAI OAuth 账号',
     test: '开始测试', testing: '测试中…', idle: '未测试',
     passed: '未降智（参考答案匹配）', manual_review: '待人工判定', error: '测试失败',
-    answer: '查看原始回答与参考项', review: '人工判定：',
+    answer: '查看原始回答与参考项', review: '人工判定：', previous: '上一次测试', concurrency: '当前并发', tokens: '总 token', inputOutput: '输入 / 输出 token', originalCost: '原价额度',
     normal: '未降智', degraded: '降智', reset: '撤销判定',
     reviewed_normal: '未降智（人工判定）', reviewed_degraded: '降智（人工判定）',
     items: { iphone: 'iPhone', announcement: '官方发布日', on_sale: '正式发售日', nvidia: 'NVIDIA GPU', android: 'Android', macos: 'macOS', windows: 'Windows' }

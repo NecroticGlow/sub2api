@@ -18,6 +18,12 @@ func (h *AccountHandler) TestIntelligence(c *gin.Context) {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
+	currentConcurrency := 0
+	if h.concurrencyService != nil {
+		if counts, countErr := h.concurrencyService.GetAccountConcurrencyBatch(c.Request.Context(), []int64{id}); countErr == nil {
+			currentConcurrency = counts[id]
+		}
+	}
 	result, err := h.accountTestService.TestAccountIntelligence(c.Request.Context(), id)
 	if errors.Is(err, service.ErrIntelligenceAccountType) {
 		response.BadRequest(c, err.Error())
@@ -31,5 +37,6 @@ func (h *AccountHandler) TestIntelligence(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	result.CurrentConcurrency = currentConcurrency
 	response.Success(c, result)
 }

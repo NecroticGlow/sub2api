@@ -56,11 +56,13 @@ func TestIntelligenceUsesExactPromptModelAndNoOverdraft(t *testing.T) {
 	svc.codexQuotaOverdraft = coordinator
 	delta, err := json.Marshal(map[string]string{"type": "response.output_text.delta", "delta": referenceIntelligenceAnswer})
 	require.NoError(t, err)
-	upstream.responses = []*http.Response{newJSONResponse(200, "data: "+string(delta)+"\n\ndata: {\"type\":\"response.completed\"}\n\n")}
+	upstream.responses = []*http.Response{newJSONResponse(200, "data: "+string(delta)+"\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":100,\"output_tokens\":20,\"total_tokens\":120,\"input_tokens_details\":{\"cached_tokens\":25}}}}\n\n")}
 	result, err := svc.TestAccountIntelligence(context.Background(), account.ID)
 	require.NoError(t, err)
 	require.Equal(t, "passed", result.Status)
 	require.Equal(t, referenceIntelligenceAnswer, result.ResponseText)
+	require.Equal(t, &TestUsage{InputTokens: 100, OutputTokens: 20, TotalTokens: 120, CachedInputTokens: 25}, result.Usage)
+	require.InDelta(t, 0.001775, result.Cost.TotalCostUSD, 1e-12)
 	require.Len(t, upstream.requests, 1)
 	request := upstream.requests[0]
 	require.Equal(t, chatgptCodexAPIURL, request.URL.String())
