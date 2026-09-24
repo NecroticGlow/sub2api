@@ -787,7 +787,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// account model mapping. Native remote compaction v2 rides the ordinary
 	// /responses wire and does NOT apply the legacy compact-only mapping
 	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
-	testModelID = account.GetMappedModel(testModelID)
+	if !isIntelligenceTest(ctx) {
+		testModelID = account.GetMappedModel(testModelID)
+	}
 	if mode == AccountTestModeCompact {
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
@@ -867,8 +869,15 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	if isIntelligenceTest(ctx) {
+		upstreamTestModelID = IntelligenceTestModel
+		payload = createIntelligenceTestPayload()
+	}
 	payloadBytes, _ := json.Marshal(payload)
-	ctx, payloadBytes, overdraftInjected := s.prepareCodexQuotaOverdraftTestRequest(ctx, account, payloadBytes)
+	overdraftInjected := false
+	if !isIntelligenceTest(ctx) {
+		ctx, payloadBytes, overdraftInjected = s.prepareCodexQuotaOverdraftTestRequest(ctx, account, payloadBytes)
+	}
 
 	// Send test_start event once. A task-invalid Agent Identity response may
 	// restart this probe after registering a replacement task.
@@ -953,7 +962,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			if !s.handleCodexQuotaOverdraftTest429(ctx, account, resp.Header, body, upstreamTestModelID) {
+			if isIntelligenceTest(ctx) || !s.handleCodexQuotaOverdraftTest429(ctx, account, resp.Header, body, upstreamTestModelID) {
 				s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 			}
 		}
@@ -968,7 +977,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if err := s.processOpenAIStream(c, resp.Body); err != nil {
 		return err
 	}
-	s.observeCodexQuotaOverdraftTestResult(account, upstreamTestModelID, overdraftInjected)
+	if !isIntelligenceTest(ctx) {
+		s.observeCodexQuotaOverdraftTestResult(account, upstreamTestModelID, overdraftInjected)
+	}
 	return nil
 }
 
