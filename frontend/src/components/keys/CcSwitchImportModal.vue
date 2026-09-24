@@ -71,6 +71,7 @@ import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores'
 import type { ApiKey, PublicSettings } from '@/types'
 import {
+  CC_SWITCH_PROVIDER_API_BASE_URL,
   buildCcSwitchImportDeeplink,
   ccSwitchModelsUrls,
   defaultCcSwitchAppForPlatform,
@@ -162,7 +163,7 @@ watch(() => props.show, show => {
 
 function buildUsageScript(): string {
   return `({
-    request: { url: "{{baseUrl}}/v1/usage", method: "GET", headers: { "Authorization": "Bearer {{apiKey}}" } },
+    request: { url: "${CC_SWITCH_PROVIDER_API_BASE_URL}/v1/usage", method: "GET", headers: { "Authorization": "Bearer {{apiKey}}" } },
     extractor: function(response) {
       const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
       const unit = response?.unit ?? response?.quota?.unit ?? "USD";

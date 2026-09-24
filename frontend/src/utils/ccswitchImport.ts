@@ -54,7 +54,8 @@ export function resolveCcSwitchEndpoint(
   baseUrl: string
 ): string {
   switch (platform || 'anthropic') {
-    case 'antigravity': return `${baseUrl}/antigravity`
+    case 'antigravity': return `${baseUrl.replace(/\/+$/, '')}/antigravity`
+    case 'openai': return withV1Endpoint(baseUrl)
     case 'grok': return withV1Endpoint(baseUrl)
     default: return baseUrl
   }

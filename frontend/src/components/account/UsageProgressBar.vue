@@ -22,6 +22,14 @@
         >
           U ${{ formatUserCost }}
         </span>
+        <span
+          v-if="estimatedTotalCost != null"
+          data-test="estimated-total-cost"
+          class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
+          :title="t('admin.accounts.usageWindow.estimatedTotalCostTooltip')"
+        >
+          {{ t('admin.accounts.usageWindow.estimatedTotalCost', { cost: estimatedTotalCost.toFixed(2) }) }}
+        </span>
       </div>
     </div>
 
@@ -36,7 +44,7 @@
     <div class="flex items-center gap-1">
       <!-- Label badge (fixed width for alignment) -->
       <span
-        :class="['w-[32px] shrink-0 rounded px-1 text-center text-[10px] font-medium', labelClass]"
+        :class="[labelSizeClass, labelClass]"
       >
         {{ label }}
       </span>
@@ -76,6 +84,8 @@ const props = defineProps<{
   resetsAt?: string | null
   color: 'indigo' | 'emerald' | 'purple' | 'amber'
   windowStats?: WindowStats | null
+  estimatedTotalCost?: number | null
+  labelWidth?: 'fixed' | 'auto'
   showNowWhenIdle?: boolean
   remainingCapacity?: boolean
   overdraftActive?: boolean
@@ -85,6 +95,12 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+
+const labelSizeClass = computed(() =>
+  props.labelWidth === 'auto'
+    ? 'max-w-[72px] shrink-0 truncate rounded px-1 text-left text-[10px] font-medium'
+    : 'w-[32px] shrink-0 rounded px-1 text-center text-[10px] font-medium'
+)
 
 // Reactive clock for countdown — only runs when a reset time is shown,
 // to avoid creating many idle timers across large account lists.

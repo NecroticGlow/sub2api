@@ -134,7 +134,7 @@ func TestCalculateCostUnified_DeepseekVersionedNamePeakMultiplier(t *testing.T) 
 	resolver := NewModelPricingResolver(nil, bs)
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
-	offPeakTotal := 1000*1.05e-5 + 500*3.15e-5 + 1000*3.5e-7
+	offPeakTotal := 1000*1.54e-6 + 500*4.62e-6 + 1000*4.9e-8
 
 	offPeak, err := bs.CalculateCostUnified(CostInput{
 		Ctx: context.Background(), Model: "deepseek-v4-flash-0731", Tokens: tokens,
@@ -171,7 +171,7 @@ func TestCalculateCostUnified_DeepseekGroupPricingNotScaledByPeak(t *testing.T) 
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
 	// 分组自定义价：缓存读沿用旧 V4-Flash 站内价。
-	groupTotal := 1000*1e-6 + 500*2e-6 + 1000*3.5e-7
+	groupTotal := 1000*1e-6 + 500*2e-6 + 1000*4.9e-8
 
 	for _, pricingAt := range []time.Time{
 		time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC), // 低谷
@@ -256,7 +256,7 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 		// 明确保留原 V4 美元价 × 7。
 		{"deepseek-flash", 1.05e-6, 4.2e-6, 2.1e-8},
 		{"deepseek-v4.1-flash", 1.05e-6, 4.2e-6, 2.1e-8},
-		{"deepseek-v4-flash", 1.05e-5, 3.15e-5, 3.5e-7},
+		{"deepseek-v4-flash", 1.54e-6, 4.62e-6, 4.9e-8},
 		{"deepseek-v4-flash-vision-exp", 1.05e-6, 4.2e-6, 2.1e-8},
 		// 已停服的 chat/reasoner：即使 JSON 有旧条目也按 flash 价兜底。
 		{"deepseek-chat", 1.05e-6, 4.2e-6, 2.1e-8},
@@ -281,7 +281,7 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 	}
 
 	// pro 档（含版本化名称）：断言经固定时点的 getModelPricingAt，不依赖墙上时钟。
-		// 2026-08-01 早于切换点 2026-09-14 04:00 UTC → Pro 价 × 7。
+	// 2026-08-01 早于切换点 2026-09-14 04:00 UTC → Pro 价 × 7。
 	for _, model := range []string{"deepseek-v4-pro", "deepseek-v4-pro-0813"} {
 		t.Run(model+"/before-cutoff", func(t *testing.T) {
 			pricing, err := bs.getModelPricingAt(model, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
@@ -310,7 +310,7 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 		model                    string
 		input, output, cacheRead float64
 	}{
-		{"deepseek-v4-flash-0731", 1.05e-5, 3.15e-5, 3.5e-7},
+		{"deepseek-v4-flash-0731", 1.54e-6, 4.62e-6, 4.9e-8},
 	}
 	for _, tt := range versioned {
 		t.Run(tt.model, func(t *testing.T) {
@@ -343,7 +343,7 @@ func TestGetModelPricing_UnknownDeepseekMapsToFlash(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-	// 本地兜底 JSON：无 $0 占位条目，模型价格为站内低谷价
+// 本地兜底 JSON：无 $0 占位条目，模型价格为站内低谷价
 // ---------------------------------------------------------------------------
 
 func TestDeepseekPricingFileMatchesOfficialRates(t *testing.T) {
@@ -367,7 +367,7 @@ func TestDeepseekPricingFileMatchesOfficialRates(t *testing.T) {
 	}{
 		{"deepseek-flash", 1.05e-6, 4.2e-6, 2.1e-8},
 		{"deepseek-v4.1-flash", 1.05e-6, 4.2e-6, 2.1e-8},
-		{"deepseek-v4-flash", 1.05e-5, 3.15e-5, 3.5e-7},
+		{"deepseek-v4-flash", 1.54e-6, 4.62e-6, 4.9e-8},
 		{"deepseek-v4-flash-vision-exp", 1.05e-6, 4.2e-6, 2.1e-8},
 		{"deepseek-v4-pro", 4.62e-6, 1.386e-5, 1.54e-7},
 	}
@@ -394,7 +394,7 @@ func TestCalculateCostUnified_DeepseekFlashAndLegacyFlashUseSeparateRates(t *tes
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
 	// 站内价格均为官方美元价 × 7。
 	v41Total := 1000*1.05e-6 + 500*4.2e-6 + 1000*2.1e-8
-	legacyTotal := 1000*1.05e-5 + 500*3.15e-5 + 1000*3.5e-7
+	legacyTotal := 1000*1.54e-6 + 500*4.62e-6 + 1000*4.9e-8
 
 	// V4.1-Flash 新名与官方 alias 使用新价。
 	// 时点取切换日 2026-09-14（周一）12:00 UTC 低谷，峰谷倍率不影响断言。
@@ -422,7 +422,7 @@ func TestCalculateCostUnified_DeepseekProRoutesToFlashAtCutoff(t *testing.T) {
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
 	proTotal := 1000*4.62e-6 + 500*1.386e-5 + 1000*1.54e-7 // 切换前 Pro 价 × 7
-	flashTotal := 1000*1.05e-6 + 500*4.2e-6 + 1000*2.1e-8    // 切换后 V4.1-Flash 价 × 7
+	flashTotal := 1000*1.05e-6 + 500*4.2e-6 + 1000*2.1e-8  // 切换后 V4.1-Flash 价 × 7
 
 	// 切换时点之前（2026-09-13 周日，北京周末全天低谷）：仍按 Pro 价。
 	before, err := bs.CalculateCostUnified(CostInput{

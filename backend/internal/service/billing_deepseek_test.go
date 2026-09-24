@@ -35,7 +35,7 @@ func TestDeepSeekPricingUsesOfficialRates(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
-			pricing, err := svc.GetModelPricing(tc.model)
+			pricing, err := svc.getModelPricingAt(tc.model, time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC))
 			require.NoError(t, err)
 			require.NotNil(t, pricing)
 			require.InEpsilon(t, tc.in, pricing.InputPricePerToken, 1e-12, "input price")
@@ -54,7 +54,7 @@ func TestDeepSeekPricingOverridesStaleDynamicCatalog(t *testing.T) {
 	}}
 	svc := NewBillingService(nil, stale)
 
-	pricing, err := svc.GetModelPricing("deepseek-v4-pro")
+	pricing, err := svc.getModelPricingAt("deepseek-v4-pro", time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
 	require.InEpsilon(t, 4.62e-6, pricing.InputPricePerToken, 1e-12)
 	require.InEpsilon(t, 13.86e-6, pricing.OutputPricePerToken, 1e-12)
@@ -95,7 +95,7 @@ func TestDeepSeekOfficialPricingPreservesPeakMultiplier(t *testing.T) {
 	require.Equal(t, 1.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, offPeak))
 	require.Equal(t, 2.0, applyDeepSeekPeakMultiplier("deepseek-v4-flash", 1, peak))
 	require.InEpsilon(t, 1.54e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(offPeak), 1e-12)
-	require.InEpsilon(t, 21.0e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
+	require.InEpsilon(t, 3.08e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
 }
 
 // ClinePass 全系模型（含非 DeepSeek 厂商）都必须能解析出各厂商官方口径的兜底价，

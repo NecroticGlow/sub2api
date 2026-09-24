@@ -35,7 +35,7 @@ describe('ccswitchImport utils', () => {
 
     expect(CC_SWITCH_PROVIDER_API_BASE_URL).toBe('https://wanwuplus.com')
     expect(params.get('homepage')).toBe('https://current-site.example.com')
-    expect(params.get('endpoint')).toBe('https://wanwuplus.com')
+    expect(params.get('endpoint')).toBe('https://wanwuplus.com/v1')
   })
 
   const baseInput = {
@@ -58,7 +58,7 @@ describe('ccswitchImport utils', () => {
     expect(params.get('resource')).toBe('provider')
     expect(params.get('app')).toBe('codex')
     expect(params.get('homepage')).toBe(baseInput.homepage)
-    expect(params.get('endpoint')).toBe(CC_SWITCH_PROVIDER_API_BASE_URL)
+    expect(params.get('endpoint')).toBe(`${CC_SWITCH_PROVIDER_API_BASE_URL}/v1`)
     expect(params.get('model')).toBe(OPENAI_CC_SWITCH_CODEX_MODEL)
     expect(atob(params.get('usageScript') || '')).toBe(baseInput.usageScript)
   })

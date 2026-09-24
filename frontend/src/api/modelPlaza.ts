@@ -45,6 +45,8 @@ export interface PlazaTimePricing {
 
 export interface PlazaModel {
   name: string
+  /** Optional ranking supplied by backends with popularity statistics. */
+  popularity_rank?: number
   platform: string
   /** 实收口径的展示定价：档位可提供绝对单价或相对基础价倍率；均为标准时段价。 */
   pricing: UserSupportedModelPricing | null

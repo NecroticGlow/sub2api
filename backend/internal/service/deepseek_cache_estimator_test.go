@@ -50,9 +50,14 @@ func TestDeepSeekCacheEstimatorPrepareAndApply(t *testing.T) {
 	estimator.prepare(context.Background(), c1, &Account{ID: 971, Credentials: map[string]any{"base_url": "https://ollama.com"}}, "deepseek-v4-flash:0731", first)
 	c2, _ := gin.CreateTestContext(nil)
 	estimator.prepare(context.Background(), c2, &Account{ID: 979, Credentials: map[string]any{"base_url": "https://ollama.com/v1"}}, "deepseek-v4-flash:0731", second)
-	out, estimated := applyDeepSeekCacheEstimate(c2, []byte(`{"usage":{"input_tokens":1200,"output_tokens":5,"input_tokens_details":{"cached_tokens":0}}}`))
+	out, estimated := applyDeepSeekCacheEstimate(c2, []byte(`{"usage":{"input_tokens":1200,"output_tokens":5}}`))
 	require.Positive(t, estimated)
 	require.Equal(t, int64(estimated), gjson.GetBytes(out, "usage.input_tokens_details.cached_tokens").Int())
+	// Explicit upstream zero is authoritative, not an invitation to estimate.
+	explicitZero := []byte(`{"usage":{"input_tokens":1200,"output_tokens":5,"input_tokens_details":{"cached_tokens":0}}}`)
+	unchanged, estimated := applyDeepSeekCacheEstimate(c2, explicitZero)
+	require.Zero(t, estimated)
+	require.Equal(t, explicitZero, unchanged)
 }
 
 func TestDeepSeekCacheEstimatorKeepsLargePromptAcrossUnrelatedRequests(t *testing.T) {
