@@ -36,7 +36,7 @@
             <span>{{ t('admin.intelligence.concurrency') }}: {{ results[account.id]!.current_concurrency }}</span>
             <span>{{ t('admin.intelligence.tokens') }}: {{ formatNumber(results[account.id]!.usage?.total_tokens) }}</span>
             <span>{{ t('admin.intelligence.inputOutput') }}: {{ formatNumber(results[account.id]!.usage?.input_tokens) }} / {{ formatNumber(results[account.id]!.usage?.output_tokens) }}</span>
-            <span>{{ t('admin.intelligence.originalCost') }}: ${{ (results[account.id]!.cost?.total_cost_usd ?? 0).toFixed(6) }}</span>
+            <span>{{ t('admin.intelligence.originalCost') }}: {{ results[account.id]!.cost ? `$${results[account.id]!.cost!.total_cost_usd.toFixed(6)}` : '—' }}</span>
           </div>
           <p v-if="results[account.id]!.cost" class="mt-1 text-xs text-gray-500">{{ results[account.id]!.cost!.pricing_note }}</p>
           <p v-if="previousResults[account.id]" class="mt-2 text-xs text-gray-500">{{ t('admin.intelligence.previous') }}: {{ previousLabel(account.id) }}</p>
@@ -149,7 +149,7 @@ function previousLabel(id: number) {
   return decision ? t(`admin.intelligence.reviewed_${decision}`) : statusLabelFor(previousResults.value[id]!.status)
 }
 function formatNumber(value: number | undefined) {
-  return new Intl.NumberFormat().format(value ?? 0)
+  return value == null ? '—' : new Intl.NumberFormat().format(value)
 }
 function statusClass(id: number) {
   if (manual.value[id] === 'degraded' || results.value[id]?.status === 'error') return 'text-sm text-red-600'
