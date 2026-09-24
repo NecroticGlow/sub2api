@@ -705,6 +705,8 @@ export default {
       cacheReadShort: '读',
       tierHint: '按单次请求的总上下文（输入 + 缓存写入 + 缓存读取）所在档位对整单计价',
       tierHintMarginal: '仅超过阈值的部分按该档计价，输出不加价',
+      relayPrice: '中转实付价',
+      unitPerMillionCny: '¥ / 百万 tokens',
       reasoningMultiplierBadge: '{effort} ×{multiplier}',
       reasoningMultiplierHint: '最终转发的思考等级为 {effort} 时，整次请求的计费与额度消耗乘以 {multiplier}；未配置的等级按 1 倍计费',
       marginalBadge: '超出部分计价',

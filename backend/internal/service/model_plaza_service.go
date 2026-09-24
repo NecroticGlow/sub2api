@@ -21,6 +21,7 @@ type PlazaOfficialPricing struct {
 
 // PlazaModel 模型广场中单个模型条目：按实收口径合成的展示定价 + 官方参考价。
 type PlazaModel struct {
+	PopularityRank  int
 	Name            string
 	Platform        string
 	Pricing         *ChannelModelPricing
@@ -33,9 +34,8 @@ type PlazaModel struct {
 
 // PlazaGroup 模型广场中以分组为顶层的条目。
 //
-// 与 AvailableGroupRef 相比多了 Description 与 Models；Models 来自该分组关联渠道的
-// 支持模型（普通分组按分组平台隔离，Composite 分组展开关联渠道已配置的
-// 具体平台），与「可用渠道」页口径一致。
+// Models 合并渠道、分组配置、账号模型映射与平台默认目录，并应用分组白名单。
+// 目录反映持久配置，不代表账号的实时调度状态。
 type PlazaGroup struct {
 	ID                 int64
 	Name               string
@@ -59,14 +59,17 @@ type PlazaGroup struct {
 
 // ModelPlazaService 聚合模型广场数据。
 //
-// 模型枚举来自渠道配置；token 模型的展示单价与阶梯由 BillingService 的阶梯表
+// 模型枚举来自渠道、分组与账号配置；token 模型的展示单价与阶梯由 BillingService 的阶梯表
 // 查询给出（与扣费走同一条解析链与计费函数），图片/按次模型沿用渠道/分组档位价。
 type ModelPlazaService struct {
-	channelRepo    ChannelRepository
-	groupRepo      GroupRepository
-	pricingService *PricingService
-	billingService *BillingService
-	resolver       *ModelPricingResolver
+	channelRepo     ChannelRepository
+	groupRepo       GroupRepository
+	pricingService  *PricingService
+	billingService  *BillingService
+	resolver        *ModelPricingResolver
+	accountRepo     AccountRepository
+	usageRepo       UsageLogRepository
+	popularityCache plazaPopularityCache
 }
 
 // NewModelPlazaService 创建模型广场服务。
@@ -76,6 +79,8 @@ func NewModelPlazaService(
 	pricingService *PricingService,
 	billingService *BillingService,
 	resolver *ModelPricingResolver,
+	accountRepo AccountRepository,
+	usageRepo UsageLogRepository,
 ) *ModelPlazaService {
 	return &ModelPlazaService{
 		channelRepo:    channelRepo,
@@ -83,13 +88,14 @@ func NewModelPlazaService(
 		pricingService: pricingService,
 		billingService: billingService,
 		resolver:       resolver,
+		accountRepo:    accountRepo,
+		usageRepo:      usageRepo,
 	}
 }
 
 // ListGroups 返回模型广场数据：每个活跃分组附带其可用模型与定价。
 //
-// 模型枚举口径与 ListAvailable 一致（Active 渠道、SupportedModels ∪ 全局定价回落、
-// 平台隔离），仅把顶层从渠道换成分组：
+// 合并渠道、分组和账号目录后，按近 7 天公开分组调用次数筛选前 10 个模型：
 //   - 渠道按 lower(name) 排序后遍历，保证同名模型去重结果确定；
 //   - 同分组同名模型「先见者胜」，仅当已存条目无定价而新条目有定价时升级替换；
 //   - token 模型的单价与阶梯按实收口径合成（见 ResolveContextPricingSchedule），
@@ -107,6 +113,10 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+	accountsByGroup, err := s.plazaAccountsByGroup(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list model catalog accounts: %w", err)
 	}
 
 	sort.SliceStable(channels, func(i, j int) bool {
@@ -190,10 +200,15 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		}
 	}
 
-	officialMemo := make(map[string]*PlazaOfficialPricing)
 	out := make([]PlazaGroup, 0, len(order))
 	for _, gid := range order {
 		pg := byGroup[gid]
+		g := groupEnt[gid]
+		// Direct groups and account mappings do not require a Channel entity.
+		if s.accountRepo != nil {
+			pg.Models = append(pg.Models, plazaAccountModels(g, accountsByGroup[gid], len(pg.Models) == 0)...)
+		}
+		pg.Models = mergePlazaGroupModels(pg.Models, g, s.pricingService)
 		if len(pg.Models) == 0 {
 			continue
 		}
@@ -203,12 +218,20 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			}
 			return pg.Models[i].Platform < pg.Models[j].Platform
 		})
-		g := groupEnt[gid]
-		for j := range pg.Models {
-			s.fillDisplayPricing(ctx, &pg.Models[j], g)
-			pg.Models[j].OfficialPricing = s.lookupOfficialPricing(ctx, pg.Models[j].Name, officialMemo)
-		}
 		out = append(out, *pg)
+	}
+
+	out, err = s.popularPlazaGroups(ctx, out)
+	if err != nil {
+		return nil, err
+	}
+	officialMemo := make(map[string]*PlazaOfficialPricing)
+	for i := range out {
+		for j := range out[i].Models {
+			m := &out[i].Models[j]
+			s.fillDisplayPricing(ctx, m, groupEnt[out[i].ID])
+			m.OfficialPricing = s.lookupOfficialPricing(ctx, m.Name, officialMemo)
+		}
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
@@ -218,6 +241,63 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
+}
+
+// mergePlazaGroupModels only uses explicit configuration, never the disabled
+// allowlist's UI defaults or a provider-wide price catalog as proof of support.
+// It does not create channels or change any routing/billing configuration.
+func mergePlazaGroupModels(existing []PlazaModel, g *Group, pricing *PricingService) []PlazaModel {
+	configured := (&Channel{ModelPricing: g.ModelPricing}).SupportedModels()
+	if g.Platform != PlatformComposite {
+		if g.ModelAllowlist.Enabled {
+			for _, name := range g.ModelAllowlist.Models {
+				configured = append(configured, SupportedModel{Name: name, Platform: g.Platform})
+			}
+		}
+		if g.ModelRoutingEnabled {
+			for name, accounts := range g.ModelRouting {
+				if len(accounts) > 0 {
+					configured = append(configured, SupportedModel{Name: name, Platform: g.Platform})
+				}
+			}
+		}
+	}
+	fillGlobalPricingFallback(pricing, configured)
+	out := make([]PlazaModel, 0, len(existing)+len(configured))
+	index := make(map[string]int)
+	add := func(m PlazaModel, preferPrice bool) {
+		m.Name = strings.TrimSpace(m.Name)
+		if m.Name == "" || strings.ContainsAny(m.Name, "*?") || !g.ModelAllowlist.Allows(m.Name) {
+			return
+		}
+		if g.Platform == PlatformComposite {
+			if !isConcreteRequestPlatform(m.Platform) {
+				return
+			}
+		} else if m.Platform != g.Platform {
+			return
+		}
+		key := m.Platform + ":" + strings.ToLower(m.Name)
+		if at, ok := index[key]; ok {
+			if m.Pricing != nil && (preferPrice || out[at].Pricing == nil) {
+				out[at].Pricing = m.Pricing
+			}
+			return
+		}
+		index[key] = len(out)
+		out = append(out, m)
+	}
+	for _, m := range existing {
+		add(m, false)
+	}
+	for _, m := range configured {
+		add(PlazaModel{Name: m.Name, Platform: m.Platform, Pricing: m.Pricing}, false)
+	}
+	// Explicit group prices have the same precedence as the billing resolver.
+	for _, m := range (&Channel{ModelPricing: g.ModelPricing}).SupportedModels() {
+		add(PlazaModel{Name: m.Name, Platform: m.Platform, Pricing: m.Pricing}, true)
+	}
+	return out
 }
 
 // fillDisplayPricing 把模型的展示定价换成实收口径：

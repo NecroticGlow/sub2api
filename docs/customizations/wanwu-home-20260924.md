@@ -48,4 +48,19 @@
 - Browser inspection: desktop and 390px mobile homepage render correctly;
   no broken loaded images or horizontal document overflow observed.
 
-This integration does not deploy or modify production containers or databases.
+The initial integration was local-only. A separately requested deployment audit
+found additional September 19 production customizations and reconciled them:
+
+- Restored the public model catalog's account/group mappings, seven-day top-ten
+  ranking, five-minute popularity cache and private-group exclusion.
+- Preserved production model-plaza CNY relay prices, cache-price cards, group
+  filters and user-specific rates using the matching supplied frontend snapshot.
+- Kept upstream 0.2.8 generic reasoning-effort multipliers and group-price
+  precedence, rather than reintroducing the older implicit Max multiplier.
+- Added the production catalog tests; homepage/plaza regression suite: 77 passed.
+- Frontend production build and targeted service/handler Plaza and DeepSeek
+  tests passed. Repository package compiled (no matching unit tests).
+- Deployment target: existing `NecroticGlow/sub2api` main branch and server
+  production service on port 8080. The separate 8888 installation is untouched.
+- Release backups and isolated Docker validation are kept privately on the
+  server under `/opt/sub2api-release-20260924`, never in Git.

@@ -44,6 +44,7 @@ function mountTable(
   rateMultiplier: number,
   userRateMultiplier?: number | null,
   extraProps?: {
+    showOfficialPricing?: boolean
     imageRateIndependent?: boolean
     imageRateMultiplier?: number | null
     peakWindow?: string
@@ -56,6 +57,30 @@ function mountTable(
 }
 
 describe('PlazaModelPricingTable', () => {
+  it('shows relay prices in CNY using the recharge ratio and applies the group rate once', () => {
+    const model = tokenModel({ popularity_rank: 1 })
+    model.pricing!.cache_read_price = 2e-8
+    const wrapper = mountTable([model], 0.4, null, { showOfficialPricing: false })
+    expect(wrapper.text()).toContain('¥1.20')
+    expect(wrapper.text()).toContain('¥6.00')
+    expect(wrapper.text()).toContain('¥0.008')
+    expect(wrapper.text()).toContain('modelPlaza.table.unitPerMillionCny')
+    expect(wrapper.text()).not.toContain('$')
+    expect(wrapper.text()).not.toContain('modelPlaza.table.officialPrice')
+    expect(wrapper.findAll('tbody tr td')).toHaveLength(5)
+  })
+
+  it('keeps user rates and per-request units when presenting CNY', () => {
+    const model = tokenModel()
+    model.pricing!.billing_mode = 'per_request'
+    model.pricing!.per_request_price = 0.05
+    const wrapper = mountTable([model], 0.4, 0.2, { showOfficialPricing: false })
+    expect(wrapper.text()).toContain('¥0.01')
+    expect(wrapper.text()).toContain('modelPlaza.table.perUnitRequest')
+    expect(wrapper.text()).not.toContain('$')
+  })
+
+
   it('倍率为 1 时展示渠道单价原值($/1M),价格保底 2 位小数', () => {
     const wrapper = mountTable([tokenModel()], 1)
     const text = wrapper.text()

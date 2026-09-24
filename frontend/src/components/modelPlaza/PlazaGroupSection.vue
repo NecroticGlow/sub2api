@@ -56,6 +56,7 @@
       <PlazaModelPricingTable
         v-if="group.models.length > 0"
         :models="group.models"
+        :show-official-pricing="false"
         :platform="group.platform"
         :rate-multiplier="group.rate_multiplier"
         :user-rate-multiplier="group.user_rate_multiplier ?? null"
@@ -109,7 +110,7 @@ const peakNote = computed(() => {
 
 /**
  * 分组关闭了长上下文阶梯、但组内有模型官方带阶梯时提示:实付列只展示基础档,
- * 官方阶梯仅供参考。字段缺失(旧后端)不提示。
+ * 广场仅展示中转实付价。字段缺失(旧后端)不提示。
  */
 const longContextNote = computed(() => {
   if (props.group.long_context_pricing_enabled !== false) return ''
