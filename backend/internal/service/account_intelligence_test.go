@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,7 @@ const referenceIntelligenceAnswer = `| iPhone | **iPhone 17 generation**, includ
 func TestIntelligenceAssessment(t *testing.T) {
 	for _, tc := range []struct{ name, answer, status string }{
 		{"reference", referenceIntelligenceAnswer, "passed"},
+		{"reference with prompt boilerplate", "Do not browse the web or speculate. If you are uncertain, say uncertain.\n" + referenceIntelligenceAnswer, "passed"},
 		{"case and ISO dates", strings.ReplaceAll(strings.ReplaceAll(strings.ToUpper(referenceIntelligenceAnswer), "SEPTEMBER 9, 2025", "2025-09-09"), "SEPTEMBER 19, 2025", "2025-09-19"), "passed"},
 		{"older Android", strings.ReplaceAll(referenceIntelligenceAnswer, "Android 16", "Android 15"), "manual_review"},
 		{"uncertain", referenceIntelligenceAnswer + "\nI am uncertain about this.", "manual_review"},
@@ -39,6 +41,21 @@ func TestIntelligenceAssessment(t *testing.T) {
 			require.Len(t, checks, 7)
 		})
 	}
+}
+
+func TestIntelligenceHistoryPersistsServerSide(t *testing.T) {
+	svc, _, account := intelligenceTestFixture()
+	repo := svc.accountRepo.(*openAIAccountTestRepo)
+	result := &IntelligenceTestResult{AccountID: account.ID, Model: IntelligenceTestModel, Status: "passed", ResponseText: referenceIntelligenceAnswer, TestedAt: time.Now().UTC()}
+	require.NoError(t, svc.SaveIntelligenceTestResult(context.Background(), result))
+	raw, ok := repo.updatedExtra[intelligenceTestHistoryExtraKey]
+	require.True(t, ok)
+	encoded, err := json.Marshal(raw)
+	require.NoError(t, err)
+	var history []IntelligenceTestResult
+	require.NoError(t, json.Unmarshal(encoded, &history))
+	require.Len(t, history, 1)
+	require.Equal(t, "passed", history[0].Status)
 }
 
 func intelligenceTestFixture() (*AccountTestService, *queuedHTTPUpstream, *Account) {

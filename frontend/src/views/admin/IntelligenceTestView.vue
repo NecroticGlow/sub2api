@@ -59,6 +59,14 @@
             <button v-if="manual[account.id]" class="btn btn-secondary btn-sm" @click="delete manual[account.id]">{{ t('admin.intelligence.reset') }}</button>
           </div>
         </template>
+        <details v-if="histories[account.id]?.length" class="mt-4">
+          <summary class="cursor-pointer text-sm font-medium">{{ t('admin.intelligence.history') }} ({{ histories[account.id]!.length }})</summary>
+          <ul class="mt-2 space-y-2 text-xs text-gray-500">
+            <li v-for="item in histories[account.id]" :key="item.tested_at + item.latency_ms" class="rounded border border-gray-200 p-2 dark:border-dark-700">
+              {{ new Date(item.tested_at).toLocaleString() }} · {{ statusLabelFor(item.status) }} · {{ formatNumber(item.usage?.total_tokens) }} {{ t('admin.intelligence.tokens') }} · {{ item.cost ? `$${item.cost.total_cost_usd.toFixed(6)}` : '—' }}
+            </li>
+          </ul>
+        </details>
       </article>
       <div class="flex items-center justify-between gap-3">
         <button class="btn btn-secondary" :disabled="loading || page <= 1" @click="page--; loadAccounts()">{{ t('pagination.previous') }}</button>
@@ -74,7 +82,7 @@ import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { list } from '@/api/admin/accounts'
-import { testIntelligence, type IntelligenceResult } from '@/api/admin/intelligence'
+import { getIntelligenceHistory, testIntelligence, type IntelligenceResult } from '@/api/admin/intelligence'
 import type { AccountListItem } from '@/types'
 
 const { t } = useI18n()
@@ -82,6 +90,7 @@ const accounts = ref<AccountListItem[]>([])
 const results = ref<Record<number, IntelligenceResult>>({})
 const previousResults = ref<Record<number, IntelligenceResult>>({})
 const previousManual = ref<Record<number, 'normal' | 'degraded'>>({})
+const histories = ref<Record<number, IntelligenceResult[]>>({})
 const manual = ref<Record<number, 'normal' | 'degraded'>>({})
 const running = ref<Record<number, boolean>>({})
 const controllers = new Map<number, AbortController>()
@@ -105,6 +114,16 @@ async function loadAccounts() {
     accounts.value = data.items.filter(account => account.platform === 'openai' && account.type === 'oauth')
     total.value = data.total
     pages.value = Math.max(1, data.pages)
+    await Promise.all(accounts.value.map(async account => {
+      try {
+        const history = await getIntelligenceHistory(account.id, controller.signal)
+        if (controller.signal.aborted) return
+        histories.value[account.id] = history
+        if (history[0] && !running.value[account.id]) results.value[account.id] = history[0]
+      } catch {
+        // Account history is supplementary; the account list remains usable.
+      }
+    }))
   } catch (error) {
     if (!controller.signal.aborted) loadError.value = error instanceof Error ? error.message : t('common.unknownError')
   } finally {
@@ -126,6 +145,7 @@ async function runTest(id: number) {
   try {
     const result = await testIntelligence(id, controller.signal)
     if (!controller.signal.aborted) results.value[id] = result
+    if (!controller.signal.aborted) histories.value[id] = [result, ...(histories.value[id] ?? []).filter(item => item.tested_at !== result.tested_at)].slice(0, 20)
   } catch (error) {
     if (!controller.signal.aborted) results.value[id] = {
       account_id: id, model: 'gpt-6-astra', status: 'error', response_text: '', checks: [], current_concurrency: 0,

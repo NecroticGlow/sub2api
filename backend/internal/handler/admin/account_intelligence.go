@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -38,5 +39,23 @@ func (h *AccountHandler) TestIntelligence(c *gin.Context) {
 		return
 	}
 	result.CurrentConcurrency = currentConcurrency
+	if saveErr := h.accountTestService.SaveIntelligenceTestResult(c.Request.Context(), result); saveErr != nil {
+		result.Error = strings.TrimSpace(strings.Join([]string{result.Error, "历史记录保存失败: " + saveErr.Error()}, " "))
+	}
 	response.Success(c, result)
+}
+
+// IntelligenceHistory returns the recent server-side results for an account.
+func (h *AccountHandler) IntelligenceHistory(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	history, err := h.accountTestService.GetIntelligenceTestHistory(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": history})
 }

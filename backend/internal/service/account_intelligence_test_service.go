@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"regexp"
@@ -22,6 +23,9 @@ If you are uncertain about any item, simply say “uncertain” for that item. D
 var ErrIntelligenceAccountType = errors.New("intelligence tests require an OpenAI OAuth account")
 var ErrIntelligenceTestBusy = errors.New("a test is already running for this account")
 var intelligenceTestsRunning sync.Map
+
+const intelligenceTestHistoryExtraKey = "intelligence_test_history"
+const intelligenceTestHistoryLimit = 20
 
 type intelligenceTestContextKey struct{}
 
@@ -96,7 +100,18 @@ func dateMatchesLabel(plain string, label, date, otherDate *regexp.Regexp) bool 
 func assessIntelligenceResponse(text string) (string, []IntelligenceCheck) {
 	plain := strings.NewReplacer("*", "", "`", "", "_", "", "|", " ", "\r", "", "’", "'").Replace(text)
 	checks := make([]IntelligenceCheck, 0, len(intelligenceReference))
-	matched := !intelligenceAmbiguous.MatchString(plain) && !intelligenceNegated.MatchString(plain)
+	matched := !intelligenceNegated.MatchString(plain)
+	for _, line := range strings.Split(plain, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		// A model may repeat the prompt's instruction about uncertainty. That
+		// boilerplate is not an uncertain answer; a standalone caveat is.
+		if intelligenceAmbiguous.MatchString(trimmed) &&
+			!strings.Contains(lower, "if you are uncertain") &&
+			!strings.Contains(lower, "if uncertain") {
+			matched = false
+		}
+	}
 	for _, claim := range intelligenceVersionClaims {
 		for _, hit := range claim.pattern.FindAllStringSubmatch(plain, -1) {
 			if strings.ToLower(hit[1]) != claim.expected {
@@ -105,9 +120,10 @@ func assessIntelligenceResponse(text string) (string, []IntelligenceCheck) {
 		}
 	}
 	for _, ref := range intelligenceReference {
-		ok := ref.pattern.MatchString(plain)
+		relevant := intelligenceRelevantText(plain, ref.item)
+		ok := ref.pattern.MatchString(relevant)
 		if ref.item == "iphone" {
-			ok = ok && intelligencePro.MatchString(plain) && intelligenceProMax.MatchString(plain)
+			ok = ok && intelligencePro.MatchString(relevant) && intelligenceProMax.MatchString(relevant)
 		}
 		if ref.item == "announcement" {
 			ok = dateMatchesLabel(plain, intelligenceAnnouncement, ref.pattern, intelligenceReference[2].pattern)
@@ -122,6 +138,28 @@ func assessIntelligenceResponse(text string) (string, []IntelligenceCheck) {
 		return "passed", checks
 	}
 	return "manual_review", checks
+}
+
+func intelligenceRelevantText(plain, item string) string {
+	keywords := map[string][]string{
+		"iphone": {"iphone"}, "announcement": {"announcement", "announced", "发布"},
+		"on_sale": {"on-sale", "on sale", "发售", "上市"}, "nvidia": {"nvidia", "gpu", "rtx"},
+		"android": {"android"}, "macos": {"macos", "mac os"}, "windows": {"windows"},
+	}
+	var lines []string
+	for _, line := range strings.Split(plain, "\n") {
+		lower := strings.ToLower(line)
+		for _, keyword := range keywords[item] {
+			if strings.Contains(lower, strings.ToLower(keyword)) {
+				lines = append(lines, line)
+				break
+			}
+		}
+	}
+	if len(lines) == 0 {
+		return plain
+	}
+	return strings.Join(lines, "\n")
 }
 
 func isIntelligenceTest(ctx context.Context) bool {
@@ -172,6 +210,55 @@ func (s *AccountTestService) TestAccountIntelligence(ctx context.Context, accoun
 		}
 	}
 	return &IntelligenceTestResult{AccountID: accountID, Model: IntelligenceTestModel, Status: status, ResponseText: text, Error: upstreamError, Checks: checks, TestedAt: started.UTC(), LatencyMS: time.Since(started).Milliseconds(), Usage: usage, Cost: intelligenceTestCost(usage)}, nil
+}
+
+// SaveIntelligenceTestResult persists a bounded server-side history in the
+// account's extra JSON. Every administrator sees the same recent results.
+func (s *AccountTestService) SaveIntelligenceTestResult(ctx context.Context, result *IntelligenceTestResult) error {
+	if s == nil || s.accountRepo == nil || result == nil {
+		return errors.New("intelligence test persistence is unavailable")
+	}
+	account, err := s.accountRepo.GetByID(ctx, result.AccountID)
+	if err != nil {
+		return err
+	}
+	history := make([]IntelligenceTestResult, 0, intelligenceTestHistoryLimit)
+	if raw, ok := account.Extra[intelligenceTestHistoryExtraKey]; ok {
+		if encoded, marshalErr := json.Marshal(raw); marshalErr == nil {
+			_ = json.Unmarshal(encoded, &history)
+		}
+	}
+	if len(history) >= intelligenceTestHistoryLimit {
+		history = history[:intelligenceTestHistoryLimit-1]
+	}
+	copyResult := *result
+	if len(copyResult.ResponseText) > 64*1024 {
+		copyResult.ResponseText = copyResult.ResponseText[:64*1024]
+	}
+	history = append([]IntelligenceTestResult{copyResult}, history...)
+	return s.accountRepo.UpdateExtra(ctx, result.AccountID, map[string]any{intelligenceTestHistoryExtraKey: history})
+}
+
+func (s *AccountTestService) GetIntelligenceTestHistory(ctx context.Context, accountID int64) ([]IntelligenceTestResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, errors.New("intelligence test history is unavailable")
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	history := make([]IntelligenceTestResult, 0)
+	if raw, ok := account.Extra[intelligenceTestHistoryExtraKey]; ok {
+		if encoded, marshalErr := json.Marshal(raw); marshalErr == nil {
+			if unmarshalErr := json.Unmarshal(encoded, &history); unmarshalErr != nil {
+				return nil, unmarshalErr
+			}
+		}
+	}
+	if len(history) > intelligenceTestHistoryLimit {
+		history = history[:intelligenceTestHistoryLimit]
+	}
+	return history, nil
 }
 
 // These are the built-in original USD rates for gpt-6-astra. Tests are

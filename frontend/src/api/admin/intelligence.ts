@@ -32,3 +32,11 @@ export async function testIntelligence(id: number, signal?: AbortSignal): Promis
   })
   return data
 }
+
+export async function getIntelligenceHistory(id: number, signal?: AbortSignal): Promise<IntelligenceResult[]> {
+  const { data } = await apiClient.get<{ items: IntelligenceResult[] }>(`/admin/accounts/${id}/intelligence-test-history`, {
+    timeout: 15000,
+    signal
+  })
+  return data.items ?? []
+}

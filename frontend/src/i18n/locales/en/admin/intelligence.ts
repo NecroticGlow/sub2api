@@ -6,7 +6,7 @@ export default {
     search: 'Search account names', empty: 'No OpenAI OAuth accounts',
     test: 'Start test', testing: 'Testing…', idle: 'Not tested',
     passed: 'Normal (reference matched)', manual_review: 'Needs human review', error: 'Test failed',
-    answer: 'View raw answer and reference checks', review: 'Human review:', previous: 'Previous test', lastTest: 'Last test result', concurrency: 'Current concurrency', tokens: 'Total tokens', inputOutput: 'Input / output tokens', originalCost: 'Original cost',
+    answer: 'View raw answer and reference checks', review: 'Human review:', previous: 'Previous test', lastTest: 'Last test result', history: 'Test history', concurrency: 'Current concurrency', tokens: 'Total tokens', inputOutput: 'Input / output tokens', originalCost: 'Original cost',
     normal: 'Normal', degraded: 'Degraded', reset: 'Clear decision',
     reviewed_normal: 'Normal (human review)', reviewed_degraded: 'Degraded (human review)',
     items: { iphone: 'iPhone', announcement: 'Official announcement', on_sale: 'Official on-sale date', nvidia: 'NVIDIA GPU', android: 'Android', macos: 'macOS', windows: 'Windows' }
