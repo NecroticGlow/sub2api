@@ -1137,6 +1137,38 @@ func TestBuildCodexModelsManifestForGroupUsesFallbackWhenTextOnlyPlatformHasNoSn
 	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
 }
 
+func TestBuildCodexModelsManifestForGroupMappedDeepSeekAliasUsesDeepSeekCapabilities(t *testing.T) {
+	t.Parallel()
+
+	const groupID int64 = 736
+	svc := &GatewayService{accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{
+		groupID: {{
+			ID:       1,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{"gpt-6-astra": "deepseek-v4-pro"},
+			},
+		}},
+	}}}
+
+	body, err := svc.BuildCodexModelsManifestForGroup(
+		context.Background(),
+		&Group{ID: groupID, Platform: PlatformOpenAI},
+		"",
+		[]string{"gpt-6-astra"},
+	)
+	require.NoError(t, err)
+	models := decodeCodexManifestModels(t, body)
+	require.Len(t, models, 1)
+	model := models[0]
+	require.Equal(t, "gpt-6-astra", model["slug"])
+	require.Equal(t, false, model["use_responses_lite"], "mapped DeepSeek aliases must opt out of GPT Responses Lite")
+	require.Equal(t, "unified_exec", model["shell_type"])
+	require.Equal(t, "high", model["default_reasoning_level"])
+	require.Equal(t, []string{"low", "high", "max"}, effortsFromManifestModel(t, model))
+}
+
 func TestBuildCodexModelsManifestForGroupFallsBackWhenCapabilityLookupFails(t *testing.T) {
 	t.Parallel()
 
@@ -1743,33 +1775,6 @@ func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 	}
 }
 
-func TestFetchCodexModelsManifestRetriesOAuth429OnSameAccount(t *testing.T) {
-	manifestBody := `{"models":[{"slug":"gpt-5.5"}]}`
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if calls.Add(1) <= 2 {
-			w.Header().Set("Retry-After", "0")
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = w.Write([]byte(`{"error":"rate limited"}`))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(manifestBody))
-	}))
-	defer server.Close()
-
-	original := chatgptCodexModelsURL
-	chatgptCodexModelsURL = server.URL
-	defer func() { chatgptCodexModelsURL = original }()
-
-	account := newCodexModelsTestAccount()
-	account.RateLimit429RetryCount = retryCountPointer(2)
-	manifest, err := (&OpenAIGatewayService{}).FetchCodexModelsManifest(context.Background(), account, "0.144.0", "")
-	require.NoError(t, err)
-	require.Equal(t, int32(3), calls.Load())
-	require.JSONEq(t, manifestBody, string(manifest.Body))
-}
-
 func TestFetchCodexModelsManifestAgentIdentityUsesAssertionWithoutOAuthToken(t *testing.T) {
 	key, privateKey := newTestAgentIdentityKey(t)
 	account := &Account{
@@ -2091,39 +2096,6 @@ func TestFetchCodexModelsManifestAPIKeyCompleteBodyWithoutUpstreamETagUsesFinalB
 	require.True(t, second.NotModified)
 	require.Empty(t, second.Body)
 	require.Equal(t, int32(1), calls.Load())
-}
-
-func TestFetchCodexModelsManifestRetriesAPIKey429OnSameAccount(t *testing.T) {
-	manifestBody := `{"models":[{"slug":"gpt-5.6"}]}`
-	var calls atomic.Int32
-	upstream := &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-		if calls.Add(1) <= 2 {
-			return &http.Response{
-				StatusCode: http.StatusTooManyRequests,
-				Header:     http.Header{"Retry-After": []string{"0"}},
-				Body:       io.NopCloser(strings.NewReader(`{"error":"rate limited"}`)),
-				Request:    req,
-			}, nil
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(manifestBody)),
-			Request:    req,
-		}, nil
-	}}
-
-	account := newCodexModelsAPIKeyTestAccount("https://retry-upstream.example/v1")
-	account.RateLimit429RetryCount = retryCountPointer(2)
-	manifest, err := newCodexModelsAPIKeyTestService(upstream).FetchCodexModelsManifest(
-		context.Background(),
-		account,
-		"0.144.0",
-		"",
-	)
-	require.NoError(t, err)
-	require.Equal(t, int32(3), calls.Load())
-	require.JSONEq(t, manifestBody, string(manifest.Body))
 }
 
 func TestFetchCodexModelsManifestAPIKeyConvertsStandardOpenAIModelList(t *testing.T) {
@@ -2702,9 +2674,8 @@ func TestFetchCodexModelsManifestAPIKeySharedRefreshSurvivesCallerCancellation(t
 		t.Fatal("upstream body read did not start")
 	}
 	remaining := <-deadlineRemaining
-	expectedTimeout := account429RetryTotalTimeout(codexModelsManifestRequestTimeout, account)
-	if remaining < expectedTimeout-time.Second || remaining > expectedTimeout {
-		t.Errorf("detached refresh deadline: got %s, want approximately %s", remaining, expectedTimeout)
+	if remaining < 14*time.Second || remaining > codexModelsManifestRequestTimeout {
+		t.Errorf("detached refresh deadline: got %s, want approximately %s", remaining, codexModelsManifestRequestTimeout)
 	}
 	cancelFirst()
 	select {
@@ -3766,6 +3737,26 @@ func TestFetchCodexModelsManifestOAuthSharedAcrossGroupsWithIndependentFiltering
 	require.EqualValues(t, 1, calls.Load(), "同一账号两个分组同时请求时只发一次上游请求")
 }
 
+func TestGPT6SolLunaCatalogKeepsAuthoritativeCapabilities(t *testing.T) {
+	for _, id := range []string{"gpt-6-sol", "gpt-6-luna"} {
+		svc := &OpenAIGatewayService{}
+		manifest := &OpenAIModelsResponse{Body: []byte(`{"models":[{"slug":"` + id + `","supported_reasoning_levels":[{"effort":"ultra"}],"default_reasoning_level":"ultra","multi_agent_reasoning_effort":"xhigh","service_tiers":[{"id":"ultrafast"}],"context_window":300000,"max_context_window":900000,"supports_search_tool":false,"apply_patch_tool_type":null}]}`)}
+		account := newCodexModelsAPIKeyTestAccount("https://api.openai.com/v1")
+		require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
+		models := decodeCodexManifestModels(t, manifest.Body)
+		require.Len(t, models, 1)
+		require.Equal(t, []string{"ultra"}, effortsFromManifestModel(t, models[0]))
+		require.Equal(t, "ultra", models[0]["default_reasoning_level"])
+		require.Equal(t, "xhigh", models[0]["multi_agent_reasoning_effort"])
+		require.Equal(t, float64(300000), models[0]["context_window"])
+		require.Equal(t, float64(900000), models[0]["max_context_window"])
+		require.Equal(t, []any{map[string]any{"id": "ultrafast"}}, models[0]["service_tiers"])
+		require.Equal(t, false, models[0]["supports_search_tool"])
+		require.Contains(t, models[0], "apply_patch_tool_type")
+		require.Nil(t, models[0]["apply_patch_tool_type"])
+	}
+}
+
 // Scenario: 非 OpenAI GPT 模型的 Codex 提示词不声称自己是 GPT。
 // Antigravity(Google) 对「Codex 提示词 + GPT-5 身份」直接回 429 RESOURCE_EXHAUSTED。
 func TestBuildCodexModelsManifestStripsGPTIdentityForNonGPTModels(t *testing.T) {
@@ -3819,25 +3810,5 @@ func TestCodexGPTIdentityPatternsCoverBundledPrompts(t *testing.T) {
 		}
 		require.NotContains(t, tmpl, "GPT-", model)
 		require.True(t, strings.HasPrefix(tmpl, "You are Codex"), "%s: %.60q", model, tmpl)
-	}
-}
-
-func TestGPT6SolLunaCatalogKeepsAuthoritativeCapabilities(t *testing.T) {
-	for _, id := range []string{"gpt-6-sol", "gpt-6-luna"} {
-		svc := &OpenAIGatewayService{}
-		manifest := &OpenAIModelsResponse{Body: []byte(`{"models":[{"slug":"` + id + `","supported_reasoning_levels":[{"effort":"ultra"}],"default_reasoning_level":"ultra","multi_agent_reasoning_effort":"xhigh","service_tiers":[{"id":"ultrafast"}],"context_window":300000,"max_context_window":900000,"supports_search_tool":false,"apply_patch_tool_type":null}]}`)}
-		account := newCodexModelsAPIKeyTestAccount("https://api.openai.com/v1")
-		require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
-		models := decodeCodexManifestModels(t, manifest.Body)
-		require.Len(t, models, 1)
-		require.Equal(t, []string{"ultra"}, effortsFromManifestModel(t, models[0]))
-		require.Equal(t, "ultra", models[0]["default_reasoning_level"])
-		require.Equal(t, "xhigh", models[0]["multi_agent_reasoning_effort"])
-		require.Equal(t, float64(300000), models[0]["context_window"])
-		require.Equal(t, float64(900000), models[0]["max_context_window"])
-		require.Equal(t, []any{map[string]any{"id": "ultrafast"}}, models[0]["service_tiers"])
-		require.Equal(t, false, models[0]["supports_search_tool"])
-		require.Contains(t, models[0], "apply_patch_tool_type")
-		require.Nil(t, models[0]["apply_patch_tool_type"])
 	}
 }

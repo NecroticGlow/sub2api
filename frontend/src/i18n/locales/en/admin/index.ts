@@ -7,7 +7,7 @@ import settings from './settings'
 import audit from './audit'
 import promptAudit from './promptAudit'
 import plugins from './plugins'
-import intelligence from './intelligence'
+import harvestFlow from './harvestFlow'
 
 export default {
   ...overview,
@@ -19,5 +19,5 @@ export default {
   ...audit,
   ...promptAudit,
   ...plugins,
-  ...intelligence,
+  ...harvestFlow,
 }

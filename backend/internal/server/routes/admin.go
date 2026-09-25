@@ -112,6 +112,9 @@ func RegisterAdminRoutes(
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
 
+		// 鹈鹕测智用户展示
+		registerPelicanShowcaseRoutes(admin, h)
+
 		// 渠道管理
 		registerChannelRoutes(admin, h)
 
@@ -350,6 +353,8 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		groups.DELETE("/:id/rate-multipliers", h.Admin.Group.ClearGroupRateMultipliers)
 		groups.PUT("/:id/rpm-overrides", h.Admin.Group.BatchSetGroupRPMOverrides)
 		groups.DELETE("/:id/rpm-overrides", h.Admin.Group.ClearGroupRPMOverrides)
+		groups.PUT("/:id/user-denied-models", h.Admin.Group.BatchSetGroupUserDeniedModels)
+		groups.DELETE("/:id/user-denied-models", h.Admin.Group.ClearGroupUserDeniedModels)
 		groups.GET("/:id/api-keys", h.Admin.Group.GetGroupAPIKeys)
 	}
 }
@@ -364,6 +369,13 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/upstream-billing-probe/batch", h.Admin.Account.ProbeUpstreamBillingBatch)
 		accounts.GET("/ollama-cloud-usage/settings", h.Admin.Account.GetOllamaCloudUsageSettings)
 		accounts.PUT("/ollama-cloud-usage/settings", h.Admin.Account.UpdateOllamaCloudUsageSettings)
+		accounts.GET("/codex-harvest-flow", h.Admin.Account.GetCodexHarvestFlow)
+		accounts.GET("/codex-harvest-controls", h.Admin.Account.GetCodexHarvestControls)
+		accounts.PUT("/codex-harvest-controls", h.Admin.Account.UpdateCodexHarvestControls)
+		accounts.GET("/codex-harvest-nodes", h.Admin.Account.GetCodexHarvestNodes)
+		accounts.POST("/codex-harvest-nodes/reset", h.Admin.Account.ResetCodexHarvestNodes)
+		accounts.PUT("/:id/codex-skip-harvest", h.Admin.Account.SetCodexSkipHarvest)
+		accounts.POST("/:id/manual-harvest", h.Admin.Account.ManualCodexHarvest)
 		accounts.GET("/opencode-go-usage/settings", h.Admin.Account.GetOpenCodeGoUsageSettings)
 		accounts.PUT("/opencode-go-usage/settings", h.Admin.Account.UpdateOpenCodeGoUsageSettings)
 		accounts.GET("/:id", h.Admin.Account.GetByID)
@@ -388,8 +400,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/opencode-go-usage/refresh", h.Admin.Account.RefreshOpenCodeGoUsage)
 		accounts.DELETE("/:id", h.Admin.Account.Delete)
 		accounts.POST("/:id/test", h.Admin.Account.Test)
-		accounts.POST("/:id/intelligence-test", h.Admin.Account.TestIntelligence)
-		accounts.GET("/:id/intelligence-test-history", h.Admin.Account.IntelligenceHistory)
+		accounts.POST("/:id/pelican-test", h.Admin.Account.PelicanTest)
 		accounts.POST("/:id/recover-state", h.Admin.Account.RecoverState)
 		accounts.POST("/:id/refresh", h.Admin.Account.Refresh)
 		accounts.POST("/:id/apply-oauth-credentials", h.Admin.Account.ApplyOAuthCredentials)
@@ -668,6 +679,8 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	system := admin.Group("/system")
 	{
 		system.GET("/version", h.Admin.System.GetVersion)
+		system.GET("/mihomo", h.Admin.System.GetMihomo)
+		system.POST("/mihomo", h.Admin.System.ManageMihomo)
 		system.GET("/check-updates", h.Admin.System.CheckUpdates)
 		system.GET("/rollback-versions", h.Admin.System.GetRollbackVersions)
 		system.POST("/update", h.Admin.System.PerformUpdate)
@@ -704,6 +717,7 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		usage.GET("", h.Admin.Usage.List)
 		usage.GET("/stats", h.Admin.Usage.Stats)
+		usage.GET("/:id/timing", h.Admin.Usage.Timing)
 		usage.GET("/search-users", h.Admin.Usage.SearchUsers)
 		usage.GET("/search-api-keys", h.Admin.Usage.SearchAPIKeys)
 		usage.GET("/cleanup-tasks", h.Admin.Usage.ListCleanupTasks)
@@ -725,15 +739,28 @@ func registerUserAttributeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.GET("/account-ops/config", h.Admin.AccountOps.GetConfig)
+	admin.PUT("/account-ops/config", h.Admin.AccountOps.SaveConfig)
+	admin.GET("/account-ops/alerts", h.Admin.AccountOps.List)
+	admin.GET("/account-quality-results", h.Admin.ScheduledTest.ListQualityHistory)
+	admin.GET("/account-quality-plans", h.Admin.ScheduledTest.ListQualityPlans)
+	admin.POST("/account-quality-plans/:id/run", h.Admin.ScheduledTest.TriggerQuality)
+	admin.GET("/pelican-test-results", h.Admin.ScheduledTest.ListPelicanHistory)
 	plans := admin.Group("/scheduled-test-plans")
 	{
 		plans.POST("", h.Admin.ScheduledTest.Create)
 		plans.PUT("/:id", h.Admin.ScheduledTest.Update)
 		plans.DELETE("/:id", h.Admin.ScheduledTest.Delete)
 		plans.GET("/:id/results", h.Admin.ScheduledTest.ListResults)
+		plans.GET("/:id/results/:resultID", h.Admin.ScheduledTest.GetResult)
 	}
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
+}
+
+// Admins browse the gallery through the user page; this only takes a snapshot down.
+func registerPelicanShowcaseRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	admin.DELETE("/pelican-showcase/items/:id", h.PelicanShowcase.DeleteItem)
 }
 
 func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

@@ -124,10 +124,16 @@
           default-sort-order="asc"
           @sort="handleSort"
         >
-          <template #cell-name="{ value }">
+          <template #cell-name="{ value, row }">
             <span class="font-medium text-gray-900 dark:text-white">{{
               value
             }}</span>
+            <span
+              v-if="row.stream_only"
+              class="badge badge-warning ml-2"
+              data-testid="group-stream-only-badge"
+              >{{ t("admin.groups.form.streamOnlyBadge") }}</span
+            >
           </template>
 
           <template #cell-id="{ value }">
@@ -443,6 +449,17 @@
                 }}</span>
               </button>
               <button
+                v-if="!authStore.isSimpleMode"
+                data-testid="group-user-denied-models"
+                @click="handleUserDeniedModels(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-600 dark:hover:bg-dark-700 dark:hover:text-red-400"
+              >
+                <Icon name="ban" size="sm" />
+                <span class="text-xs">{{
+                  t("admin.groups.userDeniedModels")
+                }}</span>
+              </button>
+              <button
                 @click="handleDelete(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
@@ -638,17 +655,16 @@
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
-        <div>
-          <label class="input-label">{{ t("admin.groups.form.userConcurrencyLimit") }}</label>
-          <input
-            v-model.number="createForm.user_concurrency_limit"
-            type="number"
-            min="0"
-            step="1"
-            class="input"
-            :placeholder="t('admin.groups.form.userConcurrencyLimitPlaceholder')"
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.streamOnly") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.streamOnlyHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="create-stream-only"
+            :aria-label="t('admin.groups.form.streamOnly')"
+            v-model="createForm.stream_only"
           />
-          <p class="input-hint">{{ t("admin.groups.form.userConcurrencyLimitHint") }}</p>
         </div>
         <ReasoningEffortPolicyFields
           v-if="supportsReasoningEffortPolicyPlatform(createForm.platform)"
@@ -2288,17 +2304,16 @@
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
-        <div>
-          <label class="input-label">{{ t("admin.groups.form.userConcurrencyLimit") }}</label>
-          <input
-            v-model.number="editForm.user_concurrency_limit"
-            type="number"
-            min="0"
-            step="1"
-            class="input"
-            :placeholder="t('admin.groups.form.userConcurrencyLimitPlaceholder')"
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.streamOnly") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.streamOnlyHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="edit-stream-only"
+            :aria-label="t('admin.groups.form.streamOnly')"
+            v-model="editForm.stream_only"
           />
-          <p class="input-hint">{{ t("admin.groups.form.userConcurrencyLimitHint") }}</p>
         </div>
         <ReasoningEffortPolicyFields
           v-if="supportsReasoningEffortPolicyPlatform(editForm.platform)"
@@ -4285,6 +4300,14 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
+
+    <!-- Group User Denied Models Modal -->
+    <GroupUserDeniedModelsModal
+      :show="showUserDeniedModelsModal"
+      :group="userDeniedModelsGroup"
+      @close="showUserDeniedModelsModal = false"
+      @success="loadGroups"
+    />
   </AppLayout>
 </template>
 
@@ -4324,6 +4347,7 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
+import GroupUserDeniedModelsModal from "@/components/admin/group/GroupUserDeniedModelsModal.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import CodexManifestAccountsField from "@/components/admin/group/CodexManifestAccountsField.vue";
@@ -4866,6 +4890,8 @@ const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
+const showUserDeniedModelsModal = ref(false);
+const userDeniedModelsGroup = ref<AdminGroup | null>(null);
 const sortableGroups = ref<AdminGroup[]>([]);
 type ConcreteGroupPlatform = Exclude<GroupPlatform, "composite">;
 type CompositeRouteFormState = {
@@ -5021,6 +5047,8 @@ const createForm = reactive({
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
+  // 仅允许流式请求
+  stream_only: false,
   // 模型路由开关
   model_routing_enabled: false,
   // 支持的模型系列（仅 antigravity 平台）
@@ -5031,7 +5059,6 @@ const createForm = reactive({
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
   rpm_limit: 0 as number,
-  user_concurrency_limit: 0 as number,
   max_reasoning_effort: "",
   max_reasoning_effort_over_limit: reasoningEffortOverLimitDowngrade,
   reasoning_effort_mappings: [] as ReasoningEffortMappingRow[],
@@ -5388,6 +5415,8 @@ const editForm = reactive({
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
+  // 仅允许流式请求
+  stream_only: false,
   // 模型路由开关
   model_routing_enabled: false,
   // 支持的模型系列（仅 antigravity 平台）
@@ -5398,7 +5427,6 @@ const editForm = reactive({
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
   rpm_limit: 0 as number,
-  user_concurrency_limit: 0 as number,
   max_reasoning_effort: "",
   max_reasoning_effort_over_limit: reasoningEffortOverLimitDowngrade,
   reasoning_effort_mappings: [] as ReasoningEffortMappingRow[],
@@ -5838,11 +5866,11 @@ const closeCreateModal = () => {
   createForm.allow_live = false;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
+  createForm.stream_only = false;
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
   createForm.mcp_xml_inject = true;
   createForm.copy_accounts_from_group_ids = [];
   createForm.rpm_limit = 0;
-  createForm.user_concurrency_limit = 0;
   createForm.max_reasoning_effort = "";
   createForm.max_reasoning_effort_over_limit = reasoningEffortOverLimitDowngrade;
   createForm.reasoning_effort_mappings = [];
@@ -6141,6 +6169,7 @@ const handleEdit = async (group: AdminGroup) => {
     messagesDispatchFormState.exact_model_mappings;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
+  editForm.stream_only = group.stream_only ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
   editForm.supported_model_scopes = group.supported_model_scopes || [
     "claude",
@@ -6150,7 +6179,6 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true;
   editForm.copy_accounts_from_group_ids = []; // 复制账号字段每次编辑时重置为空
   editForm.rpm_limit = group.rpm_limit ?? 0;
-  editForm.user_concurrency_limit = group.user_concurrency_limit ?? 0;
   editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
     group.platform,
     group.max_reasoning_effort,
@@ -6449,6 +6477,11 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const handleUserDeniedModels = (group: AdminGroup) => {
+  userDeniedModelsGroup.value = group;
+  showUserDeniedModelsModal.value = true;
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

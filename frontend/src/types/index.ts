@@ -277,6 +277,8 @@ export interface PublicSettings {
   /** When true, user monitor hides the user ranking tab and /users payload. */
   channel_monitor_hide_user_ranking?: boolean
   available_channels_enabled: boolean
+  /** Opt-in user gallery of scheduled Pelican HTML results (sidebar「鹈鹕测智」). */
+  pelican_showcase_enabled?: boolean
   /** When false, the whole user-facing subscription surface is hidden. Default true. */
   subscription_enabled: boolean
   /** Mirrors payment config BALANCE_PAYMENT_DISABLED; true = balance top-up closed (subscription-only site). */
@@ -337,7 +339,7 @@ export interface UpdateSubscriptionRequest {
 export type AnnouncementStatus = 'draft' | 'active' | 'archived'
 export type AnnouncementNotifyMode = 'silent' | 'popup'
 
-export type AnnouncementConditionType = 'subscription' | 'balance'
+export type AnnouncementConditionType = 'subscription' | 'balance' | 'user'
 
 export type AnnouncementOperator = 'in' | 'gt' | 'gte' | 'lt' | 'lte' | 'eq'
 
@@ -345,6 +347,7 @@ export interface AnnouncementCondition {
   type: AnnouncementConditionType
   operator: AnnouncementOperator
   group_ids?: number[]
+  user_ids?: number[]
   value?: number
 }
 
@@ -567,7 +570,6 @@ export interface Group {
   platform: GroupPlatform
   rate_multiplier: number
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
-  user_concurrency_limit?: number // Per-user concurrent request cap inside this group (0 = unlimited)
   max_reasoning_effort?: string // Anthropic/OpenAI reasoning ceiling; empty means unlimited
   max_reasoning_effort_over_limit?: string // downgrade (default) or deny when over the ceiling
   reasoning_effort_mappings?: ReasoningEffortMapping[]
@@ -626,6 +628,8 @@ export interface Group {
 export interface AdminGroup extends Group {
   force_openai_fast: boolean
   free_openai_fast: boolean
+  // 仅允许流式请求（管理端请求策略，用户侧分组不返回）
+  stream_only: boolean
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
   // 分组利润控制（openai/anthropic/gemini/grok/antigravity 分组可启用；margin/buffer 为小数存储）。
   // 仅管理员可见：与 rate_multiplier 相乘即可反推上游成本上限，不得下放到 Group。
@@ -653,19 +657,12 @@ export interface AdminGroup extends Group {
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   model_allowlist?: ModelAllowlist
   codex_models_manifest_config?: CodexModelsManifestConfig
-  models_list_config?: ModelsListConfig
 
   // 分组排序
   sort_order: number
 }
 
 export interface ModelAllowlist {
-  enabled: boolean
-  models: string[]
-}
-
-/** Legacy alias kept for existing clients while the API migrates to model_allowlist. */
-export interface ModelsListConfig {
   enabled: boolean
   models: string[]
 }
@@ -740,7 +737,6 @@ export interface ApiKey {
   key: string
   name: string
   group_id: number | null
-  fallback_group_id: number | null
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
@@ -753,7 +749,6 @@ export interface ApiKey {
   updated_at: string
   current_concurrency: number
   group?: Group
-  fallback_group?: Group
   rate_limit_5h: number
   rate_limit_1d: number
   rate_limit_7d: number
@@ -771,7 +766,6 @@ export interface ApiKey {
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
-  fallback_group_id?: number | null
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -785,7 +779,6 @@ export interface CreateApiKeyRequest {
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
-  fallback_group_id?: number | null
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -811,6 +804,7 @@ export interface CreateGroupRequest {
   long_context_pricing_enabled?: boolean
   force_openai_fast?: boolean
   free_openai_fast?: boolean
+  stream_only?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
@@ -847,7 +841,6 @@ export interface CreateGroupRequest {
   supported_model_scopes?: string[]
   model_allowlist?: ModelAllowlist
   codex_models_manifest_config?: CodexModelsManifestConfig
-  models_list_config?: ModelsListConfig
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   default_mapped_model?: string
@@ -878,6 +871,7 @@ export interface UpdateGroupRequest {
   long_context_pricing_enabled?: boolean
   force_openai_fast?: boolean
   free_openai_fast?: boolean
+  stream_only?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
@@ -914,7 +908,6 @@ export interface UpdateGroupRequest {
   supported_model_scopes?: string[]
   model_allowlist?: ModelAllowlist
   codex_models_manifest_config?: CodexModelsManifestConfig
-  models_list_config?: ModelsListConfig
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   default_mapped_model?: string
@@ -1222,6 +1215,16 @@ export interface Account {
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
   ollama_cloud_usage?: OllamaCloudUsageState
+  codex_turn_tickets?: Array<{
+    standby_expires_at?: string
+    probe?: { result: string; http_status?: number; checked_at: string; next_probe_at?: string }
+    model: string
+    length?: number
+    ready: boolean
+    remaining_seconds: number
+    blocked: boolean
+    expires_at?: string
+  }>
   opencode_go_usage?: OpenCodeGoUsageState
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
@@ -1255,7 +1258,6 @@ export interface Account {
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number
-  rate_limit_429_retry_count?: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
   scheduler_score?: {
@@ -1267,6 +1269,7 @@ export interface Account {
   scheduler_scores?: AccountSchedulerGroupScore[] | null
   priority: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
+  group_rate_multiplier?: number // Account-level multiplier applied to group billing
   status: 'active' | 'inactive' | 'error'
   error_message: string | null
   last_used_at: string | null
@@ -1277,6 +1280,7 @@ export interface Account {
   proxy?: Proxy
   group_ids?: number[] // Groups this account belongs to
   groups?: Group[] // Preloaded group objects
+  account_groups?: AccountGroupBinding[] // Per-group binding settings (detail responses only)
 
   // Rate limit & scheduling fields
   schedulable: boolean
@@ -1385,31 +1389,6 @@ export interface UsageProgress {
   window_stats?: WindowStats | null // 窗口期统计（从窗口开始到当前的使用量）
   used_requests?: number
   limit_requests?: number
-  overdraft_active?: boolean
-  overdraft_stats?: WindowStats | null
-  overdraft_started_at?: string | null
-  overdraft_recover_at?: string | null
-}
-
-export interface CodexQuotaOverdraftProbeState {
-  status: 'pending' | 'passed' | 'failed' | 'inconclusive' | 'recovered'
-  quota_window: '5h' | '7d' | 'multiple'
-  cycle_key: string
-  attempts: number
-  limit: number
-  model?: string
-  reason_code?: string
-  started_at: string
-  tested_at?: string | null
-  retry_at?: string | null
-  retry_count?: number
-  recover_at?: string | null
-  five_hour_recover_at?: string | null
-  seven_day_recover_at?: string | null
-  overdraft_started_at?: string | null
-  five_hour_overdraft_started_at?: string | null
-  seven_day_overdraft_started_at?: string | null
-  observed_rate_limit_reset_at?: string | null
 }
 
 // Antigravity 单个模型的配额信息
@@ -1464,7 +1443,6 @@ export interface GrokBillingSummary {
 export interface AccountUsageInfo {
   source?: 'passive' | 'active'
   updated_at: string | null
-  codex_quota_overdraft?: CodexQuotaOverdraftProbeState | null
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
   seven_day_sonnet: UsageProgress | null
@@ -1566,15 +1544,25 @@ export interface CreateAccountRequest {
   extra?: Record<string, unknown>
   proxy_id?: number | null
   concurrency?: number
-  rate_limit_429_retry_count?: number
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
+  group_rate_multiplier?: number
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
+}
+
+// AccountGroupBinding is one account-to-group binding and its per-group settings.
+export interface AccountGroupBinding {
+  account_id: number
+  group_id: number
+  priority: number
+  // Models the account may serve in this group; omitted means no limit.
+  allowed_models?: string[]
+  created_at: string
 }
 
 export interface UpdateAccountRequest {
@@ -1585,13 +1573,14 @@ export interface UpdateAccountRequest {
   extra?: Record<string, unknown>
   proxy_id?: number | null
   concurrency?: number
-  rate_limit_429_retry_count?: number
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
   schedulable?: boolean
   status?: 'active' | 'inactive' | 'error'
   group_ids?: number[]
+  // Replaces the per-group model limits; groups not listed become unrestricted.
+  group_allowed_models?: Record<number, string[]>
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
@@ -1685,7 +1674,6 @@ export interface AdminDataAccount {
   extra?: Record<string, unknown>
   proxy_key?: string | null
   concurrency: number
-  rate_limit_429_retry_count?: number
   priority: number
   rate_multiplier?: number | null
   expires_at?: number | null
@@ -1716,7 +1704,6 @@ export interface CodexSessionImportRequest {
   group_ids?: number[]
   proxy_id?: number | null
   concurrency?: number
-  rate_limit_429_retry_count?: number
   priority?: number
   rate_multiplier?: number
   load_factor?: number | null
@@ -1736,7 +1723,6 @@ export interface OpenAICodexPATCreateRequest {
   group_ids?: number[]
   proxy_id?: number | null
   concurrency?: number
-  rate_limit_429_retry_count?: number
   priority?: number
   rate_multiplier?: number
   load_factor?: number | null
@@ -2481,7 +2467,39 @@ export interface TotpLogin2FARequest {
 
 // ==================== Scheduled Test Types ====================
 
+export interface QualityJudgeConfig {
+  group_id: number
+  model_id: string
+  prompt: string
+}
+export interface QualityJudgment {
+  verdict: 'correct' | 'incorrect' | 'unknown'
+  reason: string
+  account_id?: number
+  group_id?: number
+  model_id?: string
+}
+export interface QualityPolicy {
+  judge?: QualityJudgeConfig
+  expected_answer: string
+  action: 'remove_groups' | 'disable_scheduling'
+  remove_group_ids: number[]
+  auto_restore: boolean
+}
+
+export interface PelicanTestConfig {
+  quality?: QualityPolicy
+  question_kind?: 'candy' | 'pelican'
+  prompt: string
+  reasoning_effort: string
+  parallel_count: number
+  model_id?: string
+}
+
 export interface ScheduledTestPlan {
+  account_name?: string
+  pelican_config?: PelicanTestConfig
+  running_until?: string | null
   id: number
   account_id: number
   model_id: string
@@ -2496,6 +2514,10 @@ export interface ScheduledTestPlan {
 }
 
 export interface ScheduledTestResult {
+  quality_judgment?: QualityJudgment
+  quality_round_id?: string
+  quality_action?: string
+  pelican_config?: PelicanTestConfig
   id: number
   plan_id: number
   status: string
@@ -2508,6 +2530,7 @@ export interface ScheduledTestResult {
 }
 
 export interface CreateScheduledTestPlanRequest {
+  pelican_config?: PelicanTestConfig
   account_id: number
   model_id: string
   cron_expression: string
@@ -2517,6 +2540,7 @@ export interface CreateScheduledTestPlanRequest {
 }
 
 export interface UpdateScheduledTestPlanRequest {
+  pelican_config?: PelicanTestConfig
   model_id?: string
   cron_expression?: string
   enabled?: boolean

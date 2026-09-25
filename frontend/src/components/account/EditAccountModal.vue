@@ -1721,29 +1721,18 @@
             />
           </div>
         </div>
-      </div>
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <label class="input-label" for="edit-rate-limit-429-retry-count">
-          {{ t('admin.accounts.rateLimit429RetryCount') }}
-        </label>
-        <input
-          v-model.number="form.rate_limit_429_retry_count"
-          id="edit-rate-limit-429-retry-count"
-          type="number"
-          min="0"
-          :max="MAX_RATE_LIMIT_429_RETRY_COUNT"
-          step="1"
-          class="input max-w-xs"
-          @change="form.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count)"
-        />
-        <p class="input-hint">
-          {{
-            t('admin.accounts.rateLimit429RetryCountHint', {
-              default: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
-              max: MAX_RATE_LIMIT_429_RETRY_COUNT
-            })
-          }}
-        </p>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.groupBillingRateMultiplier') }}</label>
+          <input
+            v-model.number="form.group_rate_multiplier"
+            type="number"
+            min="0"
+            step="0.01"
+            class="input"
+            data-testid="account-group-rate-multiplier"
+          />
+          <p class="input-hint">{{ t('admin.accounts.groupBillingRateMultiplierHint') }}</p>
+        </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
@@ -1760,6 +1749,31 @@
           {{ t('admin.accounts.expiresAtHint') }}
           {{ t('admin.accounts.expiresAtTimezoneHint', { timezone: browserTimeZone }) }}
         </p>
+      </div>
+
+      <div v-if="account?.platform === 'openai' && account?.type === 'apikey'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label class="flex items-center gap-2">
+          <input v-model="copilotSDKEnabled" type="checkbox" data-testid="copilot-sdk-toggle" />
+          <span>Copilot SDK</span>
+        </label>
+        <p class="input-hint">{{ t('admin.accounts.openai.copilotSDKDesc') }}</p>
+      </div>
+
+      <div v-if="account?.platform === 'openai' && account?.type === 'oauth' && !isSparkShadow"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.excelBPS') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSDesc') }}</p>
+          </div>
+          <button type="button" role="switch" :aria-checked="excelBPSEnabled"
+            :aria-label="t('admin.accounts.openai.excelBPS')" data-testid="excel-bps-toggle"
+            @click="excelBPSEnabled = !excelBPSEnabled"
+            :class="['relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2', excelBPSEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600']">
+            <span :class="['pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', excelBPSEnabled ? 'translate-x-5' : 'translate-x-0']" />
+          </button>
+        </div>
+        <p v-if="excelBPSEnabled" class="mt-2 text-xs text-amber-600 dark:text-amber-400">{{ t('admin.accounts.openai.excelBPSNotice') }}</p>
       </div>
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
@@ -2359,7 +2373,36 @@
         </div>
       </div>
 
-      <!-- CPA 指纹出口（仅 OpenAI OAuth） -->
+      <!-- Codex 292 门票状态（仅 OpenAI OAuth） -->
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token') && codexTurnTickets.length"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <label class="input-label mb-0">{{ t('admin.accounts.openai.codexTurnTicket') }}</label>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.openai.codexTurnTicketDesc') }}
+        </p>
+        <div class="mt-3 space-y-1.5">
+          <div v-for="ticket in codexTurnTickets" :key="ticket.model" class="flex items-center justify-between text-sm">
+            <span class="font-medium">{{ ticket.model }}</span>
+            <span v-if="ticket.ready" class="text-emerald-600 dark:text-emerald-400">
+              {{ t('admin.accounts.openai.codexTurnTicketReady', { time: formatCodexTicketRemaining(ticket.remaining_seconds) }) }}
+            </span>
+            <span v-else-if="ticket.blocked" class="text-amber-600 dark:text-amber-400">
+              {{ t('admin.accounts.openai.codexTurnTicketPaused') }}
+            </span>
+            <span v-else class="text-gray-500">{{ t('admin.accounts.openai.codexTurnTicketMissing') }}</span>
+            <div v-if="ticket.probe" class="ml-2 text-xs text-gray-500">
+              {{ t('admin.accounts.openai.ticketProbe.' + ticket.probe.result) }} · HTTP {{ ticket.probe.http_status || '—' }}
+              <div>{{ new Date(ticket.probe.checked_at).toLocaleString() }}</div>
+              <div v-if="ticket.probe.next_probe_at">{{ t('admin.accounts.openai.ticketProbeNext') }} {{ new Date(ticket.probe.next_probe_at).toLocaleString() }}</div>
+              <div v-if="ticket.standby_expires_at">{{ t('admin.accounts.openai.ticketStandbyExpires') }} {{ new Date(ticket.standby_expires_at).toLocaleString() }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Codex 指纹收敛模式（仅 OpenAI OAuth） -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
@@ -2374,39 +2417,6 @@
           <div class="w-52 flex-shrink-0">
             <Select v-model="codexFingerprintMode" data-testid="edit-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
           </div>
-        </div>
-      </div>
-
-      <!-- Codex 额度透支（仅 OpenAI OAuth） -->
-      <div
-        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <div class="flex items-center justify-between gap-4">
-          <div class="min-w-0">
-            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexQuotaOverdraft') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.codexQuotaOverdraftDesc') }}
-            </p>
-          </div>
-          <button
-            type="button"
-            data-testid="edit-codex-quota-overdraft-toggle"
-            role="switch"
-            :aria-checked="codexQuotaOverdraftEnabled"
-            @click="codexQuotaOverdraftEnabled = !codexQuotaOverdraftEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexQuotaOverdraftEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                codexQuotaOverdraftEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
         </div>
       </div>
 
@@ -3106,6 +3116,13 @@
         data-tour="account-form-groups"
       />
 
+      <AccountGroupModelLimits
+        v-model="groupAllowedModels"
+        :groups="groupsForModelLimits"
+        :platform="account?.platform"
+        :account-id="account?.id"
+      />
+
     </form>
 
     <template #footer>
@@ -3192,6 +3209,12 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import AccountGroupModelLimits from '@/components/account/AccountGroupModelLimits.vue'
+import {
+  buildGroupAllowedModelsPayload,
+  groupAllowedModelsFromAccount,
+  type GroupAllowedModels
+} from '@/components/account/groupAllowedModels'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
@@ -3285,9 +3308,28 @@ const selectableGroups = computed(() => {
   return Array.from(groups.values())
 })
 
+// 各分组内的可用模型限制，按当前勾选的分组顺序展示
+const groupAllowedModels = ref<GroupAllowedModels>({})
+const groupsForModelLimits = computed(() => {
+  const byId = new Map(selectableGroups.value.map(group => [group.id, group]))
+  return form.group_ids.flatMap(id => {
+    const group = byId.get(id)
+    return group ? [{ id: group.id, name: group.name }] : []
+  })
+})
+
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
+
+const codexTurnTickets = computed(() => props.account?.codex_turn_tickets ?? [])
+
+function formatCodexTicketRemaining(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds || 0))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}m${String(s).padStart(2, '0')}s`
+}
 
 const hideAccountLongContextBilling = computed(() => {
   return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
@@ -3571,8 +3613,6 @@ const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
-const DEFAULT_RATE_LIMIT_429_RETRY_COUNT = 5
-const MAX_RATE_LIMIT_429_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
 const GROK_CLIENT_TOOL_CACHE_EXTRA_KEY = 'grok_client_tool_cache_enabled'
 const poolModeEnabled = ref(false)
@@ -3739,6 +3779,8 @@ const customBaseUrlEnabled = ref(false)
 const customBaseUrl = ref('')
 
 // OpenAI 自动透传开关（OAuth/API Key）
+const excelBPSEnabled = ref(false)
+const copilotSDKEnabled = ref(false)
 const openaiPassthroughEnabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
@@ -3755,9 +3797,8 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
-type CodexFingerprintMode = 'off' | 'account_device' | 'device' | 'session' | 'full'
-const codexQuotaOverdraftEnabled = ref(true)
-const codexFingerprintMode = ref<CodexFingerprintMode>('account_device')
+type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
+const codexFingerprintMode = ref<CodexFingerprintMode>('off')
 type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
@@ -3791,7 +3832,6 @@ const editWeeklyResetHour = ref<number | null>(null)
 const editResetTimezone = ref<string | null>(null)
 const codexFingerprintModeOptions = computed(() => [
   { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
-  { value: 'account_device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintAccountDevice') },
   { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
   { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
   { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
@@ -3982,7 +4022,7 @@ const normalizeOpenAIResponsesMode = (mode: unknown): OpenAIResponsesMode => {
   return 'auto'
 }
 const isOpenAIModelRestrictionDisabled = computed(() =>
-  props.account?.platform === 'openai' && openaiPassthroughEnabled.value
+  props.account?.platform === 'openai' && (openaiPassthroughEnabled.value || copilotSDKEnabled.value)
 )
 const openAIResponsesStatusKey = computed(() => {
   if (openAIResponsesMode.value === 'force_responses') {
@@ -4076,22 +4116,14 @@ const form = reactive({
   notes: '',
   proxy_id: null as number | null,
   concurrency: 1,
-  rate_limit_429_retry_count: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
+  group_rate_multiplier: 1,
   status: 'active' as 'active' | 'inactive' | 'error',
   group_ids: [] as number[],
   expires_at: null as number | null
 })
-
-const normalizeRateLimit429RetryCount = (value: unknown): number => {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_RATE_LIMIT_429_RETRY_COUNT
-  }
-  return Math.min(MAX_RATE_LIMIT_429_RETRY_COUNT, Math.max(0, Math.trunc(parsed)))
-}
 
 const handleUpstreamBillingRateSyncChange = (enabled: boolean) => {
   upstreamBillingRateSyncEnabled.value = enabled
@@ -4154,7 +4186,7 @@ const buildModelRestrictionMapping = () =>
   buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
 
 const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>) => {
-  const shouldApplyModelMapping = !openaiPassthroughEnabled.value
+  const shouldApplyModelMapping = !(openaiPassthroughEnabled.value || copilotSDKEnabled.value)
 
   if (shouldApplyModelMapping) {
     const modelMapping = buildModelRestrictionMapping()
@@ -4193,16 +4225,15 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
-  form.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(
-    newAccount.rate_limit_429_retry_count ?? DEFAULT_RATE_LIMIT_429_RETRY_COUNT
-  )
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
+  form.group_rate_multiplier = newAccount.group_rate_multiplier ?? 1
   form.status = (newAccount.status === 'active' || newAccount.status === 'inactive' || newAccount.status === 'error')
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
+  groupAllowedModels.value = groupAllowedModelsFromAccount(newAccount)
   form.expires_at = newAccount.expires_at ?? null
 
   // Load intercept warmup requests setting (applies to all account types)
@@ -4241,6 +4272,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
+  excelBPSEnabled.value = false
+  copilotSDKEnabled.value = false
   openaiPassthroughEnabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
@@ -4253,13 +4286,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
-  codexQuotaOverdraftEnabled.value = true
-  codexFingerprintMode.value = 'account_device'
+  codexFingerprintMode.value = 'off'
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
+    excelBPSEnabled.value = newAccount.type === 'oauth' && extra?.openai_excel_bps === true
+    copilotSDKEnabled.value = newAccount.type === 'apikey' && extra?.openai_copilot_sdk === true
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
@@ -4307,14 +4341,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         extra?.codex_cli_only_allow_app_server === true
     }
     if (newAccount.type === 'oauth') {
-      codexQuotaOverdraftEnabled.value = extra?.codex_quota_overdraft_enabled !== false
       const fpMode = extra?.codex_fingerprint_mode as string | undefined
-      // 缺键按全局默认的账号唯一设备呈现；显式 off 仍保持关闭，非法旧值按后端语义显示为 off。
-      codexFingerprintMode.value = fpMode === undefined
-        ? 'account_device'
-        : (['off', 'account_device', 'device', 'session', 'full'].includes(fpMode)
-            ? fpMode as CodexFingerprintMode
-            : 'off')
+      // 缺省/非法值按 off 呈现，与后端 GetCodexFingerprintMode 的 opt-in 语义一致（#5610）
+      codexFingerprintMode.value = (['off', 'device', 'session', 'full'].includes(fpMode || '')
+        ? fpMode as CodexFingerprintMode
+        : 'off')
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const compactMappings = credentials?.compact_model_mapping as Record<string, string> | undefined
@@ -5218,9 +5249,6 @@ const handleSubmit = async () => {
 
   const updatePayload: Record<string, unknown> = { ...form }
   try {
-    updatePayload.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(
-      form.rate_limit_429_retry_count
-    )
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     if (updatePayload.proxy_id === null) {
       updatePayload.proxy_id = 0
@@ -5234,6 +5262,8 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
+    // 整体覆盖：只带仍勾选的分组，没有列出的分组由后端恢复为不限制
+    updatePayload.group_allowed_models = buildGroupAllowedModelsPayload(form.group_ids, groupAllowedModels.value)
     if (props.account.type === 'apikey') {
       updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
@@ -5246,7 +5276,7 @@ const handleSubmit = async () => {
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
-      const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
+      const shouldApplyModelMapping = !(props.account.platform === 'openai' && (openaiPassthroughEnabled.value || copilotSDKEnabled.value))
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
@@ -5741,6 +5771,11 @@ const handleSubmit = async () => {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true
+      if (props.account.type === 'oauth' && !isSparkShadow.value && excelBPSEnabled.value) {
+        newExtra.openai_excel_bps = true
+      } else {
+        delete newExtra.openai_excel_bps
+      }
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
         newExtra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
@@ -5750,6 +5785,11 @@ const handleSubmit = async () => {
       }
       delete newExtra.responses_websockets_v2_enabled
       delete newExtra.openai_ws_enabled
+      if (props.account.type === 'apikey' && copilotSDKEnabled.value) {
+        newExtra.openai_copilot_sdk = true
+      } else {
+        delete newExtra.openai_copilot_sdk
+      }
       if (openaiPassthroughEnabled.value) {
         newExtra.openai_passthrough = true
       } else {
@@ -5846,10 +5886,14 @@ const handleSubmit = async () => {
         }
       }
 
-      // 始终保存管理员选择；尤其 off 必须显式落键，否则全局默认会重新启用收敛。
+      // 指纹收敛模式：默认 off（不写入）；device/session/full 是显式 opt-in，
+      // 必须落键，否则管理员的选择会被后端当作"未设置"而回落到 off（#5610）。
       if (props.account.type === 'oauth') {
-        newExtra.codex_quota_overdraft_enabled = codexQuotaOverdraftEnabled.value
-        newExtra.codex_fingerprint_mode = codexFingerprintMode.value
+        if (codexFingerprintMode.value !== 'off') {
+          newExtra.codex_fingerprint_mode = codexFingerprintMode.value
+        } else {
+          delete newExtra.codex_fingerprint_mode
+        }
       }
 
       updatePayload.extra = newExtra

@@ -130,10 +130,6 @@ export default {
       other: '包含 Gemini、Grok、Antigravity、OpenCode 和混合分组'
     },
     selectGroup: '选择分组',
-    fallbackGroupLabel: '兜底分组',
-    noFallbackGroup: '不设置兜底分组',
-    fallbackGroupHint: '仅当主分组没有可用账号时使用；每次请求始终先尝试主分组。计费、额度和并发仍归属主分组。',
-    fallbackGroupInvalid: '兜底分组必须与主分组不同且属于同一平台',
     statusLabel: '状态',
     selectStatus: '选择状态',
     saving: '保存中...',
@@ -278,20 +274,6 @@ export default {
     ipRestrictionEnabled: '已配置 IP 限制',
     ccSwitchNotInstalled:
       'CC-Switch 未安装或协议处理程序未注册。请先安装 CC-Switch 或手动复制 API 密钥。',
-    ccsImport: {
-      title: '导入到 CC Switch',
-      app: '客户端',
-      name: '供应商名称',
-      namePlaceholder: '输入供应商名称',
-      mainModel: '默认模型',
-      haikuModel: 'Haiku 模型',
-      sonnetModel: 'Sonnet 模型',
-      opusModel: 'Opus 模型',
-      modelPlaceholder: '选择或输入模型',
-      loadingModels: '正在加载模型列表…',
-      grokBuild: 'Grok Build',
-      open: '打开 CC Switch'
-    },
     ccsClientSelect: {
       title: '选择客户端',
       description: '请选择您要导入到 CC-Switch 的客户端类型：',
@@ -365,13 +347,6 @@ export default {
     accountCost: '成本',
     userBilled: '用户扣费',
     accountBilled: '账号计费',
-    overdraftActive: '透支中',
-    overdraftRecoverAt: '预计恢复',
-    overdraftTestedAt: '探测时间',
-    overdraftProbePending: '透支探测中',
-    overdraftProbeFailed: '已确认限额',
-    overdraftProbeInconclusive: '探测无法确认',
-    overdraftRecovered: '额度已恢复',
     resetNow: '现在',
     resetPending: '待刷新',
     accountMultiplier: '账号倍率',
@@ -416,6 +391,9 @@ export default {
     latency: '延迟',
     latencyFirstToken: '首字',
     latencyDuration: '总耗时',
+    latencyTps: 'TPS',
+    latencyTpsHint: '输出速度 = 输出 Token ÷ (总耗时 − 首字)',
+    latencyTpsHintNoFirstToken: '输出速度 = 输出 Token ÷ 总耗时（无首字数据，含等待时间）',
     time: '时间',
     ws: 'WS',
     stream: '流式',
@@ -625,6 +603,47 @@ export default {
     }
   },
 
+  // Pelican showcase (user-facing gallery)
+  pelicanShowcase: {
+    title: '鹈鹕测智',
+    description: '各分组的模型定时完成同一道绘图题，直接看生成的作品，直观比较模型水平',
+    allGroups: '全部分组',
+    keepRule: '每组保留最近 {count} 张',
+    retentionRule: '超过 {days} 天自动清理',
+    itemCount: '{count} 张',
+    latestAt: '最近更新 {time}',
+    groupEmpty: '该分组还没有作品，定时测试成功生成后会出现在这里',
+    loadMore: '加载更多',
+    loadError: '加载鹈鹕测智失败',
+    itemLoading: '作品加载中…',
+    itemLoadError: '作品加载失败',
+    invalidHtml: '这张作品无法显示',
+    duration: '耗时 {seconds} 秒',
+    reasoning: '思考强度 {effort}',
+    efforts: {
+      minimal: '最低',
+      low: '低',
+      medium: '中',
+      high: '高',
+      xhigh: '极高'
+    },
+    preview: '查看大图',
+    previewTitle: '{group} · {model}',
+    sandboxNote: '作品在隔离沙箱中运行，不能联网，也读取不到你的账号信息。',
+    remove: '从展示中移除',
+    removeConfirm: '确定把这张作品从鹈鹕测智中移除吗？移除后所有用户都看不到它，此操作不能撤销。',
+    removed: '已从展示中移除',
+    removeFailed: '移除失败',
+    disabled: {
+      title: '鹈鹕测智暂未开放',
+      description: '管理员开启后，这里会展示各分组定时生成的作品。'
+    },
+    empty: {
+      title: '暂无作品',
+      description: '管理员还没有选择要展示的分组。'
+    }
+  },
+
   // Available Channels (user-facing)
   availableChannels: {
     title: '可用渠道',
@@ -705,8 +724,6 @@ export default {
       cacheReadShort: '读',
       tierHint: '按单次请求的总上下文（输入 + 缓存写入 + 缓存读取）所在档位对整单计价',
       tierHintMarginal: '仅超过阈值的部分按该档计价，输出不加价',
-      relayPrice: '中转实付价',
-      unitPerMillionCny: '¥ / 百万 tokens',
       reasoningMultiplierBadge: '{effort} ×{multiplier}',
       reasoningMultiplierHint: '最终转发的思考等级为 {effort} 时，整次请求的计费与额度消耗乘以 {multiplier}；未配置的等级按 1 倍计费',
       marginalBadge: '超出部分计价',

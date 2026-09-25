@@ -130,10 +130,6 @@ export default {
       other: 'Includes Gemini, Grok, Antigravity, OpenCode and mixed groups'
     },
     selectGroup: 'Select a group',
-    fallbackGroupLabel: 'Fallback group',
-    noFallbackGroup: 'No fallback group',
-    fallbackGroupHint: 'Used only when the primary group has no available accounts. Every request always tries the primary group first. Billing, quotas, and concurrency remain on the primary group.',
-    fallbackGroupInvalid: 'The fallback group must differ from the primary group and use the same platform',
     statusLabel: 'Status',
     selectStatus: 'Select status',
     saving: 'Saving...',
@@ -273,20 +269,6 @@ export default {
     ipBlacklistHint: 'One IP or CIDR per line. These IPs will be blocked from using this key.',
     ipRestrictionEnabled: 'IP restriction enabled',
     ccSwitchNotInstalled: 'CC-Switch is not installed or the protocol handler is not registered. Please install CC-Switch first or manually copy the API key.',
-    ccsImport: {
-      title: 'Import to CC Switch',
-      app: 'Client',
-      name: 'Provider name',
-      namePlaceholder: 'Enter a provider name',
-      mainModel: 'Default model',
-      haikuModel: 'Haiku model',
-      sonnetModel: 'Sonnet model',
-      opusModel: 'Opus model',
-      modelPlaceholder: 'Select or enter a model',
-      loadingModels: 'Loading model list…',
-      grokBuild: 'Grok Build',
-      open: 'Open CC Switch'
-    },
     ccsClientSelect: {
       title: 'Select Client',
       description: 'Please select the client type to import to CC-Switch:',
@@ -360,13 +342,6 @@ export default {
     accountCost: 'Cost',
     userBilled: 'User billed',
     accountBilled: 'Account billed',
-    overdraftActive: 'Overdraft active',
-    overdraftRecoverAt: 'Expected recovery',
-    overdraftTestedAt: 'Probed at',
-    overdraftProbePending: 'Overdraft probe running',
-    overdraftProbeFailed: 'Quota limit confirmed',
-    overdraftProbeInconclusive: 'Probe inconclusive',
-    overdraftRecovered: 'Quota recovered',
     resetNow: 'Now',
     resetPending: 'Pending refresh',
     accountMultiplier: 'Account rate',
@@ -411,6 +386,9 @@ export default {
     latency: 'Latency',
     latencyFirstToken: 'First',
     latencyDuration: 'Total',
+    latencyTps: 'TPS',
+    latencyTpsHint: 'Output speed = output tokens ÷ (total − first token)',
+    latencyTpsHintNoFirstToken: 'Output speed = output tokens ÷ total (no first-token data, so waiting time is included)',
     time: 'Time',
     ws: 'WS',
     stream: 'Stream',
@@ -620,6 +598,47 @@ export default {
     }
   },
 
+  // Pelican showcase (user-facing gallery)
+  pelicanShowcase: {
+    title: 'Pelican Showcase',
+    description: 'Each group answers the same drawing prompt on a schedule. Compare model quality by looking at the results.',
+    allGroups: 'All groups',
+    keepRule: 'Latest {count} per group',
+    retentionRule: 'Auto-removed after {days} days',
+    itemCount: '{count} items',
+    latestAt: 'Updated {time}',
+    groupEmpty: 'No results in this group yet. They appear here once a scheduled test succeeds.',
+    loadMore: 'Load more',
+    loadError: 'Failed to load the Pelican showcase',
+    itemLoading: 'Loading…',
+    itemLoadError: 'Failed to load this result',
+    invalidHtml: 'This result cannot be displayed',
+    duration: '{seconds}s',
+    reasoning: 'Reasoning {effort}',
+    efforts: {
+      minimal: 'minimal',
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+      xhigh: 'xhigh'
+    },
+    preview: 'View full size',
+    previewTitle: '{group} · {model}',
+    sandboxNote: 'Results run in an isolated sandbox without network access and cannot read your account.',
+    remove: 'Remove from showcase',
+    removeConfirm: 'Remove this result from the Pelican showcase? No user will see it any more. This cannot be undone.',
+    removed: 'Removed from the showcase',
+    removeFailed: 'Failed to remove',
+    disabled: {
+      title: 'Pelican showcase is not available',
+      description: 'Once an administrator enables it, scheduled results of each group appear here.'
+    },
+    empty: {
+      title: 'Nothing to show yet',
+      description: 'The administrator has not selected any groups to showcase.'
+    }
+  },
+
   // Available Channels (user-facing)
   availableChannels: {
     title: 'Available Channels',
@@ -700,8 +719,6 @@ export default {
       cacheReadShort: 'R',
       tierHint: 'The whole request is billed at the tier matching its total context (input + cache write + cache read)',
       tierHintMarginal: 'Only the portion above the threshold is billed at this tier; output is unaffected',
-      relayPrice: 'Relay price',
-      unitPerMillionCny: 'CNY / 1M tokens',
       reasoningMultiplierBadge: '{effort} ×{multiplier}',
       reasoningMultiplierHint: 'When the forwarded reasoning effort is {effort}, billing and quota usage for the request are multiplied by {multiplier}. Unconfigured levels use 1×',
       marginalBadge: 'excess-only tiers',

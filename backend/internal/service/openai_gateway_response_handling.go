@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"net/http"
 	"sort"
 	"strconv"
@@ -119,7 +120,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
 	var firstTokenMs *int
+	ctx = requesttiming.ResponseContext(ctx, resp)
 	ttftMode := s.openAITTFTMode(ctx)
+	requesttiming.Mode(ctx, ttftMode)
 	firstOutputProgressObserved := false
 	bufferedWriter := bufio.NewWriterSize(w, 4*1024)
 	var firstOutputStage *openAIFirstOutputStage
@@ -154,6 +157,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 		}
 		flusher.Flush()
+		requesttiming.OutputFlushed(ctx)
 		return nil
 	}
 
@@ -389,7 +393,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 		}
 		if sawTerminalEvent && !sawFailedEvent {
-			s.clearOpenAIProxyStreamDisconnect(account)
+			s.clearOpenAIProxyStreamDisconnect(account, resp)
 		}
 		if !sawTerminalEvent && !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
 			return resultWithUsage(), s.newOpenAIStreamFailoverError(
@@ -404,7 +408,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		flushPending("Client disconnected during final flush, returning collected usage")
 		if !sawTerminalEvent {
 			if openAIStreamClientOutputStarted(c, clientOutputStarted) && !clientDisconnected {
-				s.recordOpenAIProxyStreamDisconnect(account, errors.New("stream ended before terminal event"), upstreamRequestID)
+				s.recordOpenAIProxyStreamDisconnect(account, errors.New("stream ended before terminal event"), upstreamRequestID, resp)
 			}
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
 		}
@@ -438,7 +442,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		}
 		if sawTerminalEvent {
 			if !sawFailedEvent {
-				s.clearOpenAIProxyStreamDisconnect(account)
+				s.clearOpenAIProxyStreamDisconnect(account, resp)
 				logger.LegacyPrintf("service.openai_gateway", "Upstream scan ended after terminal event: %v", scanErr)
 			}
 			result, err := finalizeStream()
@@ -468,7 +472,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if clientDisconnected {
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", scanErr), true
 		}
-		s.recordOpenAIProxyStreamDisconnect(account, scanErr, upstreamRequestID)
+		s.recordOpenAIProxyStreamDisconnect(account, scanErr, upstreamRequestID, resp)
 		code, message := classifyOpenAIUpstreamStreamReadError(scanErr)
 		sendErrorEvent(code, message)
 		return resultWithUsage(), fmt.Errorf("stream read error: %w", scanErr), true
@@ -486,11 +490,6 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if data, ok := extractOpenAISSEDataLine(line); ok {
 			dataBytes := []byte(data)
 			eventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
-			if estimatedData, estimated := applyDeepSeekCacheEstimate(c, dataBytes); estimated > 0 {
-				dataBytes = estimatedData
-				data = string(estimatedData)
-				line = "data: " + data
-			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
 				(eventType == "response.completed" || eventType == "response.done") {
 				// A later successful terminal is authoritative over a pending bare
@@ -702,6 +701,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				return
 			}
 
+			requesttiming.Output(ctx, openAIStreamDataStartsSemanticTTFT(data, eventType), startsVisibleOutput, timingTerminal(eventType))
 			// 写入客户端（客户端断开后继续 drain 上游）
 			if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
 				shouldFlush := queueDrained && (clientOutputStarted || startsClientOutput)
@@ -1522,23 +1522,6 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if inputTokens == 0 {
 		inputTokens = value.Get("prompt_tokens").Int()
 	}
-	// DeepSeek's native cache breakdown reports the hit/miss buckets at the
-	// top level of usage.  Some compatible responses omit prompt_tokens while
-	// still returning both buckets, so reconstruct the logical prompt total in
-	// that case; the billing path will subtract the hit bucket exactly once.
-	if inputTokens == 0 {
-		cacheHit := value.Get("prompt_cache_hit_tokens").Int()
-		if cacheHit < 0 {
-			cacheHit = 0
-		}
-		cacheMiss := value.Get("prompt_cache_miss_tokens").Int()
-		if cacheMiss < 0 {
-			cacheMiss = 0
-		}
-		if cacheHit > 0 || cacheMiss > 0 {
-			inputTokens = cacheHit + cacheMiss
-		}
-	}
 	outputTokens := value.Get("output_tokens").Int()
 	if outputTokens == 0 {
 		outputTokens = value.Get("completion_tokens").Int()
@@ -1578,13 +1561,6 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 }
 
 func openAICacheReadTokensFromUsage(value gjson.Result) int {
-	// DeepSeek's official API names the cache-read bucket
-	// prompt_cache_hit_tokens. Prefer it when present, including an explicit
-	// zero, so a provider-reported miss is not replaced by a local estimate or
-	// by a stale compatibility alias.
-	if hit := value.Get("prompt_cache_hit_tokens"); hit.Exists() {
-		return max(int(hit.Int()), 0)
-	}
 	for _, nested := range []gjson.Result{
 		value.Get("input_tokens_details.cached_tokens"),
 		value.Get("prompt_tokens_details.cached_tokens"),
@@ -1665,7 +1641,6 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		}
 	}
 
-	body, _ = applyDeepSeekCacheEstimate(c, body)
 	usageValue, usageOK := extractOpenAIUsageFromJSONBytes(body)
 	if !usageOK {
 		if bodyLooksLikeSSE {

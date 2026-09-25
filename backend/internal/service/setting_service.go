@@ -117,23 +117,33 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 
 // SettingService 系统设置服务
 type SettingService struct {
-	settingRepo                 SettingRepository
-	defaultSubGroupReader       DefaultSubscriptionGroupReader
-	proxyRepo                   ProxyRepository // for resolving websearch provider proxy URLs
-	cfg                         *config.Config
-	onUpdate                    func() // Callback when settings are updated (for cache invalidation)
-	version                     string // Application version
-	webSearchManagerBuilder     WebSearchManagerBuilder
-	antigravityUAVersionCache   atomic.Value // *cachedAntigravityUserAgentVersion
-	antigravityUAVersionSF      singleflight.Group
-	openAICodexUACache          atomic.Value // *cachedOpenAICodexUserAgent
-	openAICodexUASF             singleflight.Group
-	openAICodexVersionCache     atomic.Value // *cachedOpenAICodexClientVersion
-	openAICodexVersionSF        singleflight.Group
-	claudeCodeVersionCache      atomic.Value // *cachedClaudeCodeClientVersion
-	claudeCodeVersionSF         singleflight.Group
-	codexRestrictionPolicyCache atomic.Value // *cachedCodexRestrictionPolicy
-	codexRestrictionPolicySF    singleflight.Group
+	settingRepo                        SettingRepository
+	defaultSubGroupReader              DefaultSubscriptionGroupReader
+	proxyRepo                          ProxyRepository // for resolving websearch provider proxy URLs
+	cfg                                *config.Config
+	onUpdate                           func() // Callback when settings are updated (for cache invalidation)
+	version                            string // Application version
+	webSearchManagerBuilder            WebSearchManagerBuilder
+	antigravityUAVersionCache          atomic.Value // *cachedAntigravityUserAgentVersion
+	antigravityUAVersionSF             singleflight.Group
+	openAICodexUACache                 atomic.Value // *cachedOpenAICodexUserAgent
+	openAICodexUASF                    singleflight.Group
+	openAICodexVersionCache            atomic.Value // *cachedOpenAICodexClientVersion
+	openAICodexVersionSF               singleflight.Group
+	openAICodexTicketEnabledCache      atomic.Value // *cachedOpenAICodexTicketEnabled
+	openAICodexTicketEnabledSF         singleflight.Group
+	openAICodexTicketFailClosedCache   atomic.Value // *cachedOpenAICodexTicketFailClosed
+	openAICodexTicketFailClosedSF      singleflight.Group
+	openAICodexTicketModelsCache       atomic.Value // *cachedOpenAICodexTicketModels
+	openAICodexTicketModelsSF          singleflight.Group
+	openAICodexTicketHarvestProxyCache atomic.Value // *cachedOpenAICodexTicketHarvestProxy
+	openAICodexTicketHarvestProxySF    singleflight.Group
+	openAICodexTicketHarvestScopeCache atomic.Value // *cachedOpenAICodexTicketHarvestScope
+	openAICodexTicketHarvestScopeSF    singleflight.Group
+	codexRestrictionPolicyCache        atomic.Value // *cachedCodexRestrictionPolicy
+	codexRestrictionPolicySF           singleflight.Group
+	claudeCodeVersionCache             atomic.Value // *cachedClaudeCodeClientVersion
+	claudeCodeVersionSF                singleflight.Group
 
 	cyberSessionBlockRuntimeCache atomic.Value // *cachedCyberSessionBlockRuntime
 	cyberSessionBlockRuntimeSF    singleflight.Group
@@ -155,6 +165,8 @@ type SettingService struct {
 
 	channelMonitorRuntimeListenersMu sync.Mutex
 	channelMonitorRuntimeListeners   []func()
+	codexHarvestWakeOnce             sync.Once
+	codexHarvestWake                 chan struct{}
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）

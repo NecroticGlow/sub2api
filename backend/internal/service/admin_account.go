@@ -299,23 +299,23 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		proxyID = source.ProxyFallbackOriginID
 	}
 	input := &CreateAccountInput{
-		Name:                   duplicateAccountName(source.Name),
-		Notes:                  cloneAccountValuePointer(source.Notes),
-		Platform:               source.Platform,
-		Type:                   source.Type,
-		Credentials:            credentials,
-		Extra:                  extra,
-		ProxyID:                cloneAccountValuePointer(proxyID),
-		Concurrency:            source.Concurrency,
-		RateLimit429RetryCount: cloneAccountValuePointer(source.RateLimit429RetryCount),
-		Priority:               source.Priority,
-		RateMultiplier:         cloneAccountValuePointer(source.RateMultiplier),
-		LoadFactor:             cloneAccountValuePointer(source.LoadFactor),
-		GroupIDs:               groupIDs,
-		ExpiresAt:              expiresAt,
-		AutoPauseOnExpired:     &autoPauseOnExpired,
-		SkipDefaultGroupBind:   true,
-		SkipMixedChannelCheck:  true,
+		Name:                  duplicateAccountName(source.Name),
+		Notes:                 cloneAccountValuePointer(source.Notes),
+		Platform:              source.Platform,
+		Type:                  source.Type,
+		Credentials:           credentials,
+		Extra:                 extra,
+		ProxyID:               cloneAccountValuePointer(proxyID),
+		Concurrency:           source.Concurrency,
+		Priority:              source.Priority,
+		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
+		GroupRateMultiplier:   cloneAccountValuePointer(source.GroupRateMultiplier),
+		LoadFactor:            cloneAccountValuePointer(source.LoadFactor),
+		GroupIDs:              groupIDs,
+		ExpiresAt:             expiresAt,
+		AutoPauseOnExpired:    &autoPauseOnExpired,
+		SkipDefaultGroupBind:  true,
+		SkipMixedChannelCheck: true,
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
@@ -412,6 +412,7 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	accountExtra = MergeOpenAICodexTicketExtra(accountExtra, nil)
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -422,26 +423,18 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OpenCodeGoUsageAutoRefreshExtraKey)
 	delete(accountExtra, OpenCodeGoUsageSnapshotExtraKey)
 	accountExtra = prepareCodexFingerprintExtraForCreate(input.Platform, input.Type, accountExtra)
-	rateLimit429RetryCount := DefaultRateLimit429RetryCount
-	if input.RateLimit429RetryCount != nil {
-		if err := ValidateRateLimit429RetryCount(*input.RateLimit429RetryCount); err != nil {
-			return nil, err
-		}
-		rateLimit429RetryCount = *input.RateLimit429RetryCount
-	}
 	account := &Account{
-		Name:                   input.Name,
-		Notes:                  normalizeAccountNotes(input.Notes),
-		Platform:               input.Platform,
-		Type:                   input.Type,
-		Credentials:            input.Credentials,
-		Extra:                  accountExtra,
-		ProxyID:                input.ProxyID,
-		Concurrency:            normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
-		RateLimit429RetryCount: &rateLimit429RetryCount,
-		Priority:               input.Priority,
-		Status:                 StatusActive,
-		Schedulable:            true,
+		Name:        input.Name,
+		Notes:       normalizeAccountNotes(input.Notes),
+		Platform:    input.Platform,
+		Type:        input.Type,
+		Credentials: input.Credentials,
+		Extra:       accountExtra,
+		ProxyID:     input.ProxyID,
+		Concurrency: normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
+		Priority:    input.Priority,
+		Status:      StatusActive,
+		Schedulable: true,
 	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
@@ -474,6 +467,12 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 			return nil, errors.New("rate_multiplier must be >= 0")
 		}
 		account.RateMultiplier = input.RateMultiplier
+	}
+	if input.GroupRateMultiplier != nil {
+		if *input.GroupRateMultiplier < 0 {
+			return nil, errors.New("group_rate_multiplier must be >= 0")
+		}
+		account.GroupRateMultiplier = input.GroupRateMultiplier
 	}
 	if input.LoadFactor != nil && *input.LoadFactor > 0 {
 		if *input.LoadFactor > 10000 {
@@ -581,6 +580,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
+	if err := ValidateGroupAllowedModels(input.GroupAllowedModels); err != nil {
+		return nil, err
+	}
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -683,7 +685,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, UpstreamBillingProbeEnabledExtraKey)
 		delete(normalizedExtra, UpstreamBillingRateSyncEnabledExtraKey)
 		delete(normalizedExtra, UpstreamBillingProbeExtraKey)
-		delete(normalizedExtra, CodexQuotaOverdraftProbeExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageSessionExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
@@ -700,7 +701,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			UpstreamBillingProbeEnabledExtraKey,
 			UpstreamBillingRateSyncEnabledExtraKey,
 			UpstreamBillingProbeExtraKey,
-			CodexQuotaOverdraftProbeExtraKey,
 			OllamaCloudUsageSessionExtraKey,
 			OllamaCloudUsageAutoRefreshExtraKey,
 			OllamaCloudUsageSnapshotExtraKey,
@@ -712,6 +712,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				normalizedExtra[key] = v
 			}
 		}
+		normalizedExtra = MergeOpenAICodexTicketExtra(normalizedExtra, account.Extra)
 		normalizedExtra = prepareCodexFingerprintExtraForUpdate(account, normalizedExtra)
 		account.Extra = normalizedExtra
 		if account.Platform == PlatformAntigravity && wasOveragesEnabled && !account.IsOveragesEnabled() {
@@ -808,13 +809,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
 	}
-	if input.RateLimit429RetryCount != nil {
-		if err := ValidateRateLimit429RetryCount(*input.RateLimit429RetryCount); err != nil {
-			return nil, err
-		}
-		value := *input.RateLimit429RetryCount
-		account.RateLimit429RetryCount = &value
-	}
 	// 只在指针非 nil 时更新 Priority（支持设置为 0）
 	if input.Priority != nil {
 		account.Priority = *input.Priority
@@ -831,6 +825,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, ErrUpstreamBillingRateSyncConflict
 		}
 		account.RateMultiplier = input.RateMultiplier
+	}
+	if input.GroupRateMultiplier != nil {
+		if *input.GroupRateMultiplier < 0 {
+			return nil, errors.New("group_rate_multiplier must be >= 0")
+		}
+		account.GroupRateMultiplier = input.GroupRateMultiplier
 	}
 	if input.LoadFactor != nil {
 		if *input.LoadFactor <= 0 {
@@ -927,6 +927,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	// 分组内的模型限制写在绑定之后，只作用于最终绑定的分组。
+	if input.GroupAllowedModels != nil {
+		if err := s.accountRepo.SetGroupAllowedModels(ctx, account.ID, input.GroupAllowedModels); err != nil {
+			return nil, err
+		}
+	}
+
 	// 重新查询以确保返回完整数据（包括正确的 Proxy 关联对象）
 	updated, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
@@ -938,12 +945,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	updates = MergeOpenAICodexTicketExtra(updates, nil)
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
 	delete(updates, UpstreamBillingRateSyncEnabledExtraKey)
 	delete(updates, UpstreamBillingProbeExtraKey)
-	delete(updates, CodexQuotaOverdraftProbeExtraKey)
 	delete(updates, OllamaCloudUsageSessionExtraKey)
 	delete(updates, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
@@ -968,12 +975,12 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
 	// Managed probe/session state may only enter through dedicated typed endpoints.
+	input.Extra = MergeOpenAICodexTicketExtra(input.Extra, nil)
 	input.Extra = sanitizedCodexFingerprintExtraUpdates(input.Extra)
 	input.Extra = stripOpenAIAutoResetCreditManagedExtra(input.Extra, true)
 	delete(input.Extra, UpstreamBillingProbeEnabledExtraKey)
 	delete(input.Extra, UpstreamBillingRateSyncEnabledExtraKey)
 	delete(input.Extra, UpstreamBillingProbeExtraKey)
-	delete(input.Extra, CodexQuotaOverdraftProbeExtraKey)
 	delete(input.Extra, OllamaCloudUsageSessionExtraKey)
 	delete(input.Extra, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(input.Extra, OllamaCloudUsageSnapshotExtraKey)
@@ -986,11 +993,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			return nil, err
 		}
 		input.AccountIDs = accountIDs
-	}
-	if input.RateLimit429RetryCount != nil {
-		if err := ValidateRateLimit429RetryCount(*input.RateLimit429RetryCount); err != nil {
-			return nil, err
-		}
 	}
 
 	result := &BulkUpdateAccountsResult{
@@ -1163,14 +1165,17 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if input.Concurrency != nil {
 		repoUpdates.Concurrency = input.Concurrency
 	}
-	if input.RateLimit429RetryCount != nil {
-		repoUpdates.RateLimit429RetryCount = input.RateLimit429RetryCount
-	}
 	if input.Priority != nil {
 		repoUpdates.Priority = input.Priority
 	}
 	if input.RateMultiplier != nil {
 		repoUpdates.RateMultiplier = input.RateMultiplier
+	}
+	if input.GroupRateMultiplier != nil {
+		if *input.GroupRateMultiplier < 0 {
+			return nil, errors.New("group_rate_multiplier must be >= 0")
+		}
+		repoUpdates.GroupRateMultiplier = input.GroupRateMultiplier
 	}
 	if input.LoadFactor != nil {
 		if *input.LoadFactor <= 0 {
@@ -1349,7 +1354,14 @@ func (s *adminServiceImpl) ClearAccountError(ctx context.Context, id int64) (*Ac
 	if s.runtimeBlocker != nil {
 		s.runtimeBlocker.ClearAccountSchedulingBlock(id)
 	}
-	return s.accountRepo.GetByID(ctx, id)
+	updated, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if updated != nil && updated.Platform == PlatformOpenAI {
+		s.settingService.NotifyCodexHarvest()
+	}
+	return updated, nil
 }
 
 func (s *adminServiceImpl) SetAccountError(ctx context.Context, id int64, errorMsg string) error {
@@ -1363,6 +1375,9 @@ func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, 
 	updated, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if schedulable && updated != nil && updated.Platform == PlatformOpenAI {
+		s.settingService.NotifyCodexHarvest()
 	}
 	return updated, nil
 }
@@ -1470,12 +1485,7 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 		ProxyID:         parent.ProxyID,
 		Priority:        priority,
 		Concurrency:     concurrency,
-		// Spark shadows use the parent credential and must keep the same
-		// account-level 429 retry policy.  In particular, an explicit 0 on the
-		// parent means the feature is disabled and must not silently become the
-		// database default (5) on the shadow.
-		RateLimit429RetryCount: cloneAccountValuePointer(parent.RateLimit429RetryCount),
-		Schedulable:            true,
+		Schedulable:     true,
 		Extra: map[string]any{
 			openAILongContextBillingEnabledKey: parent.IsOpenAILongContextBillingEnabled(),
 		},

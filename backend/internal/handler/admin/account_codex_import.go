@@ -597,6 +597,7 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 			return item, nil
 		}
 		item.AccessToken = firstCodexString(raw,
+			[]string{"session_info", "access_token"},
 			[]string{"tokens", "access_token"},
 			[]string{"tokens", "accessToken"},
 			[]string{"access_token"},
@@ -617,6 +618,7 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 		)
 		item.Email = firstCodexString(raw, []string{"email"}, []string{"user", "email"})
 		item.AccountID = firstCodexString(raw,
+			[]string{"user_info", "chatgpt_account_id"},
 			[]string{"chatgpt_account_id"},
 			[]string{"chatgptAccountId"},
 			[]string{"account_id"},

@@ -57,23 +57,12 @@ type TestEvent struct {
 	Code     string `json:"code,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
 	// AudioURL / VideoURL are data: or https URLs for in-browser media players.
-	AudioURL string     `json:"audio_url,omitempty"`
-	VideoURL string     `json:"video_url,omitempty"`
-	MimeType string     `json:"mime_type,omitempty"`
-	Data     any        `json:"data,omitempty"`
-	Success  bool       `json:"success,omitempty"`
-	Error    string     `json:"error,omitempty"`
-	Usage    *TestUsage `json:"usage,omitempty"`
-}
-
-// TestUsage is the token usage returned by a Responses API probe. It is kept
-// separate from gateway billing types because account tests do not create a
-// usage log or charge a user's balance.
-type TestUsage struct {
-	InputTokens       int `json:"input_tokens"`
-	OutputTokens      int `json:"output_tokens"`
-	TotalTokens       int `json:"total_tokens"`
-	CachedInputTokens int `json:"cached_input_tokens,omitempty"`
+	AudioURL string `json:"audio_url,omitempty"`
+	VideoURL string `json:"video_url,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	Data     any    `json:"data,omitempty"`
+	Success  bool   `json:"success,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // AccountTestOptions carries optional media for admin connectivity tests.
@@ -158,11 +147,10 @@ type AccountTestService struct {
 	cfg                       *config.Config
 	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
-	pluginManager             *PluginManager
-	codexQuotaOverdraft       codexQuotaOverdraftAccountTestCoordinator
 	modelMetadataRegistryMu   sync.Mutex
 	modelMetadataRegistry     map[string]modelsDevProvider
 	modelMetadataRegistryAt   time.Time
+	pluginManager             *PluginManager
 	openaiGatewayService      *OpenAIGatewayService
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
@@ -190,6 +178,8 @@ func (s *AccountTestService) SetOpenAIGatewayService(gateway *OpenAIGatewayServi
 }
 
 // FetchOpenAIAccountModels uses the shared cached discovery path for the test picker.
+// It only fills picker-only gaps (local display-name fallbacks, OAuth image choices)
+// on its own copy; the shared catalog and its cache stay untouched.
 func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, account *Account) ([]openai.Model, error) {
 	if s == nil || s.openaiGatewayService == nil {
 		return nil, errors.New("OpenAI model discovery service is unavailable")
@@ -211,6 +201,10 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 	if err := json.Unmarshal(projectedBody, &payload); err != nil {
 		return nil, fmt.Errorf("decode OpenAI account models: %w", err)
 	}
+	// Every entry in the picker is labelled by the same rule: the upstream display
+	// name when the catalog has one, otherwise the local catalog name for that model
+	// ID, otherwise the raw ID. Without this the picker mixes "GPT-5.6 Sol" with
+	// "gpt-5.6-sol" for the same catalog.
 	for i := range payload.Data {
 		model := &payload.Data[i]
 		if strings.TrimSpace(model.DisplayName) == "" {
@@ -550,6 +544,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	// Create Claude Code style payload (same for all account types)
 	payload, err := createTestPayload(testModelID)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		payload, err = createPelicanClaudePayload(testModelID, options.prompt)
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -578,7 +575,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		req.Header.Set("Authorization", "Bearer "+authToken)
 	} else {
 		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetAnthropicProtocolBaseURL())
+		// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer，
+		// 其余保持 extra/default 行为。
+		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetBaseURL())
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
@@ -590,7 +589,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -662,7 +661,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -748,7 +747,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, nil)
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -788,6 +787,14 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
 
+	// Excel/BPS accounts must use the same gateway path as user Responses
+	// requests. The legacy account-test probe hard-codes ChatGPT Codex and
+	// silently bypasses the account's protocol toggle, producing misleading
+	// quality-test results.
+	if account.IsExcelBPSEnabled() && s.openaiGatewayService != nil {
+		return s.testExcelBPSAccountConnection(c, account, modelID, prompt)
+	}
+
 	// Default to openai.DefaultTestModel for OpenAI testing
 	testModelID := modelID
 	if testModelID == "" {
@@ -798,9 +805,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// account model mapping. Native remote compaction v2 rides the ordinary
 	// /responses wire and does NOT apply the legacy compact-only mapping
 	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
-	if !isIntelligenceTest(ctx) {
-		testModelID = account.GetMappedModel(testModelID)
-	}
+	testModelID = account.GetMappedModel(testModelID)
 	if mode == AccountTestModeCompact {
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
@@ -880,16 +885,10 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
-	if isIntelligenceTest(ctx) {
-		options := intelligenceOptionsFromContext(ctx)
-		upstreamTestModelID = IntelligenceTestModel
-		payload = createIntelligenceTestPayload(options)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
+		payload = createPelicanOpenAIPayload(upstreamTestModelID, isOAuth, options.prompt, options.reasoningEffort)
 	}
 	payloadBytes, _ := json.Marshal(payload)
-	overdraftInjected := false
-	if !isIntelligenceTest(ctx) {
-		ctx, payloadBytes, overdraftInjected = s.prepareCodexQuotaOverdraftTestRequest(ctx, account, payloadBytes)
-	}
 
 	// Send test_start event once. A task-invalid Agent Identity response may
 	// restart this probe after registering a replacement task.
@@ -974,9 +973,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			if isIntelligenceTest(ctx) || !s.handleCodexQuotaOverdraftTest429(ctx, account, resp.Header, body, upstreamTestModelID) {
-				s.reconcileOpenAI429State(ctx, account, resp.Header, body)
-			}
+			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
 		// 401 Unauthorized: 标记账号为永久错误
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
@@ -985,14 +982,74 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
+
 	// Process SSE stream
-	if err := s.processOpenAIStream(c, resp.Body); err != nil {
-		return err
+	return s.processOpenAIStream(c, resp.Body)
+}
+
+func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
+	model := strings.TrimSpace(modelID)
+	if model == "" {
+		model = openai.DefaultTestModel
 	}
-	if !isIntelligenceTest(ctx) {
-		s.observeCodexQuotaOverdraftTestResult(account, upstreamTestModelID, overdraftInjected)
+	model = account.GetMappedModel(model)
+	prompt = promptOrDefault(prompt)
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: model})
+
+	body, err := buildExcelBPSAccountTestBody(model, prompt)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create Excel BPS test payload")
 	}
+
+	probe := httptest.NewRecorder()
+	probeCtx, _ := gin.CreateTestContext(probe)
+	probeCtx.Request = c.Request.Clone(c.Request.Context())
+	result, err := s.openaiGatewayService.Forward(probeCtx, probeCtx, account, body)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	answer := strings.Builder{}
+	completed := false
+	for _, line := range strings.Split(probe.Body.String(), "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var event map[string]any
+		if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event) != nil {
+			continue
+		}
+		switch event["type"] {
+		case "response.output_text.delta":
+			if delta, ok := event["delta"].(string); ok {
+				_, _ = answer.WriteString(delta)
+				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
+			}
+		case "response.completed":
+			completed = true
+		}
+	}
+	if result == nil || result.ClientDisconnect {
+		return s.sendErrorAndEnd(c, "Excel BPS test response was interrupted")
+	}
+	if !completed {
+		return s.sendErrorAndEnd(c, "Excel BPS test response ended before completion")
+	}
+	if strings.TrimSpace(answer.String()) == "" {
+		return s.sendErrorAndEnd(c, "Excel BPS returned empty output")
+	}
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
+}
+
+func buildExcelBPSAccountTestBody(model, prompt string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"model": model, "stream": true, "store": false,
+		"input": []any{map[string]any{"type": "message", "role": "user", "content": []any{
+			map[string]any{"type": "input_text", "text": promptOrDefault(prompt)},
+		}}},
+		"reasoning": map[string]any{"effort": "medium"},
+	})
 }
 
 // testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,
@@ -1273,7 +1330,7 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	}
 	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json, text/event-stream")
 
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok Responses API request failed: %s", err.Error()))
 	}
@@ -1361,7 +1418,7 @@ func (s *AccountTestService) testGrokImageGeneration(c *gin.Context, ctx context
 			s.applyGrokTestRequestHeaders(req, account, authToken, "application/json")
 			req.ContentLength = int64(len(payloadBytes))
 		}
-		resp, doErr = doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+		resp, doErr = s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 		if doErr == nil {
 			break
 		}
@@ -1452,7 +1509,7 @@ func (s *AccountTestService) testGrokVideoGeneration(c *gin.Context, ctx context
 	}
 	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json")
 
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok video request failed: %s", err.Error()))
 	}
@@ -1493,7 +1550,7 @@ func (s *AccountTestService) testGrokVideoGeneration(c *gin.Context, ctx context
 			return s.sendErrorAndEnd(c, "Failed to create Grok video status request")
 		}
 		s.applyGrokTestRequestHeaders(statusReq, account, authToken, "application/json")
-		statusResp, err := doAccountHTTPUpstream(s.httpUpstream, statusReq, s.grokTestProxyURL(account), account)
+		statusResp, err := s.httpUpstream.Do(statusReq, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Grok video status failed: %s", err.Error()))
 		}
@@ -1550,7 +1607,7 @@ func (s *AccountTestService) emitGrokVideoResult(c *gin.Context, ctx context.Con
 		return s.sendErrorAndEnd(c, "Failed to create Grok video content request")
 	}
 	s.applyGrokTestRequestHeaders(req, account, authToken, "video/*, application/octet-stream, */*")
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok video content download failed: %s", err.Error()))
 	}
@@ -1622,7 +1679,7 @@ User query:
 	}
 	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json")
 
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("standalone web_search probe failed: %s", err.Error()))
 	}
@@ -1703,7 +1760,7 @@ func (s *AccountTestService) testGrokTTS(c *gin.Context, ctx context.Context, ac
 			return s.sendErrorAndEnd(c, "Failed to create Grok TTS request")
 		}
 		s.applyGrokTestRequestHeaders(req, account, authToken, "audio/*, application/json, */*")
-		resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+		resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Grok TTS failed: %s", err.Error()))
 		}
@@ -1794,7 +1851,7 @@ func (s *AccountTestService) testGrokSTT(c *gin.Context, ctx context.Context, ac
 	}
 	account.ApplyHeaderOverrides(req.Header)
 
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok STT failed: %s", err.Error()))
 	}
@@ -1872,21 +1929,10 @@ func (s *AccountTestService) testGrokRealtime(c *gin.Context, ctx context.Contex
 		dialer = newDefaultOpenAIWSClientDialer()
 	}
 
-	// 429 只可能在握手阶段被安全重放。每次拨号仍有独立超时，外层总
-	// budget 则覆盖账号配置的额外重试和 Retry-After 退避，避免单次测试
-	// 因重试把请求上下文提前截断。
-	dialBudget := account429RetryTotalTimeout(grokRealtimeProbeTimeout, account)
-	if dialBudget <= 0 {
-		dialBudget = grokRealtimeProbeTimeout
-	}
-	dialCtx, cancel := context.WithTimeout(ctx, dialBudget)
+	dialCtx, cancel := context.WithTimeout(ctx, grokRealtimeProbeTimeout)
 	defer cancel()
 
-	conn, status, _, _, dialErr := dialAccount429Retry(dialCtx, account, func(attemptCtx context.Context) (openAIWSClientConn, int, http.Header, error) {
-		attemptDialCtx, cancelAttempt := context.WithTimeout(attemptCtx, grokRealtimeProbeTimeout)
-		defer cancelAttempt()
-		return dialer.Dial(attemptDialCtx, wsURL, headers, s.grokTestProxyURL(account))
-	})
+	conn, status, _, dialErr := dialer.Dial(dialCtx, wsURL, headers, s.grokTestProxyURL(account))
 	if dialErr != nil {
 		detail := dialErr.Error()
 		var hs *openAIWSHandshakeError
@@ -2149,6 +2195,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.reasoningEffort != "" {
+		payload["reasoning_effort"] = options.reasoningEffort
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2175,7 +2224,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions API (/v1/chat/completions) request failed: %s", err.Error()))
 	}
@@ -2295,7 +2344,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		// 指纹收敛：探测与真实转发走同一个 /responses 端点，身份也必须同构，
 		// 否则探测流量会以「缺 x-codex-installation-id + 非收敛 session」的
 		// 形态暴露在上游眼里。账号关闭收敛（off）时返回 nil，探测保持原样。
-		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header, s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled); fpIDs != nil {
+		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header); fpIDs != nil {
 			applyCodexFingerprintHeaders(req.Header, fpIDs)
 		}
 	}
@@ -2456,7 +2505,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -2793,7 +2842,6 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 		"model": modelID,
 		"input": []map[string]any{
 			{
-				"type": "message",
 				"role": "user",
 				"content": []map[string]any{
 					{
@@ -3011,11 +3059,6 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
-			if response, ok := data["response"].(map[string]any); ok {
-				if usage, ok := parseTestUsage(response["usage"]); ok {
-					s.sendEvent(c, TestEvent{Type: "usage", Usage: &usage})
-				}
-			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":
@@ -3038,40 +3081,6 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 			return s.sendErrorAndEnd(c, errorMsg)
 		}
 	}
-}
-
-func parseTestUsage(value any) (TestUsage, bool) {
-	usage, ok := value.(map[string]any)
-	if !ok {
-		return TestUsage{}, false
-	}
-	read := func(key string) int {
-		n, ok := usage[key].(float64)
-		if !ok || n < 0 {
-			return 0
-		}
-		return int(n)
-	}
-	result := TestUsage{
-		InputTokens:  read("input_tokens"),
-		OutputTokens: read("output_tokens"),
-		TotalTokens:  read("total_tokens"),
-	}
-	if details, ok := usage["input_tokens_details"].(map[string]any); ok {
-		result.CachedInputTokens = readNestedUsageInt(details, "cached_tokens")
-	}
-	if result.TotalTokens == 0 {
-		result.TotalTokens = result.InputTokens + result.OutputTokens
-	}
-	return result, result.InputTokens > 0 || result.OutputTokens > 0 || result.TotalTokens > 0
-}
-
-func readNestedUsageInt(values map[string]any, key string) int {
-	n, ok := values[key].(float64)
-	if !ok || n < 0 {
-		return 0
-	}
-	return int(n)
 }
 
 // testOpenAIImageAPIKey tests OpenAI image generation using an API Key account.
@@ -3124,7 +3133,7 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -3171,7 +3180,7 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 	return nil
 }
 
-// testOpenAIImageOAuth tests OpenAI image generation using an OAuth account via Codex /responses API.
+// OAuth 图片测试与正式转发共用 Codex Images / Responses 分流规则。
 func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Context, account *Account, modelID, prompt string) error {
 	credentialAccount := account
 	if account.IsShadow() {
@@ -3197,7 +3206,6 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	c.Writer.Flush()
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
-	s.sendEvent(c, TestEvent{Type: "content", Text: "Calling Codex /responses image tool...\n"})
 
 	parsed := &OpenAIImagesRequest{
 		Endpoint: openAIImagesGenerationsEndpoint,
@@ -3206,12 +3214,19 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	}
 	applyOpenAIImagesDefaults(parsed)
 
-	responsesBody, err := buildOpenAIImagesResponsesRequest(parsed, parsed.Model)
+	upstreamModel := account.GetMappedModel(parsed.Model)
+	responsesBody, targetURL, err := buildOpenAIImagesOAuthPayload(parsed, upstreamModel)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to build image request: %s", err.Error()))
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatgptCodexAPIURL, bytes.NewReader(responsesBody))
+	direct := usesCodexDirectImages(upstreamModel)
+	if direct {
+		s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("Calling Codex /images/generations; image model: %s\n", upstreamModel)})
+	} else {
+		s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("Calling Codex /responses image tool; driver: %s; image model: %s\n", openAIImagesResponsesMainModelValue(), upstreamModel)})
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(responsesBody))
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create request")
 	}
@@ -3233,6 +3248,10 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
+	if direct {
+		req.Header.Del("OpenAI-Beta")
+		req.Header.Set("Accept", "application/json")
+	}
 	canonical := resolveCodexOutboundIdentity("")
 	req.Header.Set("originator", canonical.originator)
 	if customUA := strings.TrimSpace(credentialAccount.GetOpenAIUserAgent()); customUA != "" {
@@ -3251,7 +3270,7 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	}
 	resp, err := s.doOpenAIAccountTestUpstream(req, proxyURL, account, false)
 	if err != nil {
-		return s.sendErrorAndEnd(c, fmt.Sprintf("Responses API request failed: %s", err.Error()))
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Image upstream request failed: %s", err.Error()))
 	}
 	defer func() {
 		if resp != nil && resp.Body != nil {
@@ -3263,7 +3282,7 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 		body = redactAgentIdentitySensitiveBodyForAccount(ctx, s.accountRepo, credentialAccount, body)
 		message := strings.TrimSpace(extractUpstreamErrorMessage(body))
 		if message == "" {
-			message = fmt.Sprintf("Responses API returned %d", resp.StatusCode)
+			message = fmt.Sprintf("Image upstream returned %d", resp.StatusCode)
 		}
 		return s.sendErrorAndEnd(c, message)
 	}
@@ -3274,12 +3293,26 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	}
 	body = redactAgentIdentitySensitiveBodyForAccount(ctx, s.accountRepo, credentialAccount, body)
 
-	results, _, _, _, _, err := collectOpenAIImagesFromResponsesBody(body)
+	var results []openAIResponsesImageResult
+	if direct {
+		results, err = parseCodexDirectImagesResponse(body)
+	} else {
+		if upstreamErr := extractOpenAIImagesUpstreamError(body); upstreamErr != nil {
+			return s.sendErrorAndEnd(c, upstreamErr.clientMessage())
+		}
+		results, _, _, _, _, err = collectOpenAIImagesFromResponsesBody(body)
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse image response: %s", err.Error()))
 	}
 	if len(results) == 0 {
-		return s.sendErrorAndEnd(c, "No images returned from responses API")
+		if textErr := openAIImagesTextFallbackError(body); textErr != nil {
+			return s.sendErrorAndEnd(c, textErr.clientMessage())
+		}
+		if direct {
+			return s.sendErrorAndEnd(c, "No images returned from Codex Images API")
+		}
+		return s.sendErrorAndEnd(c, "No images returned from Codex Responses API")
 	}
 
 	for _, item := range results {
@@ -3356,11 +3389,6 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 
 // parseTestSSEOutput extracts response text and error message from captured SSE output.
 func parseTestSSEOutput(body string) (responseText, errMsg string) {
-	responseText, errMsg, _ = parseTestSSEOutputWithUsage(body)
-	return responseText, errMsg
-}
-
-func parseTestSSEOutputWithUsage(body string) (responseText, errMsg string, usage *TestUsage) {
 	var texts []string
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
@@ -3379,13 +3407,8 @@ func parseTestSSEOutputWithUsage(body string) (responseText, errMsg string, usag
 			}
 		case "error":
 			errMsg = event.Error
-		case "usage":
-			if event.Usage != nil {
-				copy := *event.Usage
-				usage = &copy
-			}
 		}
 	}
 	responseText = strings.Join(texts, "")
-	return responseText, errMsg, usage
+	return
 }

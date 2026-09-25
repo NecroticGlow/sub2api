@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CC_SWITCH_PROVIDER_API_BASE_URL,
   GROK_CC_SWITCH_MODEL,
   OPENAI_CC_SWITCH_CODEX_MODEL,
   buildCcSwitchImportDeeplink
@@ -14,32 +13,15 @@ function paramsFromDeeplink(deeplink: string): URLSearchParams {
 
 describe('ccswitchImport utils', () => {
   it('defaults OpenAI CC Switch imports to the current Codex model', () => {
-    expect(OPENAI_CC_SWITCH_CODEX_MODEL).toBe('gpt-5.6-sol')
+    expect(OPENAI_CC_SWITCH_CODEX_MODEL).toBe('gpt-5.5')
   })
 
   it('defaults Grok Build imports to the current Grok model', () => {
-    expect(GROK_CC_SWITCH_MODEL).toBe('grok-4.6')
-  })
-
-  it('pins the API endpoint to wanwuplus.com and follows the current site for homepage', () => {
-    const params = paramsFromDeeplink(
-      buildCcSwitchImportDeeplink({
-        homepage: 'https://current-site.example.com/',
-        platform: 'openai',
-        app: 'codex',
-        providerName: 'Sub2API',
-        apiKey: 'sk-test',
-        usageScript: 'return true'
-      })
-    )
-
-    expect(CC_SWITCH_PROVIDER_API_BASE_URL).toBe('https://wanwuplus.com')
-    expect(params.get('homepage')).toBe('https://current-site.example.com')
-    expect(params.get('endpoint')).toBe('https://wanwuplus.com/v1')
+    expect(GROK_CC_SWITCH_MODEL).toBe('grok-4.5')
   })
 
   const baseInput = {
-    homepage: 'https://current-site.example.com',
+    baseUrl: 'https://api.example.com',
     providerName: 'Sub2API',
     apiKey: 'sk-test',
     usageScript: 'return true'
@@ -50,48 +32,69 @@ describe('ccswitchImport utils', () => {
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform: 'openai',
-        app: 'codex',
-        model: OPENAI_CC_SWITCH_CODEX_MODEL
+        clientType: 'claude'
       })
     )
 
     expect(params.get('resource')).toBe('provider')
     expect(params.get('app')).toBe('codex')
-    expect(params.get('homepage')).toBe(baseInput.homepage)
-    expect(params.get('endpoint')).toBe(`${CC_SWITCH_PROVIDER_API_BASE_URL}/v1`)
+    expect(params.get('endpoint')).toBe(`${baseInput.baseUrl}/v1`)
     expect(params.get('model')).toBe(OPENAI_CC_SWITCH_CODEX_MODEL)
     expect(atob(params.get('usageScript') || '')).toBe(baseInput.usageScript)
   })
 
-  it('imports Grok Build with one /v1 suffix on the fixed API endpoint', () => {
+  it.each([
+    'https://api.example.com',
+    'https://api.example.com/',
+    'https://api.example.com/v1',
+    'https://api.example.com/v1/'
+  ])('imports Codex with exactly one /v1 suffix for base URL %s', (baseUrl) => {
     const params = paramsFromDeeplink(
       buildCcSwitchImportDeeplink({
         ...baseInput,
+        baseUrl,
+        platform: 'openai',
+        clientType: 'claude'
+      })
+    )
+
+    expect(params.get('endpoint')).toBe('https://api.example.com/v1')
+  })
+
+  it.each([
+    'https://api.example.com',
+    'https://api.example.com/',
+    'https://api.example.com/v1',
+    'https://api.example.com/v1/'
+  ])('imports Grok Build with one /v1 suffix for base URL %s', (baseUrl) => {
+    const params = paramsFromDeeplink(
+      buildCcSwitchImportDeeplink({
+        ...baseInput,
+        baseUrl,
         platform: 'grok',
-        app: 'grokbuild',
-        model: GROK_CC_SWITCH_MODEL
+        clientType: 'claude'
       })
     )
 
     expect(params.get('app')).toBe('grokbuild')
-    expect(params.get('endpoint')).toBe('https://wanwuplus.com/v1')
+    expect(params.get('endpoint')).toBe('https://api.example.com/v1')
     expect(params.get('model')).toBe(GROK_CC_SWITCH_MODEL)
   })
 
   it.each([
-    { platform: 'anthropic' as GroupPlatform, app: 'claude' as const },
-    { platform: 'gemini' as GroupPlatform, app: 'gemini' as const }
-  ])('does not add a model parameter for $platform imports', ({ platform, app }) => {
+    { platform: 'anthropic' as GroupPlatform, clientType: 'claude' as const, app: 'claude' },
+    { platform: 'gemini' as GroupPlatform, clientType: 'gemini' as const, app: 'gemini' }
+  ])('does not add a model parameter for $platform imports', ({ platform, clientType, app }) => {
     const params = paramsFromDeeplink(
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform,
-        app
+        clientType
       })
     )
 
     expect(params.get('app')).toBe(app)
-    expect(params.get('endpoint')).toBe(CC_SWITCH_PROVIDER_API_BASE_URL)
+    expect(params.get('endpoint')).toBe(baseInput.baseUrl)
     expect(params.has('model')).toBe(false)
   })
 
@@ -100,26 +103,12 @@ describe('ccswitchImport utils', () => {
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform: 'antigravity',
-        app: 'gemini'
+        clientType: 'gemini'
       })
     )
 
     expect(params.get('app')).toBe('gemini')
-    expect(params.get('endpoint')).toBe(`${CC_SWITCH_PROVIDER_API_BASE_URL}/antigravity`)
+    expect(params.get('endpoint')).toBe(`${baseInput.baseUrl}/antigravity`)
     expect(params.has('model')).toBe(false)
-  })
-
-  it('imports OpenCode with /v1 on the fixed API endpoint', () => {
-    const params = paramsFromDeeplink(
-      buildCcSwitchImportDeeplink({
-        ...baseInput,
-        platform: 'openai',
-        app: 'opencode',
-        model: OPENAI_CC_SWITCH_CODEX_MODEL
-      })
-    )
-
-    expect(params.get('homepage')).toBe(baseInput.homepage)
-    expect(params.get('endpoint')).toBe('https://wanwuplus.com/v1')
   })
 })
