@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import Dashboard from '../PelicanRecordsDashboard.vue'
 import { scheduledTestsAPI as api } from '@/api/admin/scheduledTests'
+import { pelicanHistoryAPI as history } from '@/api/admin/pelicanHistory'
+vi.mock('@/api/admin/pelicanHistory', () => ({ pelicanHistoryAPI: { list: vi.fn() } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/admin/scheduledTests', () => ({ scheduledTestsAPI: { listPelicanHistory: vi.fn(), getResult: vi.fn() } }))
 const account = { id: 42, name: 'Manual account' } as any
 const manual = { createdAt: '2026-09-23T12:00:00Z', modelId: 'saved-model', reasoningEffort: 'medium', runs: [{ html: '<html><body>MANUAL-ANIMATION</body></html>', output: '', durationMs: 34000, status: 'success' }] }
 function render(extra = {}) { return mount(Dashboard, { props: { accounts: [], account, manualRecord: manual, ...extra } }) }
-beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); localStorage.clear(); vi.mocked(api.listPelicanHistory).mockResolvedValue({ items: [], next_cursor: 0 }) })
+beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); localStorage.clear(); vi.mocked(history.list).mockResolvedValue([]); vi.mocked(api.listPelicanHistory).mockResolvedValue({ items: [], next_cursor: 0 }) })
 afterEach(() => { vi.useRealTimers() })
 describe('Pelican record dashboard', () => {
   it('shows and opens a manual result when the current account is outside the list', async () => {
@@ -31,7 +33,7 @@ describe('Pelican record dashboard', () => {
     wrapper.unmount()
   })
   it('loads other accounts manual history and never fabricates duration or time', async () => {
-    localStorage.setItem('sub2api-pelican-test:99', JSON.stringify([{ ...manual, createdAt: '', runs: [{ html: '<svg></svg>' }] }]))
+    vi.mocked(history.list).mockResolvedValue([{ ...manual, createdAt: '', runs: [{ html: '<svg></svg>' }] }] as any)
     const wrapper = render({ account: null, manualRecord: null, accounts: [{ id: 99, name: 'Other manual account' }] }); await flushPromises()
     expect(wrapper.text()).toContain('Other manual account')
     expect(wrapper.text()).not.toContain('0.0 s')
@@ -58,9 +60,8 @@ describe('Pelican record dashboard', () => {
 
   it('keeps every parallel manual output, deduplicates saved/current history, and reads other pages', async () => {
     const batch = { ...manual, id: 'batch', runs: [manual.runs[0], { ...manual.runs[0], html: '<svg>SECOND</svg>' }] }
-    localStorage.setItem('sub2api-pelican-test:42', JSON.stringify([batch]))
-    localStorage.setItem('sub2api-pelican-test:999', JSON.stringify([manual]))
-    const wrapper = render({ manualRecord: batch }); await flushPromises()
+    vi.mocked(history.list).mockImplementation(async id => (id === 42 ? [batch] : [manual]) as any)
+    const wrapper = render({ manualRecord: batch, accounts: [{ id: 999, name: '#999' }] }); await flushPromises()
     expect(wrapper.findAll('article')).toHaveLength(3)
     expect(wrapper.text()).toContain('#999')
     wrapper.unmount()

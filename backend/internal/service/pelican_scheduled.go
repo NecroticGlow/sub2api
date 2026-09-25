@@ -133,7 +133,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 			logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d save failed: %v", plan.ID, err)
 		}
 	}
-	if succeeded && plan.AutoRecover && plan.PelicanConfig.Quality == nil && !isBuiltinCandyPlan(plan.PelicanConfig) {
+	if succeeded && plan.AutoRecover && plan.PelicanConfig.Quality == nil && !isBuiltinCandyPlan(plan.PelicanConfig) && plan.PelicanConfig.QuestionKind != "knowledge" {
 		s.tryRecoverAccount(saveCtx, plan.AccountID, plan.ID)
 	}
 	if err := s.planRepo.FinishPelican(saveCtx, plan.ID, until, time.Now()); err != nil {
@@ -195,6 +195,9 @@ func intelligenceTestPrompt(cfg *PelicanTestConfig) string {
 	if cfg.QuestionKind == "candy" || isBuiltinCandyPlan(cfg) {
 		contract = "只输出最终整数，不要解释。"
 	}
+	if cfg.QuestionKind == "knowledge" {
+		contract = "Answer in text using existing knowledge only. Do not browse or use tools. Uncertain answers require manual review; completion alone is not a quality verdict."
+	}
 	return cfg.Prompt + "\n\n" + contract
 }
 func intelligenceTestOutputError(cfg *PelicanTestConfig, output string) string {
@@ -211,7 +214,7 @@ func intelligenceTestOutputError(cfg *PelicanTestConfig, output string) string {
 	if strings.TrimSpace(output) == "" {
 		return "Model returned empty output"
 	}
-	if cfg.QuestionKind != "candy" && !isBuiltinCandyPlan(cfg) && !pelicanHTMLPattern.MatchString(output) {
+	if cfg.QuestionKind != "candy" && cfg.QuestionKind != "knowledge" && !isBuiltinCandyPlan(cfg) && !pelicanHTMLPattern.MatchString(output) {
 		return "Model did not return HTML or SVG"
 	}
 	return ""

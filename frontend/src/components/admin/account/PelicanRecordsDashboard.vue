@@ -61,6 +61,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { scheduledTestsAPI } from '@/api/admin/scheduledTests'
+import { pelicanHistoryAPI } from '@/api/admin/pelicanHistory'
+import type { IntelligenceQuestion } from '@/utils/intelligenceTest'
 import type { PelicanHistoryResult } from '@/api/admin/scheduledTests'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
 import type { Account, AccountListItem, ScheduledTestResult } from '@/types'
@@ -75,14 +77,14 @@ interface ManualRun {
   startedAt?: string
   modelId?: string
   reasoningEffort?: string
-  questionKind?: 'candy' | 'pelican'
+  questionKind?: IntelligenceQuestion
 }
 interface ManualRecord {
   id?: string
   createdAt: string
   modelId: string
   reasoningEffort: string
-  questionKind?: 'candy' | 'pelican'
+  questionKind?: IntelligenceQuestion
   runs: ManualRun[]
 }
 interface DisplayRecord {
@@ -125,23 +127,27 @@ function formatDate(value?: string) {
 }
 function duration(value?: number) { return typeof value === 'number' && Number.isFinite(value) ? `${(value / 1000).toFixed(1)} s` : '—' }
 function timestamp(record: DisplayRecord) { return record.startedAt ? Date.parse(record.startedAt) || 0 : 0 }
+const savedManual = new Map<number, ManualRecord[]>()
+async function loadManualHistory(server: PelicanHistoryResult[]) {
+  const ids = [...new Set([...props.accounts.map(account => account.id), ...server.map(result => result.account_id), ...(props.account ? [props.account.id] : [])])]
+  let cursor = 0
+  let failed = false
+  await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
+    while (alive && cursor < ids.length) {
+      const id = ids[cursor++]
+      try {
+        const records = await pelicanHistoryAPI.list(id)
+        if (alive) savedManual.set(id, records)
+      } catch { failed = true }
+    }
+  }))
+  return !failed
+}
 function manualCards(server: PelicanHistoryResult[]): Card[] {
   const accounts = new Map<number, Card['account']>(props.accounts.map(account => [account.id, account]))
   for (const result of server) accounts.set(result.account_id, { id: result.account_id, name: result.account_name })
   if (props.account) accounts.set(props.account.id, props.account)
-  const saved = new Map<number, ManualRecord[]>()
-  // Read only Pelican keys, across all account pages; never inspect auth storage.
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      const match = key?.match(/^sub2api-pelican-test:(\d+)$/)
-      if (!match || !key) continue
-      try {
-        const records = JSON.parse(localStorage.getItem(key) || '[]')
-        if (Array.isArray(records)) saved.set(Number(match[1]), records)
-      } catch { /* Ignore only this corrupt record. */ }
-    }
-  } catch { /* The current in-memory result still works when storage is unavailable. */ }
+  const saved = new Map(savedManual)
   if (props.account && props.manualRecord) {
     saved.set(props.account.id, [props.manualRecord, ...(saved.get(props.account.id) || [])])
   }
@@ -155,7 +161,8 @@ function manualCards(server: PelicanHistoryResult[]): Card[] {
         const key = `manual:${id}:${record.id || record.createdAt}:${run.id || index}`
         if (results.has(key)) return
         const output = run.output || run.html || ''
-        const html = (run.questionKind || record.questionKind) === 'candy' ? '' : extractPelicanHtml(output)
+        const kind = run.questionKind || record.questionKind || 'pelican'
+        const html = kind === 'pelican' ? extractPelicanHtml(output) : ''
         results.set(key, { key, account, loaded: true, record: {
           source: 'manual', startedAt: run.startedAt || record.createdAt, durationMs: run.durationMs,
           modelId: run.modelId || record.modelId, reasoningEffort: run.reasoningEffort || record.reasoningEffort,
@@ -169,7 +176,7 @@ function manualCards(server: PelicanHistoryResult[]): Card[] {
 function serverRecord(result: ScheduledTestResult): DisplayRecord {
   return { source: 'scheduled', startedAt: result.started_at, durationMs: result.latency_ms,
     modelId: result.pelican_config?.model_id, reasoningEffort: result.pelican_config?.reasoning_effort,
-    status: result.status, output: result.response_text || '', html: result.pelican_config?.question_kind === 'candy' ? '' : extractPelicanHtml(result.response_text || ''), error: result.error_message }
+    status: result.status, output: result.response_text || '', html: (result.pelican_config?.question_kind || 'pelican') === 'pelican' ? extractPelicanHtml(result.response_text || '') : '', error: result.error_message }
 }
 async function loadBody(card: Card) {
   if (card.loaded || !card.planId || !card.resultId || !alive) return
@@ -208,6 +215,8 @@ async function refresh() {
       if (page.next_cursor && cursor && page.next_cursor >= cursor) throw new Error('Invalid history cursor')
       cursor = page.next_cursor
     } while (cursor)
+    const manualLoaded = await loadManualHistory(server)
+    if (!alive) return
     const previous = new Map(cards.value.map(card => [card.key, card]))
     const merged = new Map(manualCards(server).map(card => [card.key, card]))
     for (const result of server) {
@@ -217,7 +226,7 @@ async function refresh() {
         record: serverRecord(result), planId: result.plan_id, resultId: result.id, loaded: false })
     }
     cards.value = [...merged.values()].sort((a, b) => timestamp(b.record) - timestamp(a.record) || (b.resultId || 0) - (a.resultId || 0))
-    loadError.value = ''
+    loadError.value = manualLoaded ? '' : t('admin.accounts.pelicanTest.historyLoadError')
   } catch {
     if (alive) {
       // Keep already loaded history, and show available manual records even on initial API failure.

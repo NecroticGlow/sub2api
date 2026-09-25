@@ -400,22 +400,23 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
-	Name                string
-	Notes               *string
-	Platform            string
-	Type                string
-	Credentials         map[string]any
-	Extra               map[string]any
-	ProxyID             *int64
-	Concurrency         int
-	Priority            int
-	RateMultiplier      *float64 // 账号计费倍率（>=0，允许 0）
-	GroupRateMultiplier *float64 // 账号级分组计费倍率（>=0，默认 1）
-	LoadFactor          *int
-	GroupIDs            []int64
-	ExpiresAt           *int64
-	AutoPauseOnExpired  *bool
-	ProbeEnabled        *bool
+	Name                   string
+	Notes                  *string
+	Platform               string
+	Type                   string
+	Credentials            map[string]any
+	Extra                  map[string]any
+	ProxyID                *int64
+	Concurrency            int
+	Priority               int
+	RateMultiplier         *float64 // 账号计费倍率（>=0，允许 0）
+	GroupRateMultiplier    *float64 // 账号级分组计费倍率（>=0，默认 1）
+	LoadFactor             *int
+	GroupIDs               []int64
+	ExpiresAt              *int64
+	AutoPauseOnExpired     *bool
+	ProbeEnabled           *bool
+	RateLimit429RetryCount *int
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
 	SkipDefaultGroupBind bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
@@ -448,31 +449,33 @@ type UpdateAccountInput struct {
 	GroupIDs            *[]int64
 	// GroupAllowedModels 按分组 ID 覆盖账号在各分组内可用的模型；nil 表示不改，
 	// 非 nil 时没有列出的分组恢复为不限制。
-	GroupAllowedModels    map[int64][]string
-	ExpiresAt             *int64
-	AutoPauseOnExpired    *bool
-	ProbeEnabled          *bool
-	RateSyncEnabled       *bool
-	SkipMixedChannelCheck bool // 跳过混合渠道检查（用户已确认风险）
+	GroupAllowedModels     map[int64][]string
+	RateLimit429RetryCount *int
+	ExpiresAt              *int64
+	AutoPauseOnExpired     *bool
+	ProbeEnabled           *bool
+	RateSyncEnabled        *bool
+	SkipMixedChannelCheck  bool // 跳过混合渠道检查（用户已确认风险）
 }
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
 type BulkUpdateAccountsInput struct {
-	AccountIDs          []int64
-	Filters             *BulkUpdateAccountFilters
-	Name                string
-	ProxyID             *int64
-	Concurrency         *int
-	Priority            *int
-	RateMultiplier      *float64 // 账号计费倍率（>=0，允许 0）
-	GroupRateMultiplier *float64 // 账号级分组计费倍率（>=0，默认 1）
-	LoadFactor          *int
-	Status              string
-	Schedulable         *bool
-	GroupIDs            *[]int64
-	Credentials         map[string]any
-	Extra               map[string]any
-	ProbeEnabled        *bool
+	AccountIDs             []int64
+	Filters                *BulkUpdateAccountFilters
+	Name                   string
+	ProxyID                *int64
+	Concurrency            *int
+	Priority               *int
+	RateMultiplier         *float64 // 账号计费倍率（>=0，允许 0）
+	GroupRateMultiplier    *float64 // 账号级分组计费倍率（>=0，默认 1）
+	LoadFactor             *int
+	Status                 string
+	Schedulable            *bool
+	GroupIDs               *[]int64
+	Credentials            map[string]any
+	Extra                  map[string]any
+	ProbeEnabled           *bool
+	RateLimit429RetryCount *int
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
 	// This should only be set when the caller has explicitly confirmed the risk.
 	SkipMixedChannelCheck bool

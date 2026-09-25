@@ -1,5 +1,8 @@
 export default {
     accounts: {
+      messages: {
+        accountCreated: '账号创建成功',
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',
@@ -435,6 +438,7 @@ export default {
         rateLimited: '限流中',
         overloaded: '过载中',
         tempUnschedulable: '临时不可调度',
+        codexQuotaPaused: '额度暂停',
         quotaExceeded: '配额超限',
         unschedulable: '不可调度',
         rateLimitedUntil: '限流中，当前不参与调度，预计 {time} 自动恢复',
@@ -640,6 +644,8 @@ export default {
       bulkEdit: {
         title: '批量编辑账号',
         selectionInfo: '已选择 {count} 个账号。只更新您勾选或填写的字段，未勾选的字段保持不变。',
+        rateLimit429RetryCount: '429 自动重试次数',
+        rateLimit429RetryCountHint: '勾选后批量覆盖所选账号。0 表示关闭，默认 {default}，最大 {max}。',
         baseUrlPlaceholder: 'https://api.anthropic.com 或 https://api.openai.com',
         baseUrlNotice: '适用于 API Key 账号及 Grok OAuth 账号的转发端点，留空则不修改',
         submit: '批量更新',
@@ -800,8 +806,9 @@ export default {
         codexCLIOnlyAppServer: '允许 Codex app-server 客户端',
         codexCLIOnlyAppServerDesc: '仅在上方开关开启时生效。开启后本账号额外放行内嵌 Codex 引擎、经 app-server 协议接入的第三方客户端（如 Claude Code 的 codex 插件），仍需通过全局引擎指纹门；与全局 app-server 开关取 OR（任一开即放行）。',
         codexFingerprintMode: 'Codex 指纹收敛',
-        codexFingerprintModeDesc: '多人共享同一 OAuth 账号时，将各用户的设备/会话标识收敛为账号级恒定值，减少上游可见的设备数和会话数。默认关闭（原样透传客户端标识），需要时再显式开启；部分账号开启收敛后出现过额度缩水，请按自己的实测结果选择。',
-        codexFingerprintOff: '关闭（透传，默认）',
+        codexFingerprintModeDesc: '多人共享同一 OAuth 账号时，将各用户的设备/会话标识收敛为账号级恒定值，减少上游可见的设备数和会话数。全局默认已启用账号唯一设备指纹；此处可为单个账号显式覆盖。',
+        codexFingerprintOff: '关闭（透传）',
+        codexFingerprintAccountDevice: '账号唯一设备（推荐）',
         codexFingerprintDevice: '仅设备',
         codexFingerprintSession: '设备+会话',
         codexFingerprintFull: '完全收敛',
@@ -813,6 +820,8 @@ export default {
         codexTurnTicketMissing: '暂无有效门票，仍允许请求',
         codexTurnTicketReady: '剩余 {time}',
         codexTurnTicketPaused: '未打到 780，该模型已暂停',
+        codexQuotaOverdraft: 'Codex 额度透支',
+        codexQuotaOverdraftDesc: '仅对 OpenAI OAuth 生效。开启后，额度探测确认上游仍可用时，本账号可继续使用 5 小时/7 天额度；关闭后完全采用官方调度和额度处理。',
         codexImageTool: 'Codex 图片桥接策略',
         codexImageToolDesc:
           '统一控制 Codex /responses 文本请求的 hosted image_generation 桥接和客户端图片工具声明。hosted 工具自动注入仅适用于非 Responses Lite 请求；账号级策略优先于渠道和全局配置，不影响独立图片生成接口。',
@@ -1135,6 +1144,8 @@ export default {
       proxy: '代理',
       noProxy: '无代理',
       concurrency: '并发数',
+      rateLimit429RetryCount: '429 自动重试次数',
+      rateLimit429RetryCountHint: '首次收到上游 429 后，在执行原有限流处理前自动重试。0 表示关闭，默认 {default}，最大 {max}。',
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',
       priority: '优先级',
@@ -1635,6 +1646,10 @@ export default {
         question: '题目',
         candyQuestion: '糖果逻辑测试',
         pelicanQuestion: '鹈鹕骑自行车（HTML）',
+        knowledgeQuestion: '不联网知识题（人工核对）',
+        knowledgeHint: '仅凭已有知识回答；完成请求不等于未降智，uncertain 或参考项不一致时需人工核对。',
+        lastTest: '上一次测试',
+        historySaveError: '共享历史保存失败，当前结果仍在页面中；请勿将其视为已保存。',
         candyHint: '原题标准答案为 21；展示本次回答供比较，不据此判断账号永久降智。',
 
         recordCount: '共 {count} 条记录',
@@ -1642,7 +1657,7 @@ export default {
         moreRecords: '加载更多记录',
         recordLoadError: '这条记录已清理或暂时无法加载，点击卡片可重试。',
 
-        historyLoadError: '部分自动记录加载失败，已保留可用的手动记录。',
+        historyLoadError: '部分共享历史加载失败，已保留当前可用记录。',
         dashboardHint: '展示保留的自动和手动测试，每次输出一张卡片，每 15 秒刷新。点击卡片查看完整结果。',
         scheduledPreview: '定时测试预览',
         sourceManual: '手动',

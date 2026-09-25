@@ -20,6 +20,9 @@ func validateQualityPolicy(plan *ScheduledTestPlan) error {
 	if q == nil {
 		return nil
 	}
+	if q.Judge == nil {
+		return fmt.Errorf("quality plans require a configured judge; otherwise no verdict can be produced")
+	}
 	if j := q.Judge; j != nil {
 		if j.GroupID <= 0 || strings.TrimSpace(j.ModelID) == "" || len(j.ModelID) > 100 || strings.TrimSpace(j.Prompt) == "" || len(j.Prompt) > 16000 {
 			return fmt.Errorf("judge group, model and grading prompt are required (100/16000 byte limits)")

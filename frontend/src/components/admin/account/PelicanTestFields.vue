@@ -24,9 +24,9 @@ const props = defineProps<{ modelValue: PelicanTestConfig }>()
 const emit = defineEmits<{ 'update:modelValue': [value: PelicanTestConfig] }>()
 const { t } = useI18n()
 const reasoningOptions = computed(() => ['low', 'medium', 'high'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.reasoning${value[0].toUpperCase()}${value.slice(1)}`) })))
-const questionOptions = computed(() => ['candy', 'pelican'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })))
+const questionOptions = computed(() => ['candy', 'pelican', 'knowledge'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })))
 function selectQuestion(value: string | number | boolean | null) {
-  if (value !== 'candy' && value !== 'pelican') return
+  if (value !== 'candy' && value !== 'pelican' && value !== 'knowledge') return
   emit('update:modelValue', { ...props.modelValue, question_kind: value, prompt: questionPrompt(value) })
 }
 function update(key: keyof PelicanTestConfig, value: string | number | boolean | null) {

@@ -564,6 +564,7 @@ export interface ReasoningEffortMapping {
 }
 
 export interface Group {
+  user_concurrency_limit?: number
   id: number
   name: string
   description: string | null
@@ -737,6 +738,7 @@ export interface ApiKey {
   key: string
   name: string
   group_id: number | null
+  fallback_group_id?: number | null
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
@@ -766,6 +768,7 @@ export interface ApiKey {
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
+  fallback_group_id?: number | null
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -779,6 +782,7 @@ export interface CreateApiKeyRequest {
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
+  fallback_group_id?: number | null
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -792,6 +796,7 @@ export interface UpdateApiKeyRequest {
 }
 
 export interface CreateGroupRequest {
+  user_concurrency_limit?: number
   name: string
   description?: string | null
   platform?: GroupPlatform
@@ -858,6 +863,7 @@ export interface CreateGroupRequest {
 }
 
 export interface UpdateGroupRequest {
+  user_concurrency_limit?: number
   name?: string
   description?: string | null
   platform?: GroupPlatform
@@ -1203,6 +1209,7 @@ export interface OpenCodeGoUsageSettings {
 }
 
 export interface Account {
+  rate_limit_429_retry_count?: number
   id: number
   name: string
   notes?: string | null
@@ -1389,6 +1396,26 @@ export interface UsageProgress {
   window_stats?: WindowStats | null // 窗口期统计（从窗口开始到当前的使用量）
   used_requests?: number
   limit_requests?: number
+  overdraft_active?: boolean
+  overdraft_stats?: WindowStats | null
+  overdraft_started_at?: string | null
+  overdraft_recover_at?: string | null
+}
+
+export interface CodexQuotaOverdraftProbeState {
+  active?: boolean
+  status?: string
+  attempts?: number
+  limit?: number
+  quota_window?: string
+  tested_at?: string | null
+  recover_at?: string | null
+  model?: string
+  reason_code?: string
+  overdraft_started_at?: string | null
+  five_hour_overdraft_started_at?: string | null
+  seven_day_overdraft_started_at?: string | null
+  stats?: WindowStats | null
 }
 
 // Antigravity 单个模型的配额信息
@@ -1491,6 +1518,7 @@ export interface AccountUsageInfo {
   error_code?: string
 
   error?: string            // usage 获取失败时的错误信息
+  codex_quota_overdraft?: CodexQuotaOverdraftProbeState | null
 }
 
 // OpenAI Codex usage snapshot (from response headers)
@@ -1553,6 +1581,7 @@ export interface CreateAccountRequest {
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
+  rate_limit_429_retry_count?: number
 }
 
 // AccountGroupBinding is one account-to-group binding and its per-group settings.
@@ -1586,6 +1615,7 @@ export interface UpdateAccountRequest {
   upstream_billing_probe_enabled?: boolean
   upstream_billing_rate_sync_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
+  rate_limit_429_retry_count?: number
 }
 
 export type GrokMediaEligibilityMode = 'auto' | 'enabled' | 'disabled'
@@ -1714,6 +1744,7 @@ export interface CodexSessionImportRequest {
   update_existing?: boolean
   skip_default_group_bind?: boolean
   confirm_mixed_channel_risk?: boolean
+  rate_limit_429_retry_count?: number
 }
 
 export interface OpenAICodexPATCreateRequest {
@@ -1732,6 +1763,7 @@ export interface OpenAICodexPATCreateRequest {
   extra?: Record<string, unknown>
   skip_default_group_bind?: boolean
   confirm_mixed_channel_risk?: boolean
+  rate_limit_429_retry_count?: number
 }
 
 export interface CodexSessionImportMessage {
@@ -2489,7 +2521,7 @@ export interface QualityPolicy {
 
 export interface PelicanTestConfig {
   quality?: QualityPolicy
-  question_kind?: 'candy' | 'pelican'
+  question_kind?: 'candy' | 'pelican' | 'knowledge'
   prompt: string
   reasoning_effort: string
   parallel_count: number

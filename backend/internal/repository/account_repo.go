@@ -57,6 +57,7 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"codex_secondary_",
 	"codex_5h_",
 	"codex_7d_",
+	"codex_quota_overdraft_",
 	"codex_reset_credit_",
 	// 292 门票是纯运行态凭据：它不在 filterSchedulerExtra 的投影白名单里，
 	// 因此 bucket 重建事件永远搬不动门票状态，续期时开事务+发 outbox 是白干。
@@ -152,6 +153,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 		SetCredentials(normalizeJSONMap(account.Credentials)).
 		SetExtra(normalizeJSONMap(account.Extra)).
 		SetConcurrency(account.Concurrency).
+		SetRateLimit429RetryCount(account.GetRateLimit429RetryCount()).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
@@ -551,6 +553,7 @@ func (r *accountRepository) updateLockedAccount(
 		SetCredentials(normalizeJSONMap(account.Credentials)).
 		SetExtra(extra).
 		SetConcurrency(account.Concurrency).
+		SetRateLimit429RetryCount(account.GetRateLimit429RetryCount()).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
 		SetErrorMessage(account.ErrorMessage).
@@ -748,6 +751,14 @@ func lockAndMergeAccountProbeExtra(
 		}
 	}
 	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)
+	// Use the locked database history, not a stale account-edit snapshot.
+	delete(extra, service.PelicanManualHistoryKey)
+	if history, ok := currentExtra[service.PelicanManualHistoryKey]; ok {
+		if extra == nil {
+			extra = make(map[string]any)
+		}
+		extra[service.PelicanManualHistoryKey] = history
+	}
 	for _, key := range []string{
 		service.UpstreamBillingProbeEnabledExtraKey,
 		service.UpstreamBillingRateSyncEnabledExtraKey,
@@ -2100,7 +2111,7 @@ func loadAccountGroupAllowedModels(ctx context.Context, client *dbent.Client, ac
 }
 
 func (r *accountRepository) ListSchedulable(ctx context.Context) ([]service.Account, error) {
-	accounts, err := r.schedulableAccountsQuery(time.Now()).All(ctx)
+	accounts, err := r.schedulableAccountsQuery(ctx, time.Now()).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -2108,7 +2119,7 @@ func (r *accountRepository) ListSchedulable(ctx context.Context) ([]service.Acco
 }
 
 func (r *accountRepository) ListSchedulableAccountLoads(ctx context.Context) ([]service.AccountWithConcurrency, error) {
-	accounts, err := r.schedulableAccountsQuery(time.Now()).
+	accounts, err := r.schedulableAccountsQuery(ctx, time.Now()).
 		Select(
 			dbaccount.FieldID,
 			dbaccount.FieldConcurrency,
@@ -2134,12 +2145,12 @@ func (r *accountRepository) ListSchedulableAccountLoads(ctx context.Context) ([]
 	return loads, nil
 }
 
-func (r *accountRepository) schedulableAccountsQuery(now time.Time) *dbent.AccountQuery {
+func (r *accountRepository) schedulableAccountsQuery(ctx context.Context, now time.Time) *dbent.AccountQuery {
 	return r.client.Account.Query().
 		Where(
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
-			tempUnschedulablePredicate(),
+			tempUnschedulablePredicate(ctx),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
 			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
@@ -2245,7 +2256,7 @@ func (r *accountRepository) ListSchedulableByPlatform(ctx context.Context, platf
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
-			tempUnschedulablePredicate(),
+			tempUnschedulablePredicate(ctx),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
 			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
@@ -2279,7 +2290,7 @@ func (r *accountRepository) ListSchedulableByPlatforms(ctx context.Context, plat
 			dbaccount.PlatformIn(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
-			tempUnschedulablePredicate(),
+			tempUnschedulablePredicate(ctx),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
 			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
@@ -2300,7 +2311,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatform(ctx context.Conte
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
-			tempUnschedulablePredicate(),
+			tempUnschedulablePredicate(ctx),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
 			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
@@ -2324,7 +2335,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatforms(ctx context.Cont
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
-			tempUnschedulablePredicate(),
+			tempUnschedulablePredicate(ctx),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
 			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
@@ -3090,6 +3101,11 @@ func isSchedulerNeutralExtraKey(key string) bool {
 	if key == "" {
 		return false
 	}
+	// Unlike runtime quota/probe fields, this account-level policy changes
+	// scheduling eligibility and must refresh the scheduler snapshot immediately.
+	if key == service.CodexQuotaOverdraftEnabledExtraKey {
+		return false
+	}
 	if _, ok := schedulerNeutralExtraKeys[key]; ok {
 		return true
 	}
@@ -3148,6 +3164,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if updates.Concurrency != nil {
 		setClauses = append(setClauses, "concurrency = $"+itoa(idx))
 		args = append(args, *updates.Concurrency)
+		idx++
+	}
+	if updates.RateLimit429RetryCount != nil {
+		setClauses = append(setClauses, "rate_limit_429_retry_count = $"+itoa(idx))
+		args = append(args, *updates.RateLimit429RetryCount)
 		idx++
 	}
 	if updates.Priority != nil {
@@ -3438,7 +3459,7 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 		if !opts.ignoreTransientState {
 			now := time.Now()
 			preds = append(preds,
-				tempUnschedulablePredicate(),
+				tempUnschedulablePredicate(ctx),
 				notExpiredPredicate(now),
 				dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
 				dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
@@ -3543,13 +3564,15 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	return outAccounts, nil
 }
 
-func tempUnschedulablePredicate() dbpredicate.Account {
+func tempUnschedulablePredicate(ctx context.Context) dbpredicate.Account {
 	return dbpredicate.Account(func(s *entsql.Selector) {
 		col := s.C("temp_unschedulable_until")
-		s.Where(entsql.Or(
+		predicates := []*entsql.Predicate{
 			entsql.IsNull(col),
 			entsql.LTE(col, entsql.Expr("NOW()")),
-		))
+		}
+		predicates = extendCodexQuotaOverdraftTempUnschedulablePredicates(ctx, s, predicates)
+		s.Where(entsql.Or(predicates...))
 	})
 }
 
@@ -3737,6 +3760,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 
 	rateMultiplier := m.RateMultiplier
 	groupRateMultiplier := m.GroupRateMultiplier
+	rateLimit429RetryCount := m.RateLimit429RetryCount
 
 	return &service.Account{
 		ID:                      m.ID,
@@ -3749,6 +3773,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		ProxyID:                 m.ProxyID,
 		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
 		Concurrency:             m.Concurrency,
+		RateLimit429RetryCount:  &rateLimit429RetryCount,
 		Priority:                m.Priority,
 		RateMultiplier:          &rateMultiplier,
 		GroupRateMultiplier:     &groupRateMultiplier,

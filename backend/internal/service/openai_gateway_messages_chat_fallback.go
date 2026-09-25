@@ -88,6 +88,14 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 			chatBody = policyBody
 		}
 	}
+	// The DeepSeek cache estimator fingerprints the final Chat Completions
+	// prompt, not the inbound Anthropic body. In particular, Anthropic's
+	// top-level system field is folded into chatBody.messages by the converter,
+	// so using the converted body keeps prefix matching aligned with what the
+	// Ollama upstream actually receives.
+	if s.deepSeekCacheEstimator != nil {
+		s.deepSeekCacheEstimator.prepare(ctx, c, account, originalModel, chatBody)
+	}
 	// Provider normalization and policy caps can both change the converted effort.
 	// Use the final outbound value for usage logs and billing.
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel, billingModel, originalModel)

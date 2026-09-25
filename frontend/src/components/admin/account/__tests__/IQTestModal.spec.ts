@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import IQTestModal from '../IQTestModal.vue'
+import { pelicanHistoryAPI as history } from '@/api/admin/pelicanHistory'
+vi.mock('@/api/admin/pelicanHistory', () => ({ pelicanHistoryAPI: { list: vi.fn(), save: vi.fn() } }))
+beforeEach(() => {
+  vi.mocked(history.list).mockResolvedValue([])
+  vi.mocked(history.save).mockImplementation(async (_, record) => {
+    vi.mocked(history.list).mockResolvedValue([record])
+  })
+})
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -93,7 +101,9 @@ describe('IQTestModal', () => {
     expect(frames[0].attributes('srcdoc')).toContain('Content-Security-Policy')
     expect(frames[0].attributes('srcdoc')).toContain('<svg></svg>')
     expect(wrapper.text()).toContain('admin.accounts.pelicanTest.success')
-    expect(localStorage.getItem('sub2api-pelican-test:42')).toContain('gpt-6-astra')
+    expect(history.save).toHaveBeenCalledWith(42, expect.objectContaining({ modelId: 'gpt-6-astra' }))
+    expect(localStorage.getItem('sub2api-pelican-test:42')).toBeNull()
+    wrapper.unmount()
   })
 
   it('keeps non-HTML output visible but marks it as failed', async () => {
@@ -114,7 +124,7 @@ describe('IQTestModal', () => {
     const wrapper = mountModal()
     ;(wrapper.vm as any).selectQuestion('pelican')
     await (wrapper.vm as any).startTest()
-    const saved = JSON.parse(localStorage.getItem('sub2api-pelican-test:42')!)[0]
+    const saved = vi.mocked(history.save).mock.calls.at(-1)![1]
     expect(saved.runs[0]).toMatchObject({ source: 'manual', modelId: 'gpt-6-astra', reasoningEffort: 'medium' })
     expect(Number.isFinite(Date.parse(saved.runs[0].startedAt))).toBe(true)
     expect(saved.runs[0].durationMs).toBeGreaterThanOrEqual(0)
@@ -144,6 +154,41 @@ describe('IQTestModal', () => {
 
 
 describe('Intelligence question selection', () => {
+  it('loads the previous shared result before sending any test', async () => {
+    vi.mocked(history.list).mockResolvedValue([{ id: 'shared', createdAt: '2026-09-25T00:00:00Z', prompt: 'question', modelId: 'gpt-6-astra', reasoningEffort: 'medium', runs: [{ id: 'r', status: 'success', output: '21', html: '', error: '' }] }])
+    global.fetch = vi.fn()
+    const wrapper = mountModal()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="last-test-result"]').text()).toContain('success')
+    expect(history.list).toHaveBeenCalledWith(42)
+    expect(global.fetch).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('sends the original offline knowledge question and displays text without HTML', async () => {
+    global.fetch = vi.fn(async () => streamResponse([{ type: 'content', text: 'NVIDIA GPU: uncertain' }, { type: 'test_complete', success: true }])) as any
+    const wrapper = mountModal()
+    ;(wrapper.vm as any).selectQuestion('knowledge')
+    await (wrapper.vm as any).startTest()
+    const body = JSON.parse((global.fetch as any).mock.calls[0][1].body)
+    expect(body.prompt).toContain('Do not browse the web or speculate.')
+    expect(body.prompt).toContain('Do not guess or fill in missing information.')
+    expect(body.prompt).not.toContain('只输出最终整数')
+    expect(body.tools).toBeUndefined()
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect((wrapper.vm as any).runs[0].status).toBe('success')
+    expect(history.save).toHaveBeenCalledWith(42, expect.objectContaining({ questionKind: 'knowledge' }))
+    wrapper.unmount()
+  })
+  it('reports history save failure without hiding the current output', async () => {
+    vi.mocked(history.save).mockRejectedValueOnce(new Error('offline'))
+    global.fetch = vi.fn(async () => streamResponse([{ type: 'content', text: '21' }, { type: 'test_complete', success: true }])) as any
+    const wrapper = mountModal()
+    await (wrapper.vm as any).startTest()
+    expect(wrapper.get('[role="alert"]').text()).toContain('historySaveError')
+    expect(wrapper.text()).toContain('21')
+    expect(localStorage.getItem('sub2api-pelican-test:42')).toBeNull()
+    wrapper.unmount()
+  })
   it('defaults to candy and accepts plain text without an HTML contract', async () => {
     global.fetch = vi.fn(() => Promise.resolve(streamResponse([
       { type: 'content', text: '21' }, { type: 'test_complete', success: true }

@@ -17,10 +17,16 @@
         </span>
       </div>
 
+      <p v-if="historyError" role="alert" class="text-sm text-red-600">{{ historyError }}</p>
+      <p v-if="records[0]" class="text-xs text-gray-500" data-testid="last-test-result">
+        {{ t('admin.accounts.pelicanTest.lastTest') }}: {{ formatDate(records[0].createdAt) }} ·
+        {{ t(records[0].runs.every(run => run.status === 'success') ? 'admin.accounts.pelicanTest.success' : 'admin.accounts.pelicanTest.failed') }}
+      </p>
       <div>
         <label class="input-label mb-1.5 block">{{ t('admin.accounts.pelicanTest.question') }}</label>
         <Select data-testid="question-select" :model-value="questionKind" :options="questionOptions" :disabled="running" @update:model-value="selectQuestion" />
         <p v-if="questionKind === 'candy'" class="mt-2 text-xs text-gray-500">{{ t('admin.accounts.pelicanTest.candyHint') }}</p>
+        <p v-if="questionKind === 'knowledge'" class="mt-2 text-xs text-gray-500">{{ t('admin.accounts.pelicanTest.knowledgeHint') }}</p>
       </div>
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <TextArea
@@ -180,38 +186,12 @@ import Select from '@/components/common/Select.vue'
 import { Icon } from '@/components/icons'
 import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
+import { pelicanHistoryAPI, type IntelligenceRun as TestRun, type IntelligenceRecord as TestRecord } from '@/api/admin/pelicanHistory'
 import type { Account, AccountListItem, PelicanTestConfig, ScheduledTestResult } from '@/types'
 import ScheduledTestsPanel from './ScheduledTestsPanel.vue'
 import PelicanRecordsDashboard from './PelicanRecordsDashboard.vue'
 
 const { t } = useI18n()
-
-const STORAGE_PREFIX = 'sub2api-pelican-test:'
-
-type RunStatus = 'running' | 'success' | 'error'
-interface TestRun {
-  questionKind?: IntelligenceQuestion
-  id: string
-  status: RunStatus
-  output: string
-  html: string
-  error: string
-  source?: 'manual' | 'scheduled'
-  startedAt?: string
-  finishedAt?: string
-  durationMs?: number
-  modelId?: string
-  reasoningEffort?: string
-}
-interface TestRecord {
-  questionKind?: IntelligenceQuestion
-  id: string
-  createdAt: string
-  prompt: string
-  modelId: string
-  reasoningEffort: string
-  runs: TestRun[]
-}
 
 const props = defineProps<{ show: boolean; account: Account | null; accounts?: AccountListItem[] }>()
 const emit = defineEmits<{ (event: 'close'): void }>()
@@ -227,13 +207,16 @@ const viewingScheduled = ref(false)
 const dashboardOpen = ref(false)
 const runs = ref<TestRun[]>([])
 const records = ref<TestRecord[]>([])
+const historyError = ref('')
+let historyRevision = 0
+let runRevision = 0
 const scheduledRecords = ref<ScheduledTestResult[]>([])
 const controllers = new Map<string, AbortController>()
 
 const deliveryContract = computed(() => questionContract(questionKind.value))
-const questionOptions = computed(() => ['candy', 'pelican'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })))
+const questionOptions = computed(() => ['candy', 'pelican', 'knowledge'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })))
 function selectQuestion(value: string | number | boolean | null) {
-  if (running.value || (value !== 'candy' && value !== 'pelican')) return
+  if (running.value || (value !== 'candy' && value !== 'pelican' && value !== 'knowledge')) return
   questionKind.value = value
   prompt.value = questionPrompt(value)
 }
@@ -245,28 +228,23 @@ const reasoningOptions = computed(() => [
 const canStart = computed(() => Boolean(props.account && prompt.value.trim() && modelId.value.trim() && normalizeCount() > 0))
 const hasDownloadable = computed(() => runs.value.some((run) => Boolean(run.output)))
 
-const storageKey = computed(() => `${STORAGE_PREFIX}${props.account?.id ?? 'unknown'}`)
-
 function normalizeCount(): number {
   const value = Number(parallelCount.value)
   if (!Number.isFinite(value)) return 1
   return Math.min(8, Math.max(1, Math.floor(value)))
 }
 
-function readRecords() {
+async function readRecords() {
+  const accountId = props.account?.id
+  const revision = ++historyRevision
+  if (!accountId) return
   try {
-    const parsed = JSON.parse(localStorage.getItem(storageKey.value) || '[]')
-    records.value = Array.isArray(parsed) ? parsed : []
+    const saved = await pelicanHistoryAPI.list(accountId)
+    if (revision !== historyRevision || !props.show || props.account?.id !== accountId) return
+    records.value = saved
+    historyError.value = ''
   } catch {
-    records.value = []
-  }
-}
-
-function saveRecords() {
-  try {
-    localStorage.setItem(storageKey.value, JSON.stringify(records.value.slice(0, 8)))
-  } catch {
-    // A large model response must not prevent the current result from being shown.
+    if (revision === historyRevision) historyError.value = t('admin.accounts.pelicanTest.historyLoadError')
   }
 }
 
@@ -295,7 +273,7 @@ function previewScheduled(result: ScheduledTestResult) {
   if (running.value) return
   const config = result.pelican_config
   if (config) editSchedule(config, config.model_id || modelId.value)
-  const html = config?.question_kind === 'candy' ? '' : extractHtml(result.response_text)
+  const html = !config?.question_kind || config.question_kind === 'pelican' ? extractHtml(result.response_text) : ''
   runs.value = [{ id: `scheduled-${result.id}`, questionKind: config?.question_kind || 'pelican', status: result.status === 'success' ? 'success' : 'error', output: result.response_text, html, error: result.error_message,
     source: 'scheduled', startedAt: result.started_at, finishedAt: result.finished_at,
     durationMs: result.latency_ms, modelId: config?.model_id, reasoningEffort: config?.reasoning_effort
@@ -316,6 +294,8 @@ function loadRecord(record: TestRecord) {
 }
 
 function handleClose() {
+  runRevision++
+  historyRevision++
   for (const controller of controllers.values()) controller.abort()
   controllers.clear()
   running.value = false
@@ -371,8 +351,8 @@ async function consumeRun(run: TestRun, signal: AbortSignal) {
   }
   if (buffer.trim()) consumeLine(buffer.trim())
   if (!completed || !run.output.trim()) throw new Error(t('admin.accounts.pelicanTest.emptyResponse'))
-  run.html = run.questionKind === 'candy' ? '' : extractHtml(run.output)
-  if (run.questionKind !== 'candy' && !run.html) throw new Error(t('admin.accounts.pelicanTest.invalidHtml'))
+  run.html = run.questionKind === 'pelican' ? extractHtml(run.output) : ''
+  if (run.questionKind === 'pelican' && !run.html) throw new Error(t('admin.accounts.pelicanTest.invalidHtml'))
   run.status = 'success'
 }
 
@@ -396,6 +376,9 @@ async function startOne(run: TestRun) {
 
 async function startTest() {
   if (running.value || !props.account || !canStart.value) return
+  const accountId = props.account.id
+  const revision = ++runRevision
+  historyRevision++
   viewingScheduled.value = false
   const count = normalizeCount()
   parallelCount.value = count
@@ -413,9 +396,9 @@ async function startTest() {
   activeTab.value = 'results'
   running.value = true
   await Promise.all(runs.value.map((run) => startOne(run)))
-  running.value = false
+  if (revision !== runRevision || props.account?.id !== accountId || !props.show) return
   const record: TestRecord = {
-    id: `${Date.now()}`,
+    id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     questionKind: questionKind.value,
     prompt: prompt.value.trim(),
@@ -423,17 +406,25 @@ async function startTest() {
     reasoningEffort: reasoningEffort.value,
     runs: runs.value.map((run) => ({ ...run }))
   }
-  records.value = [record, ...records.value.filter((item) => item.id !== record.id)]
-  saveRecords()
+  records.value = [record, ...records.value.filter((item) => item.id !== record.id)].slice(0, 8)
+  try {
+    await pelicanHistoryAPI.save(accountId, record)
+    if (revision === runRevision) await readRecords()
+  } catch {
+    if (revision === runRevision) historyError.value = t('admin.accounts.pelicanTest.historySaveError')
+  } finally {
+    if (revision === runRevision) running.value = false
+  }
 }
 
 function downloadHtml(run: TestRun) {
-  const content = run.questionKind === 'candy' ? run.output : run.html || extractHtml(run.output)
+  const isHtml = !run.questionKind || run.questionKind === 'pelican'
+  const content = isHtml ? run.html || extractHtml(run.output) : run.output
   if (!content) return
-  const url = URL.createObjectURL(new Blob([content], { type: run.questionKind === 'candy' ? 'text/plain;charset=utf-8' : 'text/html;charset=utf-8' }))
+  const url = URL.createObjectURL(new Blob([content], { type: isHtml ? 'text/html;charset=utf-8' : 'text/plain;charset=utf-8' }))
   const link = document.createElement('a')
   link.href = url
-  link.download = `intelligence-test-${new Date().toISOString().replace(/[:.]/g, '-')}.${run.questionKind === 'candy' ? 'txt' : 'html'}`
+  link.download = `intelligence-test-${new Date().toISOString().replace(/[:.]/g, '-')}.${isHtml ? 'html' : 'txt'}`
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -442,9 +433,17 @@ function downloadAll() {
   runs.value.filter((run) => run.output).forEach((run) => downloadHtml(run))
 }
 
-onBeforeUnmount(() => { for (const controller of controllers.values()) controller.abort() })
+onBeforeUnmount(() => { runRevision++; historyRevision++; for (const controller of controllers.values()) controller.abort() })
 
 watch(() => [props.show, props.account?.id] as const, ([show]) => {
+  runRevision++
+  historyRevision++
+  for (const controller of controllers.values()) controller.abort()
+  controllers.clear()
+  running.value = false
+  records.value = []
+  historyError.value = ''
+  dashboardOpen.value = false
   if (show) {
     readRecords()
     activeTab.value = 'results'

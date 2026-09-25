@@ -64,6 +64,7 @@ export interface GrokSSOToOAuthRequest {
   credentials?: Record<string, unknown>
   extra?: Record<string, unknown>
   concurrency?: number
+  rate_limit_429_retry_count?: number
   load_factor?: number
   priority?: number
   rate_multiplier?: number

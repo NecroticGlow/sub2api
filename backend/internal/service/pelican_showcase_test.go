@@ -113,6 +113,8 @@ func TestPelicanShowcasePublishOnlyEnabledHTMLSuccess(t *testing.T) {
 		{"answer-only output", enabledShowcase(1), pelicanSuccess(1, "21")},
 		{"candy question", enabledShowcase(1), &ScheduledTestResult{ID: 1, Status: "success", ResponseText: "<svg></svg>",
 			PelicanConfig: &PelicanTestConfig{QuestionKind: "candy"}}},
+		{"knowledge question is never published", enabledShowcase(1), &ScheduledTestResult{ID: 1, Status: "success", ResponseText: "<html>private answer</html>",
+			PelicanConfig: &PelicanTestConfig{QuestionKind: "knowledge"}}},
 		{"built-in candy prompt", enabledShowcase(1), &ScheduledTestResult{ID: 1, Status: "success", ResponseText: "<svg></svg>",
 			PelicanConfig: &PelicanTestConfig{Prompt: CandyPrompt}}},
 		{"graded quality question", enabledShowcase(1), &ScheduledTestResult{ID: 1, Status: "success", ResponseText: "<html></html>",

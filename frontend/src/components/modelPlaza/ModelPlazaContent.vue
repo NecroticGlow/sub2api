@@ -162,6 +162,14 @@
               <option value="name">{{ c.sortName }}</option>
               <option value="price">{{ c.sortPrice }}</option>
             </select>
+            <select v-model="selectedPlatform" :aria-label="t('modelPlaza.filters.platformLabel')" data-testid="platform-filter">
+              <option value="all">{{ t('modelPlaza.filters.platformLabel') }} · {{ t('modelPlaza.filters.all') }}</option>
+              <option v-for="platform in platforms" :key="platform" :value="platform">{{ platform }}</option>
+            </select>
+            <select v-model="selectedRate" :aria-label="t('modelPlaza.filters.rateLabel')" data-testid="rate-filter">
+              <option value="all">{{ t('modelPlaza.filters.rateLabel') }} · {{ t('modelPlaza.filters.all') }}</option>
+              <option v-for="rate in rates" :key="rate" :value="String(rate)">{{ rate }}x</option>
+            </select>
             <div class="view-switch" :aria-label="c.view">
               <button
                 :aria-label="c.cardView"
@@ -398,12 +406,14 @@ const props = defineProps<{
   embedded?: boolean
 }>()
 const emit = defineEmits<{ retry: [] }>()
-const { locale } = useI18n()
+const { locale, t } = useI18n()
 const c = computed(
   () => catalogCopy[locale.value.startsWith('zh') ? 'zh' : 'en']
 )
 const authStore = useAuthStore()
 const selectedGroup = ref('all')
+const selectedPlatform = ref('all')
+const selectedRate = ref('all')
 const selectedProvider = ref('all'),
   searchQuery = ref(''),
   sortOrder = ref('popular')
@@ -419,10 +429,16 @@ const groups = computed(() =>
   (props.response?.groups ?? []).filter((g) => g.models.length > 0)
 )
 const catalog = computed(() => buildCatalog(groups.value))
-const selectedGroups = computed(() => selectedGroup.value === 'all' ? groups.value : groups.value.filter(g => String(g.id) === selectedGroup.value))
+const platforms = computed(() => [...new Set(groups.value.map(group => group.platform).filter(Boolean))].sort())
+const rates = computed(() => [...new Set(groups.value.map(group => group.user_rate_multiplier ?? group.rate_multiplier))].sort((a, b) => a - b))
+const selectedGroups = computed(() => groups.value.filter(group =>
+  (selectedGroup.value === 'all' || String(group.id) === selectedGroup.value) &&
+  (selectedPlatform.value === 'all' || group.platform === selectedPlatform.value) &&
+  (selectedRate.value === 'all' || String(group.user_rate_multiplier ?? group.rate_multiplier) === selectedRate.value)
+))
 const groupCatalog = computed(() => buildCatalog(selectedGroups.value))
 const filtersActive = computed(
-  () => selectedGroup.value !== 'all' || selectedProvider.value !== 'all' || searchQuery.value.trim() !== ''
+  () => selectedGroup.value !== 'all' || selectedPlatform.value !== 'all' || selectedRate.value !== 'all' || selectedProvider.value !== 'all' || searchQuery.value.trim() !== ''
 )
 const descriptionHtml = computed(() =>
   DOMPurify.sanitize(
@@ -487,7 +503,7 @@ const filteredGroups = computed(() => {
 const selectedModel = computed(() =>
   visibleModels.value.find((m) => m.key === selectedKey.value)
 )
-watch([selectedGroup, selectedProvider, searchQuery, view], () => {
+watch([selectedGroup, selectedPlatform, selectedRate, selectedProvider, searchQuery, view], () => {
   selectedKey.value = null
 })
 watch(providers, (value) => {
@@ -499,9 +515,13 @@ watch(providers, (value) => {
 })
 watch(groups, (value) => {
   if (selectedGroup.value !== 'all' && !value.some(g => String(g.id) === selectedGroup.value)) selectedGroup.value = 'all'
+  if (selectedPlatform.value !== 'all' && !value.some(g => g.platform === selectedPlatform.value)) selectedPlatform.value = 'all'
+  if (selectedRate.value !== 'all' && !value.some(g => String(g.user_rate_multiplier ?? g.rate_multiplier) === selectedRate.value)) selectedRate.value = 'all'
 })
 function resetFilters() {
   selectedGroup.value = 'all'
+  selectedPlatform.value = 'all'
+  selectedRate.value = 'all'
   selectedProvider.value = 'all'
   searchQuery.value = ''
 }

@@ -106,7 +106,7 @@ func nextPlanRun(plan *ScheduledTestPlan, now time.Time) (time.Time, error) {
 		if err := validateQualityPolicy(plan); err != nil {
 			return time.Time{}, err
 		}
-		if cfg.QuestionKind != "" && cfg.QuestionKind != "pelican" && cfg.QuestionKind != "candy" {
+		if cfg.QuestionKind != "" && cfg.QuestionKind != "pelican" && cfg.QuestionKind != "candy" && cfg.QuestionKind != "knowledge" {
 			return time.Time{}, fmt.Errorf("invalid question kind")
 		}
 		if cfg.ParallelCount < 1 || cfg.ParallelCount > 8 {

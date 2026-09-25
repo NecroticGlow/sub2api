@@ -45,6 +45,21 @@ beforeEach(() => {
 })
 
 describe('ModelPlazaContent', () => {
+  it('retains upstream platform and effective user-rate filters in the custom catalog', async () => {
+    const first = response.groups[0]
+    const wrapper = render({ response: { ...response, groups: [
+      { ...first, models: [first.models[0]], rate_multiplier: 1, user_rate_multiplier: 0.25 },
+      { ...first, id: 2, platform: 'anthropic', models: [first.models[1]], rate_multiplier: 0.5 }
+    ] } })
+    await wrapper.get('[data-testid="rate-filter"]').setValue('0.25')
+    expect(wrapper.findAll('.model-card')).toHaveLength(1)
+    expect(wrapper.get('.model-card h3').text()).toBe('gpt-example')
+    await wrapper.get('.results-meta button').trigger('click')
+    await wrapper.get('[data-testid="platform-filter"]').setValue('anthropic')
+    expect(wrapper.get('.model-card h3').text()).toBe('claude-example')
+    await wrapper.get('button[aria-label="分组价格表"]').trigger('click')
+    expect(wrapper.findComponent({ name: 'PlazaGroupSection' }).props('group').id).toBe(2)
+  })
   it('lists every provided cache price in CNY and follows the selected group', async () => {
     const model = { ...response.groups[0].models[0], pricing: {
       billing_mode: 'token', input_price: 1e-6, output_price: 2e-6,

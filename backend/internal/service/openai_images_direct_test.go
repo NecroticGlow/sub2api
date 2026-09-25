@@ -98,7 +98,11 @@ func TestCodexDirectImagesHTTPErrorFallbacksOnlyWhenEndpointUnavailable(t *testi
 			svc := newOpenAIImagesTestService(upstream)
 			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 			require.NoError(t, err)
-			result, err := svc.ForwardImages(context.Background(), c, directImagesTestAccount(), body, parsed, "")
+			account := directImagesTestAccount()
+			// This test isolates endpoint fallback, not the configurable same-account retry.
+			noRetries := 0
+			account.RateLimit429RetryCount = &noRetries
+			result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
 			if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
 				require.NoError(t, err)
 				require.NotNil(t, result)

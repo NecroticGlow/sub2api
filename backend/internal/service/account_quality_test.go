@@ -17,6 +17,7 @@ func TestQualityValidationAndGrading(t *testing.T) {
 	require.Empty(t, intelligenceTestOutputError(plan.PelicanConfig, "The answer is 42"), "completed output is sent to the configured judge")
 	require.NotContains(t, intelligenceTestPrompt(plan.PelicanConfig), "HTML")
 	for _, change := range []func(*ScheduledTestPlan){
+		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.Judge = nil },
 		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.ExpectedAnswer = " " },
 		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.Action = "delete_account" },
 		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.RemoveGroupIDs = nil },
@@ -70,7 +71,7 @@ func TestQualityRunnerAppliesCombinedOutcomeOnce(t *testing.T) {
 	}
 	plan := pelicanPlan()
 	plan.PelicanConfig.QuestionKind = "candy"
-	plan.PelicanConfig.Quality = &QualityPolicy{ExpectedAnswer: "21", Action: "disable_scheduling"}
+	plan.PelicanConfig.Quality = &QualityPolicy{ExpectedAnswer: "21", Action: "disable_scheduling", Judge: &QualityJudgeConfig{GroupID: 9, ModelID: "judge", Prompt: "grade"}}
 	runner.runOnePlan(context.Background(), plan)
 	require.Equal(t, []string{"failed"}, plans.outcomes)
 	require.Len(t, results.results, 2)

@@ -355,6 +355,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket identity metadata", scopeErr)
 		}
 		normalized = accountScopedPayload
+		if s.harvestPinnedSessionForModel(ctx, account, identityModel) == "" {
+			ids := ensureStagedCodexFingerprintIDs(c, account, s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
+			fingerprinted, _, fingerprintErr := applyCodexFingerprintClientMetadataRaw(normalized, ids)
+			if fingerprintErr != nil {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket fingerprint metadata", fingerprintErr)
+			}
+			normalized = fingerprinted
+		}
 		if responsesLite {
 			litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(normalized, account)
 			if liteErr != nil {

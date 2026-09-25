@@ -1,5 +1,8 @@
 export default {
     accounts: {
+      messages: {
+        accountCreated: 'Account created successfully',
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',
@@ -232,6 +235,7 @@ export default {
         rateLimited: 'Rate Limited',
         overloaded: 'Overloaded',
         tempUnschedulable: 'Temp Unschedulable',
+        codexQuotaPaused: 'Quota Paused',
         quotaExceeded: 'Quota Exceeded',
         unschedulable: 'Unschedulable',
         rateLimitedUntil: 'Rate limited and removed from scheduling. Auto resumes at {time}',
@@ -521,6 +525,9 @@ export default {
         title: 'Bulk Edit Accounts',
         selectionInfo:
           '{count} account(s) selected. Only checked or filled fields will be updated; others stay unchanged.',
+        rateLimit429RetryCount: '429 Auto-Retry Count',
+        rateLimit429RetryCountHint:
+          'When checked, overrides the selected accounts. Use 0 to disable. Default {default}, maximum {max}.',
         baseUrlPlaceholder: 'https://api.anthropic.com or https://api.openai.com',
         baseUrlNotice: 'Applies to API Key accounts and the forwarding endpoint of Grok OAuth accounts; leave empty to keep existing value',
         submit: 'Update Accounts',
@@ -691,8 +698,9 @@ export default {
         codexCLIOnlyAppServerDesc:
           "Effective only when the switch above is on. When enabled, this account also allows third-party clients that embed the Codex engine over the app-server protocol (e.g. Claude Code's codex plugin); they still pass the global engine-fingerprint gate. OR-combined with the global app-server toggle.",
         codexFingerprintMode: 'Codex fingerprint convergence',
-        codexFingerprintModeDesc: 'When multiple users share the same OAuth account, converge device/session identifiers to account-level stable values to reduce upstream-visible device and session count. Off by default (client identifiers pass through as-is); opt in explicitly when needed. Some accounts reported quota shrinkage after enabling convergence, so choose based on your own measurements.',
-        codexFingerprintOff: 'Off (passthrough, default)',
+        codexFingerprintModeDesc: 'When multiple users share the same OAuth account, converge device/session identifiers to account-level stable values. The global account-unique device fingerprint is enabled by default; use this field for an explicit per-account override.',
+        codexFingerprintOff: 'Off (passthrough)',
+        codexFingerprintAccountDevice: 'Account-unique device (recommended)',
         codexFingerprintDevice: 'Device only',
         codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
@@ -704,6 +712,8 @@ export default {
         codexTurnTicketMissing: 'No valid ticket; requests remain allowed',
         codexTurnTicketReady: '{time} left',
         codexTurnTicketPaused: 'No 780 ticket; this model is paused',
+        codexQuotaOverdraft: 'Codex quota overdraft',
+        codexQuotaOverdraftDesc: 'Only applies to OpenAI OAuth. When enabled, this account may continue past the 5h/7d quota after the configured probe confirms upstream availability. Disable to use the official scheduling and quota handling for this account.',
         codexImageTool: 'Codex image bridge policy',
         codexImageToolDesc:
           'Controls the hosted image_generation bridge and client-declared image tools on Codex /responses text requests. Hosted auto-injection applies only to non-Responses Lite requests. Account policy takes precedence over channel and global settings; standalone image-generation endpoints are unaffected.',
@@ -1034,6 +1044,9 @@ export default {
       proxy: 'Proxy',
       noProxy: 'No Proxy',
       concurrency: 'Concurrency',
+      rateLimit429RetryCount: '429 Auto-Retry Count',
+      rateLimit429RetryCountHint:
+        'After the first upstream 429, retry automatically before applying the existing rate-limit handling. Use 0 to disable. Default {default}, maximum {max}.',
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',
       priority: 'Priority',
@@ -1548,6 +1561,10 @@ export default {
         question: 'Question',
         candyQuestion: 'Candy logic test',
         pelicanQuestion: 'Pelican riding a bicycle (HTML)',
+        knowledgeQuestion: 'Offline knowledge (manual review)',
+        knowledgeHint: 'Use existing knowledge only. Completion is not a quality verdict; uncertain or differing answers require manual review.',
+        lastTest: 'Previous test',
+        historySaveError: 'Shared history could not be saved. The current result is still visible but is not persisted.',
         candyHint: 'The original question has a reference answer of 21. Compare this response without treating it as a permanent account capability rating.',
 
         recordCount: '{count} records',
@@ -1555,7 +1572,7 @@ export default {
         moreRecords: 'Load more records',
         recordLoadError: 'This record expired or could not be loaded. Open the card to retry.',
 
-        historyLoadError: 'Some scheduled records could not be loaded. Available manual records are still shown.',
+        historyLoadError: 'Some shared history could not be loaded. Available records are still shown.',
         dashboardHint: 'Retained scheduled and manual test outputs, refreshed every 15 seconds. Select a card to view the full result.',
         scheduledPreview: 'Scheduled preview',
         sourceManual: 'Manual',

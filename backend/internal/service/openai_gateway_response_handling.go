@@ -490,6 +490,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if data, ok := extractOpenAISSEDataLine(line); ok {
 			dataBytes := []byte(data)
 			eventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
+			if estimatedData, estimated := applyDeepSeekCacheEstimate(c, dataBytes); estimated > 0 {
+				dataBytes = estimatedData
+				data = string(estimatedData)
+				line = "data: " + data
+			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
 				(eventType == "response.completed" || eventType == "response.done") {
 				// A later successful terminal is authoritative over a pending bare
@@ -1522,6 +1527,23 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if inputTokens == 0 {
 		inputTokens = value.Get("prompt_tokens").Int()
 	}
+	// DeepSeek's native cache breakdown reports the hit/miss buckets at the
+	// top level of usage.  Some compatible responses omit prompt_tokens while
+	// still returning both buckets, so reconstruct the logical prompt total in
+	// that case; the billing path will subtract the hit bucket exactly once.
+	if inputTokens == 0 {
+		cacheHit := value.Get("prompt_cache_hit_tokens").Int()
+		if cacheHit < 0 {
+			cacheHit = 0
+		}
+		cacheMiss := value.Get("prompt_cache_miss_tokens").Int()
+		if cacheMiss < 0 {
+			cacheMiss = 0
+		}
+		if cacheHit > 0 || cacheMiss > 0 {
+			inputTokens = cacheHit + cacheMiss
+		}
+	}
 	outputTokens := value.Get("output_tokens").Int()
 	if outputTokens == 0 {
 		outputTokens = value.Get("completion_tokens").Int()
@@ -1561,6 +1583,13 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 }
 
 func openAICacheReadTokensFromUsage(value gjson.Result) int {
+	// DeepSeek's official API names the cache-read bucket
+	// prompt_cache_hit_tokens. Prefer it when present, including an explicit
+	// zero, so a provider-reported miss is not replaced by a local estimate or
+	// by a stale compatibility alias.
+	if hit := value.Get("prompt_cache_hit_tokens"); hit.Exists() {
+		return max(int(hit.Int()), 0)
+	}
 	for _, nested := range []gjson.Result{
 		value.Get("input_tokens_details.cached_tokens"),
 		value.Get("prompt_tokens_details.cached_tokens"),
@@ -1641,6 +1670,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		}
 	}
 
+	body, _ = applyDeepSeekCacheEstimate(c, body)
 	usageValue, usageOK := extractOpenAIUsageFromJSONBytes(body)
 	if !usageOK {
 		if bodyLooksLikeSSE {

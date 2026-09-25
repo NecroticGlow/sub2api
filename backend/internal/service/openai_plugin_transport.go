@@ -40,7 +40,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	}()
 	// Keep ticket observation/strict validation around the final response,
 	// while every egress attempt retains its own plugin routing and trace.
-	return s.doUpstreamWithProxyFallback(request.Context(), request, account, proxyURL)
+	return doAccount429Retry(request, account, func(attemptRequest *http.Request) (*http.Response, error) {
+		return s.doUpstreamWithProxyFallback(attemptRequest.Context(), attemptRequest, account, proxyURL)
+	})
 }
 
 // doOpenAIAccountTestUpstream 让 OpenAI OAuth 账号测试与真实转发使用同一插件路径。
@@ -51,20 +53,22 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	account *Account,
 	useTLSFallback bool,
 ) (*http.Response, error) {
-	if s.pluginManager != nil {
-		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
-		if handled {
-			return response, err
+	return doAccount429Retry(request, account, func(attemptRequest *http.Request) (*http.Response, error) {
+		if s.pluginManager != nil {
+			response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(attemptRequest.Context(), attemptRequest, proxyURL, account)
+			if handled {
+				return response, err
+			}
 		}
-	}
-	if useTLSFallback {
-		return s.httpUpstream.DoWithTLS(
-			request,
-			proxyURL,
-			account.ID,
-			account.Concurrency,
-			s.tlsFPProfileService.ResolveTLSProfile(account),
-		)
-	}
-	return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
+		if useTLSFallback {
+			return s.httpUpstream.DoWithTLS(
+				attemptRequest,
+				proxyURL,
+				account.ID,
+				account.Concurrency,
+				s.tlsFPProfileService.ResolveTLSProfile(account),
+			)
+		}
+		return s.httpUpstream.Do(attemptRequest, proxyURL, account.ID, account.Concurrency)
+	})
 }

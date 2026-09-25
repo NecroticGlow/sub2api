@@ -726,4 +726,61 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
+
+  it('submits the configured 429 retry count for normal account creation', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenAI account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('#create-rate-limit-429-retry-count').setValue(7)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.rate_limit_429_retry_count).toBe(7)
+  })
+
+  // namespace 摊平是仅 OAuth 的兼容开关：API Key 走 chat completions 回退桥时由桥自行摊平
+
+  it('defaults the Codex fingerprint mode to account-unique device', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+
+    expect((wrapper.vm as any).codexFingerprintMode).toBe('account_device')
+  })
+
+  it('defaults Codex quota overdraft to enabled and submits the explicit account setting', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+
+    expect((wrapper.vm as any).codexQuotaOverdraftEnabled).toBe(true)
+    expect(wrapper.get('[data-testid="create-codex-quota-overdraft-toggle"]').attributes('aria-checked'))
+      .toBe('true')
+
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Codex import')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_quota_overdraft_enabled).toBe(true)
+  })
+
+  it('persists an explicit off mode for Codex session import', async () => {
+    const wrapper = await openCodexImportStep()
+    ;(wrapper.vm as any).codexFingerprintMode = 'off'
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBe('off')
+  })
+
+  it('persists an explicit off mode for Codex PAT import', async () => {
+    const wrapper = await openCodexImportStep()
+    ;(wrapper.vm as any).codexFingerprintMode = 'off'
+    await wrapper.get('[data-testid="import-codex-pat"]').trigger('click')
+    await flushPromises()
+
+    expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.codex_fingerprint_mode).toBe('off')
+  })
 })

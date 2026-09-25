@@ -211,7 +211,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				if c != nil && c.Request != nil {
 					clientHeaders = c.Request.Header
 				}
-				fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
+				fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders, s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
 				if fpIDs != nil {
 					fpBody, fpChanged, fpErr := applyCodexFingerprintClientMetadataRaw(body, fpIDs)
 					if fpErr != nil {
@@ -417,7 +417,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			// passthrough error handling sees the same response after recovery fails.
 			probeBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
-			resp.Body = io.NopCloser(bytes.NewReader(probeBody))
+			resp.Body = preserveAccount429RetryMarker(resp, io.NopCloser(bytes.NewReader(probeBody)))
 			if account.IsCopilotSDKEnabled() {
 				// In particular, 409 means a lost/foreign pending SDK turn, not a
 				// reason to fail over or rewrite fields and retry the request.
@@ -642,6 +642,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	token string,
 ) (*http.Request, error) {
 	defer requesttiming.Observe(ctx, "build_upstream_request")()
+	body = s.prepareCodexQuotaOverdraftBody(ctx, account, isOpenAIResponsesCompactPath(c), body)
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -990,7 +991,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		Detail:               upstreamDetail,
 		UpstreamResponseBody: upstreamDetail,
 	})
-	return s.newOpenAIAccountFailoverError(
+	return finalizeAccount429Failover(resp, s.newOpenAIAccountFailoverError(
 		account,
 		resp.StatusCode,
 		resp.Header,
@@ -998,7 +999,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		upstreamMsg,
 		shouldDisable,
 		!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
-	)
+	))
 }
 
 func (s *OpenAIGatewayService) handleErrorResponsePassthrough(

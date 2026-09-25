@@ -152,6 +152,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	}
 	if harvestSession == "" {
 		applyCodexAccountIdentityHeaders(headers, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+		ensureStagedCodexFingerprintIDs(c, account, s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
 		applyStagedCodexFingerprintHeaders(c, account, headers)
 	}
 
