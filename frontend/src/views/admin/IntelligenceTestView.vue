@@ -22,6 +22,7 @@
           <div class="min-w-0">
             <h2 class="break-words font-semibold">{{ account.name }} <span class="text-sm font-normal text-gray-500">#{{ account.id }}</span></h2>
             <p class="mt-1 text-xs text-gray-500">OpenAI · OAuth · {{ account.status }}</p>
+            <p class="mt-1 text-xs text-gray-500">{{ t('admin.intelligence.concurrency') }}: {{ account.current_concurrency ?? 0 }} / {{ account.concurrency }}</p>
           </div>
           <div class="flex items-center gap-3">
             <span role="status" :class="statusClass(account.id)">{{ statusLabel(account.id) }}</span>
@@ -30,10 +31,11 @@
             </button>
           </div>
         </div>
+        <p class="mt-3 text-xs text-gray-500">{{ t('admin.intelligence.lastTest') }}: {{ statusLabel(account.id) }}</p>
         <template v-if="results[account.id]">
           <p class="mt-3 text-xs text-gray-500">{{ new Date(results[account.id]!.tested_at).toLocaleString() }} · {{ (results[account.id]!.latency_ms / 1000).toFixed(1) }}s</p>
           <div class="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            <span>{{ t('admin.intelligence.concurrency') }}: {{ results[account.id]!.current_concurrency }}</span>
+            <span>{{ t('admin.intelligence.concurrency') }}: {{ account.current_concurrency ?? 0 }} / {{ account.concurrency }}</span>
             <span>{{ t('admin.intelligence.tokens') }}: {{ formatNumber(results[account.id]!.usage?.total_tokens) }}</span>
             <span>{{ t('admin.intelligence.inputOutput') }}: {{ formatNumber(results[account.id]!.usage?.input_tokens) }} / {{ formatNumber(results[account.id]!.usage?.output_tokens) }}</span>
             <span>{{ t('admin.intelligence.originalCost') }}: {{ results[account.id]!.cost ? `$${results[account.id]!.cost!.total_cost_usd.toFixed(6)}` : '—' }}</span>

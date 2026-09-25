@@ -10,7 +10,7 @@ vi.mock('vue-i18n', async () => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
 
-const account = (id: number, platform = 'openai', type = 'oauth') => ({ id, name: `Account ${id}`, platform, type, status: 'active' })
+const account = (id: number, platform = 'openai', type = 'oauth') => ({ id, name: `Account ${id}`, platform, type, status: 'active', current_concurrency: id, concurrency: 5 })
 const result = (id: number, status = 'manual_review') => ({ account_id: id, status, model: 'gpt-6-astra', response_text: '<script>unsafe</script> uncertain', checks: [{ item: 'iphone', expected: 'iPhone 17', matched: false }], tested_at: '2026-09-24T00:00:00Z', latency_ms: 1500 })
 const mountView = () => shallowMount(IntelligenceTestView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' } } } })
 let wrapper: ReturnType<typeof mountView>
@@ -27,6 +27,8 @@ describe('IntelligenceTestView', () => {
     await flushPromises()
     expect(list).toHaveBeenCalledWith(1, 20, expect.objectContaining({ platform: 'openai', type: 'oauth', lite: 'true' }), { signal: expect.any(AbortSignal) })
     expect(wrapper.findAll('article')).toHaveLength(2)
+    expect(wrapper.get('[data-account-id="1"]').text()).toContain('admin.intelligence.concurrency: 1 / 5')
+    expect(wrapper.get('[data-account-id="1"]').text()).toContain('admin.intelligence.lastTest: admin.intelligence.idle')
     expect(testIntelligence).not.toHaveBeenCalled()
   })
 
