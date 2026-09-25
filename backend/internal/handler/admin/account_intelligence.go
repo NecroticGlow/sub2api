@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type intelligenceTestRequest struct {
+	QuestionKind    string `json:"question_kind"`
+	ReasoningEffort string `json:"reasoning_effort"`
+}
+
 // TestIntelligence accepts no model/prompt overrides. Admin middleware protects
 // this route; the service independently enforces the OAuth platform restriction.
 func (h *AccountHandler) TestIntelligence(c *gin.Context) {
@@ -19,13 +26,21 @@ func (h *AccountHandler) TestIntelligence(c *gin.Context) {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
+	var req intelligenceTestRequest
+	// Empty bodies are kept compatible with the legacy iPhone knowledge test.
+	if c.Request.Body != nil {
+		if err := json.NewDecoder(c.Request.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			response.BadRequest(c, "Invalid request: "+err.Error())
+			return
+		}
+	}
 	currentConcurrency := 0
 	if h.concurrencyService != nil {
 		if counts, countErr := h.concurrencyService.GetAccountConcurrencyBatch(c.Request.Context(), []int64{id}); countErr == nil {
 			currentConcurrency = counts[id]
 		}
 	}
-	result, err := h.accountTestService.TestAccountIntelligence(c.Request.Context(), id)
+	result, err := h.accountTestService.TestAccountIntelligence(c.Request.Context(), id, req.QuestionKind, req.ReasoningEffort)
 	if errors.Is(err, service.ErrIntelligenceAccountType) {
 		response.BadRequest(c, err.Error())
 		return

@@ -23,10 +23,11 @@ export interface IntelligenceResult {
     pricing_note: string
   }
   current_concurrency: number
+  question_kind?: 'knowledge' | 'legacy' | 'candy' | 'pelican'
 }
 
-export async function testIntelligence(id: number, signal?: AbortSignal): Promise<IntelligenceResult> {
-  const { data } = await apiClient.post<IntelligenceResult>(`/admin/accounts/${id}/intelligence-test`, {}, {
+export async function testIntelligence(id: number, signal?: AbortSignal, questionKind: 'knowledge' | 'legacy' | 'candy' | 'pelican' = 'candy', reasoningEffort = 'medium'): Promise<IntelligenceResult> {
+  const { data } = await apiClient.post<IntelligenceResult>(`/admin/accounts/${id}/intelligence-test`, { question_kind: questionKind, reasoning_effort: reasoningEffort }, {
     timeout: 165000,
     signal
   })

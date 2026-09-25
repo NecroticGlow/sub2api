@@ -6,6 +6,14 @@
         <p class="mt-2 text-sm text-gray-500">{{ t('admin.intelligence.description') }}</p>
         <p class="mt-2 text-sm text-gray-500">{{ t('admin.intelligence.note') }}</p>
         <div class="mt-4 flex flex-wrap items-center gap-3">
+          <select v-model="questionKind" class="input w-auto" :aria-label="t('admin.intelligence.question')">
+            <option value="candy">{{ t('admin.intelligence.candy') }}</option>
+            <option value="pelican">{{ t('admin.intelligence.pelican') }}</option>
+            <option value="knowledge">{{ t('admin.intelligence.knowledge') }}</option>
+          </select>
+          <select v-model="reasoningEffort" class="input w-auto" :aria-label="t('admin.intelligence.reasoning')">
+            <option v-for="effort in reasoningOptions" :key="effort" :value="effort">{{ effort }}</option>
+          </select>
           <span class="rounded bg-primary-50 px-3 py-1 font-mono text-sm text-primary-700 dark:bg-dark-700 dark:text-primary-300">gpt-6-astra</span>
           <form class="flex flex-1 gap-2" @submit.prevent="page = 1; loadAccounts()">
             <input v-model="search" class="input min-w-0 max-w-sm" :aria-label="t('admin.intelligence.search')" :placeholder="t('admin.intelligence.search')" />
@@ -48,7 +56,7 @@
             <pre class="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-4 text-sm dark:bg-dark-900">{{ results[account.id]!.response_text || '—' }}</pre>
             <ul class="mt-3 space-y-1 text-sm">
               <li v-for="check in results[account.id]!.checks" :key="check.item" :class="check.matched ? 'text-green-600' : 'text-amber-600'">
-                {{ check.matched ? '✓' : '○' }} {{ t(`admin.intelligence.items.${check.item}`) }}: {{ check.expected }}
+                {{ check.matched ? '✓' : '○' }} {{ t(`admin.intelligence.items.${check.item}`, check.item) }}: {{ check.expected }}
               </li>
             </ul>
           </details>
@@ -97,6 +105,9 @@ const controllers = new Map<number, AbortController>()
 const loading = ref(false)
 const loadError = ref('')
 const search = ref('')
+const questionKind = ref<'candy' | 'pelican' | 'knowledge'>('candy')
+const reasoningEffort = ref('medium')
+const reasoningOptions = ['minimal', 'low', 'medium', 'high', 'xhigh']
 const page = ref(1)
 const pages = ref(1)
 const total = ref(0)
@@ -143,12 +154,12 @@ async function runTest(id: number) {
   delete manual.value[id]
   const started = Date.now()
   try {
-    const result = await testIntelligence(id, controller.signal)
+    const result = await testIntelligence(id, controller.signal, questionKind.value, reasoningEffort.value)
     if (!controller.signal.aborted) results.value[id] = result
     if (!controller.signal.aborted) histories.value[id] = [result, ...(histories.value[id] ?? []).filter(item => item.tested_at !== result.tested_at)].slice(0, 20)
   } catch (error) {
     if (!controller.signal.aborted) results.value[id] = {
-      account_id: id, model: 'gpt-6-astra', status: 'error', response_text: '', checks: [], current_concurrency: 0,
+      account_id: id, model: 'gpt-6-astra', status: 'error', question_kind: questionKind.value, response_text: '', checks: [], current_concurrency: 0,
       error: error instanceof Error ? error.message : t('common.unknownError'),
       tested_at: new Date(started).toISOString(), latency_ms: Date.now() - started
     }

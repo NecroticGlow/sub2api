@@ -20,6 +20,19 @@ Also provide the latest NVIDIA GPU model, Android version, macOS version, and Wi
 
 If you are uncertain about any item, simply say “uncertain” for that item. Do not guess or fill in missing information.`
 
+// These prompts mirror the v2.8.11 account intelligence tests. The legacy
+// knowledge prompt remains available for existing callers and stored history.
+const IntelligenceCandyPrompt = `在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）。现已知不同口味的糖和不同形状的数量统计如下表。参赛者需要在活动前决定摸出的糖果数目，那么，最少取出多少个糖果才能保证手中同时拥有不同形状的苹果味和桃子味的糖？（同时手中有圆形苹果味匹配五角星桃子味糖果，或者有圆形桃子味匹配五角星苹果味糖果都满足要求）
+苹果味 桃子味 西瓜味
+圆形 7 9 8
+五角星形 7 6 4`
+
+const IntelligencePelicanPrompt = `创建一个 HTML，内容是 SVG 绘制一个鹈鹕骑自行车的 2D 动画，你不需要任何测试，不要有任何限制`
+
+const IntelligenceQuestionCandy = "candy"
+const IntelligenceQuestionPelican = "pelican"
+const IntelligenceQuestionKnowledge = "knowledge"
+
 var ErrIntelligenceAccountType = errors.New("intelligence tests require an OpenAI OAuth account")
 var ErrIntelligenceTestBusy = errors.New("a test is already running for this account")
 var intelligenceTestsRunning sync.Map
@@ -28,6 +41,12 @@ const intelligenceTestHistoryExtraKey = "intelligence_test_history"
 const intelligenceTestHistoryLimit = 20
 
 type intelligenceTestContextKey struct{}
+
+type intelligenceTestOptions struct {
+	questionKind string
+	prompt       string
+	reasoning    string
+}
 
 type IntelligenceCheck struct {
 	Item     string `json:"item"`
@@ -47,6 +66,7 @@ type IntelligenceTestResult struct {
 	Usage              *TestUsage            `json:"usage,omitempty"`
 	Cost               *IntelligenceTestCost `json:"cost,omitempty"`
 	CurrentConcurrency int                   `json:"current_concurrency"`
+	QuestionKind       string                `json:"question_kind,omitempty"`
 }
 
 type IntelligenceTestCost struct {
@@ -90,11 +110,38 @@ var intelligenceVersionClaims = []struct {
 
 func dateMatchesLabel(plain string, label, date, otherDate *regexp.Regexp) bool {
 	for _, line := range strings.Split(plain, "\n") {
-		if label.MatchString(line) && date.MatchString(line) && !otherDate.MatchString(line) {
+		// Markdown tables and compact answers sometimes put both dates on one
+		// row. The label closest to the expected date is sufficient; requiring
+		// the other date to be absent incorrectly rejected those answers.
+		labelLoc := label.FindStringIndex(line)
+		if labelLoc == nil {
+			continue
+		}
+		dateLoc := date.FindStringIndex(line)
+		if dateLoc == nil {
+			continue
+		}
+		otherLoc := otherDate.FindStringIndex(line)
+		if otherLoc == nil {
+			return true
+		}
+		// If both dates share a compact table row, associate the label with
+		// the nearest date instead of rejecting the entire row.
+		labelPos := labelLoc[0]
+		dateDistance := absInt(dateLoc[0] - labelPos)
+		otherDistance := absInt(otherLoc[0] - labelPos)
+		if dateDistance <= otherDistance {
 			return true
 		}
 	}
 	return false
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func assessIntelligenceResponse(text string) (string, []IntelligenceCheck) {
@@ -108,7 +155,9 @@ func assessIntelligenceResponse(text string) (string, []IntelligenceCheck) {
 		// boilerplate is not an uncertain answer; a standalone caveat is.
 		if intelligenceAmbiguous.MatchString(trimmed) &&
 			!strings.Contains(lower, "if you are uncertain") &&
-			!strings.Contains(lower, "if uncertain") {
+			!strings.Contains(lower, "if uncertain") &&
+			!strings.Contains(lower, "do not browse") &&
+			!strings.Contains(lower, "do not speculate") {
 			matched = false
 		}
 	}
@@ -163,22 +212,96 @@ func intelligenceRelevantText(plain, item string) string {
 }
 
 func isIntelligenceTest(ctx context.Context) bool {
-	value, _ := ctx.Value(intelligenceTestContextKey{}).(bool)
-	return value
+	if value, ok := ctx.Value(intelligenceTestContextKey{}).(bool); ok {
+		return value
+	}
+	_, ok := ctx.Value(intelligenceTestContextKey{}).(intelligenceTestOptions)
+	return ok
 }
 
-func createIntelligenceTestPayload() map[string]any {
+func intelligenceOptionsFromContext(ctx context.Context) intelligenceTestOptions {
+	if value, ok := ctx.Value(intelligenceTestContextKey{}).(intelligenceTestOptions); ok {
+		return value
+	}
+	return intelligenceTestOptions{questionKind: "legacy", prompt: IntelligenceTestPrompt}
+}
+
+func createIntelligenceTestPayload(options intelligenceTestOptions) map[string]any {
+	prompt := strings.TrimSpace(options.prompt)
+	if prompt == "" {
+		prompt = IntelligenceTestPrompt
+	}
 	payload := createOpenAITestPayload(IntelligenceTestModel, true)
-	payload["input"] = []map[string]any{{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": IntelligenceTestPrompt}}}}
+	payload["input"] = []map[string]any{{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": prompt}}}}
 	payload["instructions"] = "Answer the user's question using only existing knowledge. Do not browse or use tools."
 	payload["tools"] = []any{}
 	payload["tool_choice"] = "none"
+	if effort := normalizeIntelligenceReasoning(options.reasoning); effort != "" {
+		payload["reasoning"] = map[string]any{"effort": effort}
+	}
 	return payload
+}
+
+func normalizeIntelligenceReasoning(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "minimal", "low", "medium", "high", "xhigh":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func intelligenceQuestion(kind string) (string, string) {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case IntelligenceQuestionCandy:
+		return IntelligenceQuestionCandy, IntelligenceCandyPrompt
+	case IntelligenceQuestionPelican:
+		return IntelligenceQuestionPelican, IntelligencePelicanPrompt
+	case IntelligenceQuestionKnowledge, "legacy", "":
+		return IntelligenceQuestionKnowledge, IntelligenceTestPrompt
+	default:
+		return IntelligenceQuestionKnowledge, IntelligenceTestPrompt
+	}
+}
+
+func assessCandyResponse(text string) (string, []IntelligenceCheck) {
+	trimmed := strings.TrimSpace(strings.ReplaceAll(text, "，", ","))
+	answer := strings.TrimSpace(strings.Trim(trimmed, "。.!！"))
+	answer = strings.TrimSpace(strings.TrimPrefix(answer, "答案是"))
+	answer = strings.TrimSpace(strings.TrimPrefix(answer, "答案"))
+	answer = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(answer), "answer is"))
+	answer = strings.TrimSpace(strings.TrimPrefix(answer, "answer"))
+	check := IntelligenceCheck{Item: "candy", Expected: "21", Matched: answer == "21"}
+	if check.Matched {
+		return "passed", []IntelligenceCheck{check}
+	}
+	return "manual_review", []IntelligenceCheck{check}
+}
+
+func assessPelicanResponse(text string) (string, []IntelligenceCheck) {
+	plain := strings.ToLower(strings.TrimSpace(text))
+	matched := strings.Contains(plain, "<svg")
+	check := IntelligenceCheck{Item: "pelican", Expected: "standalone HTML containing SVG", Matched: matched}
+	if matched {
+		return "passed", []IntelligenceCheck{check}
+	}
+	return "manual_review", []IntelligenceCheck{check}
+}
+
+func assessIntelligenceResponseForQuestion(kind, text string) (string, []IntelligenceCheck) {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case IntelligenceQuestionCandy:
+		return assessCandyResponse(text)
+	case IntelligenceQuestionPelican:
+		return assessPelicanResponse(text)
+	default:
+		return assessIntelligenceResponse(text)
+	}
 }
 
 // Reuses the normal account proxy, OAuth identity and upstream transport, but
 // isolates model/prompt from mapping and quota-overdraft prompt injections.
-func (s *AccountTestService) TestAccountIntelligence(ctx context.Context, accountID int64) (*IntelligenceTestResult, error) {
+func (s *AccountTestService) TestAccountIntelligence(ctx context.Context, accountID int64, requested ...string) (*IntelligenceTestResult, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -192,14 +315,22 @@ func (s *AccountTestService) TestAccountIntelligence(ctx context.Context, accoun
 	defer intelligenceTestsRunning.Delete(accountID)
 	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
 	defer cancel()
-	ctx = context.WithValue(ctx, intelligenceTestContextKey{}, true)
+	questionKind, prompt := intelligenceQuestion("")
+	if len(requested) > 0 {
+		questionKind, prompt = intelligenceQuestion(requested[0])
+	}
+	options := intelligenceTestOptions{questionKind: questionKind, prompt: prompt}
+	if len(requested) > 1 {
+		options.reasoning = requested[1]
+	}
+	ctx = context.WithValue(ctx, intelligenceTestContextKey{}, options)
 	started := time.Now()
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest("POST", "/", nil).WithContext(ctx)
-	testErr := s.testOpenAIAccountConnection(c, account, IntelligenceTestModel, IntelligenceTestPrompt, AccountTestModeDefault)
+	testErr := s.testOpenAIAccountConnection(c, account, IntelligenceTestModel, prompt, AccountTestModeDefault)
 	text, upstreamError, usage := parseTestSSEOutputWithUsage(recorder.Body.String())
-	status, checks := assessIntelligenceResponse(text)
+	status, checks := assessIntelligenceResponseForQuestion(questionKind, text)
 	if testErr != nil || upstreamError != "" || strings.TrimSpace(text) == "" {
 		status = "error"
 		if upstreamError == "" && testErr != nil {
@@ -209,7 +340,7 @@ func (s *AccountTestService) TestAccountIntelligence(ctx context.Context, accoun
 			upstreamError = "Upstream returned no answer"
 		}
 	}
-	return &IntelligenceTestResult{AccountID: accountID, Model: IntelligenceTestModel, Status: status, ResponseText: text, Error: upstreamError, Checks: checks, TestedAt: started.UTC(), LatencyMS: time.Since(started).Milliseconds(), Usage: usage, Cost: intelligenceTestCost(usage)}, nil
+	return &IntelligenceTestResult{AccountID: accountID, Model: IntelligenceTestModel, Status: status, ResponseText: text, Error: upstreamError, Checks: checks, QuestionKind: questionKind, TestedAt: started.UTC(), LatencyMS: time.Since(started).Milliseconds(), Usage: usage, Cost: intelligenceTestCost(usage)}, nil
 }
 
 // SaveIntelligenceTestResult persists a bounded server-side history in the

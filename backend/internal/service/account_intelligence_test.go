@@ -43,6 +43,19 @@ func TestIntelligenceAssessment(t *testing.T) {
 	}
 }
 
+func TestV2811IntelligenceQuestions(t *testing.T) {
+	status, checks := assessIntelligenceResponseForQuestion(IntelligenceQuestionCandy, "答案是 21")
+	require.Equal(t, "passed", status)
+	require.Equal(t, "candy", checks[0].Item)
+	status, _ = assessIntelligenceResponseForQuestion(IntelligenceQuestionCandy, "答案是 20")
+	require.Equal(t, "manual_review", status)
+	status, checks = assessIntelligenceResponseForQuestion(IntelligenceQuestionPelican, "<!doctype html><svg></svg>")
+	require.Equal(t, "passed", status)
+	require.Equal(t, "pelican", checks[0].Item)
+	status, _ = assessIntelligenceResponseForQuestion(IntelligenceQuestionPelican, "I cannot create HTML")
+	require.Equal(t, "manual_review", status)
+}
+
 func TestIntelligenceHistoryPersistsServerSide(t *testing.T) {
 	svc, _, account := intelligenceTestFixture()
 	repo := svc.accountRepo.(*openAIAccountTestRepo)
@@ -97,6 +110,25 @@ func TestIntelligenceUsesExactPromptModelAndNoOverdraft(t *testing.T) {
 	require.NotContains(t, string(body), "September 9")
 	require.Zero(t, coordinator.observeCalls)
 	require.Zero(t, coordinator.businessCalls)
+}
+
+func TestIntelligenceCandyQuestionUsesV2811PromptAndReasoning(t *testing.T) {
+	svc, upstream, account := intelligenceTestFixture()
+	delta, err := json.Marshal(map[string]string{"type": "response.output_text.delta", "delta": "答案是 21"})
+	require.NoError(t, err)
+	upstream.responses = []*http.Response{newJSONResponse(200, "data: "+string(delta)+"\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":2,\"total_tokens\":12}}}\n\n")}
+	result, err := svc.TestAccountIntelligence(context.Background(), account.ID, IntelligenceQuestionCandy, "high")
+	require.NoError(t, err)
+	require.Equal(t, "passed", result.Status)
+	require.Equal(t, IntelligenceQuestionCandy, result.QuestionKind)
+	body, err := io.ReadAll(upstream.requests[0].Body)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	input := payload["input"].([]any)
+	text := input[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"]
+	require.Equal(t, IntelligenceCandyPrompt, text)
+	require.Equal(t, map[string]any{"effort": "high"}, payload["reasoning"])
 }
 
 func TestIntelligenceRejectsOtherAccountsAndDuplicateTests(t *testing.T) {

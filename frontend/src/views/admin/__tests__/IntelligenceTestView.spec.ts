@@ -42,7 +42,7 @@ describe('IntelligenceTestView', () => {
     expect(first.get('button').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-account-id="2"] button').attributes('disabled')).toBeUndefined()
     expect(testIntelligence).toHaveBeenCalledTimes(1)
-    expect(testIntelligence).toHaveBeenCalledWith(1, expect.any(AbortSignal))
+    expect(testIntelligence).toHaveBeenCalledWith(1, expect.any(AbortSignal), 'candy', 'medium')
     finish(result(1))
     await flushPromises()
     expect(first.text()).toContain('admin.intelligence.manual_review')

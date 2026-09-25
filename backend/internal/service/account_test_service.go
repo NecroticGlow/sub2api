@@ -881,8 +881,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
 	if isIntelligenceTest(ctx) {
+		options := intelligenceOptionsFromContext(ctx)
 		upstreamTestModelID = IntelligenceTestModel
-		payload = createIntelligenceTestPayload()
+		payload = createIntelligenceTestPayload(options)
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	overdraftInjected := false
