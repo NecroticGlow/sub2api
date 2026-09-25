@@ -723,6 +723,20 @@ func TestImportCodexSessionsAccessTokenOnlySameUserUpdatesExisting(t *testing.T)
 	}
 }
 
+func TestFindCodexNamedEmailMatchRequiresTeamWorkspace(t *testing.T) {
+	accounts := []service.Account{
+		{ID: 1145, Name: "sharonedwardsj925@gmail.com", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+			Credentials: map[string]any{"email": "sharonedwardsj925@gmail.com", "organization_id": "team-a", "refresh_token": "old"}},
+	}
+	if got := findCodexNamedEmailMatch(accounts, "sharonedwardsj925@gmail.com", "sharonedwardsj925@gmail.com", "team-b"); got != nil {
+		t.Fatalf("matched different Team workspace: %+v", got)
+	}
+	got := findCodexNamedEmailMatch(accounts, "sharonedwardsj925@gmail.com", "SHARONEDWARDSJ925@GMAIL.COM", "team-a")
+	if got == nil || got.ID != 1145 {
+		t.Fatalf("same name/email/workspace did not match: %+v", got)
+	}
+}
+
 func TestImportCodexSessionsUpgradesAccessTokenOnlyAccountWithRefreshToken(t *testing.T) {
 	oldToken := buildCodexAccessTokenWithJTI(t, "workspace-1", "user-1", "old-token", time.Now().Add(time.Hour))
 	newToken := buildCodexAccessTokenWithJTI(t, "workspace-1", "user-1", "new-token", time.Now().Add(time.Hour))

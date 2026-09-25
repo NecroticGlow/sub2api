@@ -261,6 +261,16 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 		markCodexIdentitySeen(seenIdentity, item.IdentityKeys, entry.Index, item.UserID)
 
 		existing, matchedKey := index.Find(item.IdentityKeys, item.UserID)
+		if existing == nil {
+			if named := findCodexNamedEmailMatch(existingAccounts, accountName, item.Email, item.Organization); named != nil {
+				existing = named
+				matchedKey = "name_email_workspace"
+				result.Warnings = append(result.Warnings, CodexSessionImportMessage{
+					Index: entry.Index, Name: accountName,
+					Message: "按完全相同的账号名、邮箱及 Team 空间 ID 匹配旧账号，保留原有用量记录",
+				})
+			}
+		}
 		if existing != nil && updateExisting {
 			if strings.HasPrefix(matchedKey, "account:") && item.UserID != "" &&
 				codexCredentialString(existing.Credentials, "chatgpt_user_id") == "" {
@@ -387,6 +397,46 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 	}
 
 	return result, nil
+}
+
+// findCodexNamedEmailMatch is the conservative fallback for rotated refresh
+// tokens. The normal identity index intentionally treats token-only changes as
+// separate candidates; an exact name + email match may reuse the old account,
+// but Team accounts must also carry the same workspace/organization ID.
+func findCodexNamedEmailMatch(accounts []service.Account, name, email, workspace string) *service.Account {
+	name = strings.TrimSpace(name)
+	email = strings.ToLower(strings.TrimSpace(email))
+	workspace = strings.TrimSpace(workspace)
+	if name == "" || email == "" {
+		return nil
+	}
+	for i := range accounts {
+		account := &accounts[i]
+		if account.Platform != service.PlatformOpenAI || account.Type != service.AccountTypeOAuth || account.Name != name {
+			continue
+		}
+		storedEmail := strings.ToLower(strings.TrimSpace(codexCredentialString(account.Credentials, "email")))
+		if storedEmail == "" || storedEmail != email {
+			continue
+		}
+		storedWorkspace := codexWorkspaceID(account.Credentials)
+		if workspace != "" || storedWorkspace != "" {
+			if workspace == "" || storedWorkspace == "" || workspace != storedWorkspace {
+				continue
+			}
+		}
+		return account
+	}
+	return nil
+}
+
+func codexWorkspaceID(credentials map[string]any) string {
+	for _, key := range []string{"organization_id", "workspace_id", "team_id"} {
+		if value := strings.TrimSpace(codexCredentialString(credentials, key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func parseCodexSessionImportEntries(req CodexSessionImportRequest) ([]codexImportEntry, error) {
