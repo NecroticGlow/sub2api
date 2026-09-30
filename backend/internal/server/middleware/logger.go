@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -15,9 +16,10 @@ func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 开始时间
 		startTime := time.Now()
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.RequestStartTime, startTime))
 
 		// 请求路径
-		path := c.Request.URL.Path
+		path := requestLogPath(c.Request.URL.Path)
 
 		// 处理请求
 		c.Next()

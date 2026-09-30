@@ -1206,6 +1206,7 @@ import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import { platformBadgeLightClass } from '@/utils/platformColors'
 import { KEY_GROUP_PROVIDERS, KEY_GROUP_PROVIDER_ICONS, getKeyGroupProvider, type KeyGroupProvider } from '@/utils/keyGroupProviders'
 
+
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
   const date = new Date(isoDate)

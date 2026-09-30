@@ -108,6 +108,60 @@ func (s *SettingService) refreshCachedSettingsAfterWrite(ctx context.Context, se
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
+	captureConfig := settings.requestCaptureConfig()
+	if err := captureConfig.Validate(); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_REQUEST_CAPTURE_SETTINGS", err.Error())
+	}
+	imageRelay, err := normalizeExcelBPSImageRelaySettings(settings.ExcelBPSImageRelayEnabled, settings.ExcelBPSImageBaseURL, settings.ExcelBPSImageMode)
+	if err != nil {
+		return nil, err
+	}
+	settings.ExcelBPSImageBaseURL = imageRelay.BaseURL
+	if settings.ExcelBPSImageBodyLimitMiB == 0 {
+		settings.ExcelBPSImageBodyLimitMiB = DefaultExcelBPSImageBodyLimitMiB
+	}
+	if settings.ExcelBPSImageBudgetMiB == 0 {
+		settings.ExcelBPSImageBudgetMiB = DefaultExcelBPSImageBudgetMiB
+	}
+	if settings.ExcelBPSImageMaxRequests == 0 {
+		settings.ExcelBPSImageMaxRequests = DefaultExcelBPSImageMaxRequests
+	}
+	if settings.ExcelBPSImageMaxImageMiB == 0 {
+		settings.ExcelBPSImageMaxImageMiB = imageRelay.Limits.MaxImageMiB
+	}
+	if settings.ExcelBPSImageMaxImages == 0 {
+		settings.ExcelBPSImageMaxImages = imageRelay.Limits.MaxImages
+	}
+	if settings.ExcelBPSImageMaxTotalMiB == 0 {
+		settings.ExcelBPSImageMaxTotalMiB = imageRelay.Limits.MaxTotalMiB
+	}
+	if settings.ExcelBPSImageStorageMiB == 0 {
+		settings.ExcelBPSImageStorageMiB = imageRelay.Limits.StorageMiB
+	}
+	if settings.ExcelBPSImageStorageEntries == 0 {
+		settings.ExcelBPSImageStorageEntries = imageRelay.Limits.StorageEntries
+	}
+	if settings.ExcelBPSImageTTLMinutes == 0 {
+		settings.ExcelBPSImageTTLMinutes = imageRelay.Limits.TTLMinutes
+	}
+	if settings.ExcelBPSImageLimitPolicy == "" {
+		settings.ExcelBPSImageLimitPolicy = "off"
+	}
+	if settings.ExcelBPSImageWarningRemaining == 0 {
+		settings.ExcelBPSImageWarningRemaining = 8
+	}
+	if settings.ExcelBPSImageCompactReserve == 0 {
+		settings.ExcelBPSImageCompactReserve = 3
+	}
+	if err := validateExcelBPSImagePolicy(settings.ExcelBPSImageLimitPolicy, settings.ExcelBPSImageWarningRemaining, settings.ExcelBPSImageCompactReserve, settings.ExcelBPSImageMaxImages); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_IMAGE_POLICY", err.Error())
+	}
+	if err := settings.imageRelayLimits().Validate(); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_IMAGE_LIMITS", err.Error())
+	}
+	if err := validateExcelBPSImageCapacity(settings.ExcelBPSImageBodyLimitMiB, settings.ExcelBPSImageBudgetMiB, settings.ExcelBPSImageMaxRequests); err != nil {
+		return nil, err
+	}
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
 		return nil, err
 	}
@@ -447,9 +501,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if showcaseErr != nil {
 		return nil, infraerrors.BadRequest("INVALID_PELICAN_SHOWCASE", showcaseErr.Error())
 	}
-	if err := s.validateAddedPelicanShowcaseGroups(ctx, showcase.GroupIDs); err != nil {
-		return nil, err
-	}
 	showcaseJSON, _ := json.Marshal(showcase)
 	updates[SettingKeyPelicanShowcaseConfig] = string(showcaseJSON)
 
@@ -543,7 +594,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if settings.OpenAICodexTicketStaticProxyURL != "" {
 		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = settings.OpenAICodexTicketStaticProxyURL
 	}
-	if proxy := strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL); proxy != "" && proxy != "http://127.0.0.1:3101" {
+	if proxy := strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL); proxy != "" && proxy != "http://127.0.0.1:3101" && proxy != OpenAICodexTicketHarvestIPPoolURL {
 		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = proxy
 	}
 	modelsJSON, err := json.Marshal(NormalizeOpenAICodexTicketModels(settings.OpenAICodexTicketModels))
@@ -620,6 +671,25 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
+	updates[SettingKeyUsageShowLongContextBadge] = strconv.FormatBool(settings.UsageShowLongContextBadge)
+	updates[SettingKeyRequestCaptureEnabled] = strconv.FormatBool(captureConfig.Enabled)
+	updates[SettingKeyRequestCaptureQuotaMiB] = strconv.FormatInt(captureConfig.QuotaMiB, 10)
+	updates[SettingKeyRequestCaptureRetentionDays] = strconv.Itoa(captureConfig.RetentionDays)
+	updates[SettingKeyExcelBPSImageMode] = imageRelay.Mode
+	updates[SettingKeyExcelBPSImageRelayEnabled] = strconv.FormatBool(imageRelay.Enabled)
+	updates[SettingKeyExcelBPSImageBaseURL] = imageRelay.BaseURL
+	updates[SettingKeyExcelBPSImageBodyLimitMiB] = strconv.Itoa(settings.ExcelBPSImageBodyLimitMiB)
+	updates[SettingKeyExcelBPSImageBudgetMiB] = strconv.Itoa(settings.ExcelBPSImageBudgetMiB)
+	updates[SettingKeyExcelBPSImageMaxRequests] = strconv.Itoa(settings.ExcelBPSImageMaxRequests)
+	updates[SettingKeyExcelBPSImageMaxImageMiB] = strconv.Itoa(settings.ExcelBPSImageMaxImageMiB)
+	updates[SettingKeyExcelBPSImageLimitPolicy] = settings.ExcelBPSImageLimitPolicy
+	updates[SettingKeyExcelBPSImageWarningRemaining] = strconv.Itoa(settings.ExcelBPSImageWarningRemaining)
+	updates[SettingKeyExcelBPSImageCompactReserve] = strconv.Itoa(settings.ExcelBPSImageCompactReserve)
+	updates[SettingKeyExcelBPSImageMaxImages] = strconv.Itoa(settings.ExcelBPSImageMaxImages)
+	updates[SettingKeyExcelBPSImageMaxTotalMiB] = strconv.Itoa(settings.ExcelBPSImageMaxTotalMiB)
+	updates[SettingKeyExcelBPSImageStorageMiB] = strconv.Itoa(settings.ExcelBPSImageStorageMiB)
+	updates[SettingKeyExcelBPSImageStorageEntries] = strconv.Itoa(settings.ExcelBPSImageStorageEntries)
+	updates[SettingKeyExcelBPSImageTTLMinutes] = strconv.Itoa(settings.ExcelBPSImageTTLMinutes)
 
 	return updates, nil
 }
@@ -875,6 +945,9 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// 使用最长 60 秒的旧开关快照。
 	s.cyberSessionBlockRuntimeSF.Forget("cyber_session_block_runtime")
 	s.cyberSessionBlockRuntimeCache.Store(&cachedCyberSessionBlockRuntime{expiresAt: 0})
+	if s.requestCapture != nil {
+		s.requestCapture.ApplyConfig(settings.requestCaptureConfig())
+	}
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}

@@ -73,22 +73,32 @@ type accountOpsEmailSender interface {
 }
 
 type AccountOpsService struct {
-	settings   SettingRepository
-	repo       AccountOpsRepository
-	email      accountOpsEmailSender
-	config     atomic.Value
-	queue      chan AccountOpsEvent
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	lifecycle  sync.Mutex
-	settingsMu sync.Mutex
-	dropped    atomic.Uint64
-	failures   atomic.Uint64
+	autoSeen     map[int64]bool
+	autoConfigMu sync.Mutex
+	autoGroups   GroupRepository
+	autoAccounts AccountConcurrencyRepository
+	autoConfig   atomic.Value
+	autoBlocked  atomic.Bool
+	autoResults  chan AccountConcurrencyResult
+	settings     SettingRepository
+	repo         AccountOpsRepository
+	email        accountOpsEmailSender
+	config       atomic.Value
+	queue        chan AccountOpsEvent
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	lifecycle    sync.Mutex
+	settingsMu   sync.Mutex
+	dropped      atomic.Uint64
+	failures     atomic.Uint64
 }
 
 func NewAccountOpsService(settings SettingRepository, repo AccountOpsRepository, email accountOpsEmailSender) *AccountOpsService {
 	s := &AccountOpsService{settings: settings, repo: repo, email: email, queue: make(chan AccountOpsEvent, 256)}
 	s.config.Store(defaultAccountOpsConfig())
+	s.autoConfig.Store(DefaultOAuthAutoConfig())
+	s.autoResults = make(chan AccountConcurrencyResult, 1024)
+	s.autoSeen = make(map[int64]bool)
 	return s
 }
 func (s *AccountOpsService) GetConfig(ctx context.Context) (AccountOpsConfig, error) {
@@ -155,6 +165,12 @@ func (s *AccountOpsService) Observe(account *Account, status int, headers http.H
 	}
 }
 func (s *AccountOpsService) Start() {
+	s.start(true)
+}
+
+// Request observations and auto-configuration must drain on every replica.
+// Only the primary delivers the shared notification queue.
+func (s *AccountOpsService) start(deliverNotifications bool) {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
 	if s.cancel != nil {
@@ -162,7 +178,8 @@ func (s *AccountOpsService) Start() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
-	s.wg.Add(1)
+	s.wg.Add(2)
+	go s.runAutoConfig(ctx)
 	go func() {
 		defer s.wg.Done()
 		s.refreshConfig(ctx)
@@ -183,7 +200,7 @@ func (s *AccountOpsService) Start() {
 					s.failures.Add(1)
 				}
 			case <-ticker.C:
-				if s.refreshConfig(ctx) {
+				if s.refreshConfig(ctx) && deliverNotifications {
 					s.deliver(ctx)
 				}
 			}

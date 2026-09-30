@@ -1,8 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import UsageTimingDialog from '../UsageTimingDialog.vue'
+import { observerUsageContext } from '../observerUsageContext'
 import type { AdminUsageLog } from '@/types'
-const mocks = vi.hoisted(() => ({ get: vi.fn() }))
+const mocks = vi.hoisted(() => ({ get: vi.fn(), own: vi.fn() }))
+vi.mock('@/api/observerUsage', () => ({ observerUsageAPI: { getTiming: mocks.own } }))
 vi.mock('@/api/admin/usageTiming', () => ({ getUsageTiming: mocks.get }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/utils/format', () => ({ formatDateTime: (s: string) => s }))
@@ -39,8 +41,10 @@ describe('Usage timing details', () => {
       spans: [{ name: 'handler', start_ms: 0, end_ms: 50000 }, { name: 'user_queue', start_ms: 0, end_ms: 6000 }],
       attempts: [{ kind: 'egress', number: 1, cleanup_canceled: true, account_id: 1, proxy_id: 0, start_ms: 6000, end_ms: 50000, status: 200, reused: false, body_eof: false, request_bytes: 20, response_bytes: 100, events: { response_headers: 10000 } }]
     }] })
-    const wrapper = mount(UsageTimingDialog, { props: { record: row(1) }, ...options })
+    const wrapper = mount(UsageTimingDialog, { props: { record: { ...row(1), output_tokens: 1_095, duration_ms: 9_250, first_token_ms: 9_240 } }, ...options })
     await flushPromises()
+    expect(wrapper.text()).toContain('usage.latencyTps 118 t/s')
+    expect(wrapper.text()).toContain('requestTiming.tpsNote')
     expect(wrapper.text()).toContain('requestTiming.health.firstSlow')
     expect(wrapper.text()).toContain('requestTiming.health.largest')
     expect(wrapper.text()).toContain('requestTiming.health.normalClose')
@@ -59,4 +63,14 @@ describe('Usage timing details', () => {
     wrapper.unmount()
   })
 
+})
+
+it('loads observer timings only from the own-usage endpoint', async () => {
+  vi.clearAllMocks()
+  mocks.own.mockResolvedValue({ traces: [], retention_days: 30 })
+  const wrapper = mount(UsageTimingDialog, { props: { record: row(42) }, global: { ...options.global, provide: { [observerUsageContext as symbol]: true } } })
+  await flushPromises()
+  expect(mocks.own).toHaveBeenCalledWith(42, expect.anything())
+  expect(mocks.get).not.toHaveBeenCalled()
+  wrapper.unmount()
 })

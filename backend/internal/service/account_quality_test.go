@@ -17,7 +17,6 @@ func TestQualityValidationAndGrading(t *testing.T) {
 	require.Empty(t, intelligenceTestOutputError(plan.PelicanConfig, "The answer is 42"), "completed output is sent to the configured judge")
 	require.NotContains(t, intelligenceTestPrompt(plan.PelicanConfig), "HTML")
 	for _, change := range []func(*ScheduledTestPlan){
-		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.Judge = nil },
 		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.ExpectedAnswer = " " },
 		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.Action = "delete_account" },
 		func(p *ScheduledTestPlan) { p.PelicanConfig.Quality.RemoveGroupIDs = nil },

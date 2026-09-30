@@ -534,3 +534,25 @@ func (h *SettingHandler) TestWebSearchEmulation(c *gin.Context) {
 	}
 	response.Success(c, result)
 }
+
+// GetAccountManagementCapabilities exposes only flags required by account management.
+// Never send SMTP, Web Search API keys or administrator settings to observers.
+func (h *SettingHandler) GetAccountManagementCapabilities(c *gin.Context) {
+	ctx := c.Request.Context()
+	cfg, err := h.settingService.GetWebSearchEmulationConfig(ctx)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	settings, err := h.settingService.GetPublicSettings(ctx)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	autoConfig, autoConfigErr := h.settingService.GetOAuthAutoConfig(ctx)
+	response.Success(c, gin.H{
+		"web_search_enabled":           cfg != nil && cfg.Enabled && len(cfg.Providers) > 0,
+		"account_quota_notify_enabled": settings.AccountQuotaNotifyEnabled,
+		"concurrency_upgrade_enabled":  autoConfigErr == nil && autoConfig.UpgradeEnabled,
+	})
+}

@@ -5,13 +5,10 @@
     data-testid="pelican-showcase-card"
   >
     <div class="relative aspect-[4/3] overflow-hidden border-b border-gray-100 bg-gray-50 dark:border-dark-700/70 dark:bg-dark-900/40">
-      <iframe
+      <PelicanArtworkPreview
         v-if="body?.status === 'ready'"
-        :srcdoc="body.html"
-        class="pointer-events-none h-full w-full border-0"
-        tabindex="-1"
-        sandbox="allow-scripts"
-        referrerpolicy="no-referrer"
+        :html="body.html"
+        :interactive="false"
         :title="label"
       />
       <div v-else class="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-gray-400 dark:text-gray-500">
@@ -54,6 +51,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PelicanShowcaseItem } from '@/api/pelicanShowcase'
 import { formatDateTimeToMinute } from '@/utils/format'
+import PelicanArtworkPreview from './PelicanArtworkPreview.vue'
 import { pelicanDurationLabel, pelicanEffortLabel, type PelicanBody } from './pelicanShowcaseFormat'
 
 const props = defineProps<{
@@ -67,9 +65,17 @@ const emit = defineEmits<{
   (e: 'open'): void
 }>()
 
+// scrollMargin extends the lookahead to cards still hidden in their horizontal row, which
+// clips them otherwise. Kept out of the call: TS 5.6's lib.dom does not declare the option yet.
+const OBSERVER_OPTIONS = { rootMargin: '200px', scrollMargin: '200px' }
+// A card must stay in view this long: cards a slider drag sweeps past would otherwise all
+// load, queued ahead of the ones the drag stops at.
+const VISIBLE_DWELL_MS = 150
+
 const { t } = useI18n()
 const cardRef = ref<HTMLElement | null>(null)
 let observer: IntersectionObserver | null = null
+let dwellTimer: ReturnType<typeof setTimeout> | undefined
 
 const label = computed(() => `${props.groupName} · ${props.item.model_id || '—'}`)
 const effortLabel = computed(() => pelicanEffortLabel(t, props.item.reasoning_effort))
@@ -82,14 +88,19 @@ onMounted(() => {
     return
   }
   observer = new IntersectionObserver((entries) => {
-    if (entries.some((entry) => entry.isIntersecting)) {
+    clearTimeout(dwellTimer)
+    if (!entries[entries.length - 1].isIntersecting) return
+    dwellTimer = setTimeout(() => {
       emit('visible')
       observer?.disconnect()
       observer = null
-    }
-  }, { rootMargin: '200px' })
+    }, VISIBLE_DWELL_MS)
+  }, OBSERVER_OPTIONS)
   observer.observe(cardRef.value)
 })
 
-onBeforeUnmount(() => observer?.disconnect())
+onBeforeUnmount(() => {
+  clearTimeout(dwellTimer)
+  observer?.disconnect()
+})
 </script>

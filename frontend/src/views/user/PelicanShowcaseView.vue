@@ -54,16 +54,19 @@
       </section>
 
       <!-- First load -->
-      <div v-if="loading && !view" class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        <div
-          v-for="i in 8"
-          :key="i"
-          class="overflow-hidden rounded-2xl border border-gray-200/80 bg-white/70 dark:border-dark-700/70 dark:bg-dark-800/60"
-        >
-          <div class="aspect-[4/3] animate-pulse bg-gray-100 dark:bg-dark-900/40" />
-          <div class="space-y-2 p-4">
-            <div class="h-4 w-2/3 animate-pulse rounded bg-gray-200 dark:bg-dark-700" />
-            <div class="h-3 w-1/3 animate-pulse rounded bg-gray-100 dark:bg-dark-700/60" />
+      <div v-if="loading && !view" class="space-y-6">
+        <div v-for="row in 2" :key="row" class="flex gap-5 overflow-hidden">
+          <div
+            v-for="i in 5"
+            :key="i"
+            class="overflow-hidden rounded-2xl border border-gray-200/80 bg-white/70 dark:border-dark-700/70 dark:bg-dark-800/60"
+            :class="CARD_WIDTH"
+          >
+            <div class="aspect-[4/3] animate-pulse bg-gray-100 dark:bg-dark-900/40" />
+            <div class="space-y-2 p-4">
+              <div class="h-4 w-2/3 animate-pulse rounded bg-gray-200 dark:bg-dark-700" />
+              <div class="h-3 w-1/3 animate-pulse rounded bg-gray-100 dark:bg-dark-700/60" />
+            </div>
           </div>
         </div>
       </div>
@@ -113,24 +116,19 @@
         >
           {{ t('pelicanShowcase.groupEmpty') }}
         </div>
-        <template v-else>
-          <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            <PelicanShowcaseCard
-              v-for="item in visibleItems(group)"
-              :key="item.id"
-              :item="item"
-              :group-name="group.name"
-              :body="bodies[item.id]"
-              @visible="requestBody(item.id)"
-              @open="openPreview(group, item)"
-            />
-          </div>
-          <div v-if="group.items.length > visibleCount(group)" class="flex justify-center">
-            <button type="button" class="btn btn-secondary" :data-testid="`showcase-more-${group.id}`" @click="showMore(group)">
-              {{ t('pelicanShowcase.loadMore') }}
-            </button>
-          </div>
-        </template>
+        <!-- Items arrive newest first, so the newest card is on the left and older ones continue to the right. -->
+        <PelicanShowcaseRow v-else :label="t('pelicanShowcase.scrollLabel', { group: group.name })">
+          <PelicanShowcaseCard
+            v-for="item in group.items"
+            :key="item.id"
+            :class="CARD_WIDTH"
+            :item="item"
+            :group-name="group.name"
+            :body="bodies[item.id]"
+            @visible="requestBody(item.id)"
+            @open="openPreview(group, item)"
+          />
+        </PelicanShowcaseRow>
       </section>
     </div>
 
@@ -138,12 +136,14 @@
       :show="preview !== null"
       :title="previewTitle"
       width="full"
+      content-class="h-[90dvh]"
+      body-class="flex min-h-0 flex-col !overflow-hidden"
       close-on-click-outside
       @close="closePreview"
     >
-      <div v-if="preview" class="space-y-3" data-testid="showcase-preview">
+      <div v-if="preview" class="flex min-h-0 flex-1 flex-col gap-3" data-testid="showcase-preview">
         <!-- Chips instead of "·" separators, so a wrapped line never starts with a dot on phones. -->
-        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+        <div class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 text-xs text-gray-500 dark:text-gray-400">
           <span class="inline-flex items-center rounded-md px-1.5 py-0.5 font-medium" :class="platformBadgeLightClass(preview.group.platform)">
             {{ preview.group.name }}
           </span>
@@ -152,14 +152,26 @@
             {{ previewEffort }}
           </span>
           <span class="tabular-nums">{{ pelicanDurationLabel(t, preview.item.latency_ms) }}</span>
+          <div role="group" :aria-label="t('pelicanShowcase.previewSizing')" class="ml-auto flex shrink-0 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-900/60">
+            <button
+              v-for="mode in (['fit', 'actual'] as const)"
+              :key="mode"
+              type="button"
+              class="rounded-md px-2.5 py-1.5 font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+              :class="previewMode === mode ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100'"
+              :aria-pressed="previewMode === mode"
+              :data-testid="`showcase-preview-${mode}`"
+              @click="previewMode = mode"
+            >
+              {{ t(mode === 'fit' ? 'pelicanShowcase.fitArtwork' : 'pelicanShowcase.actualSize') }}
+            </button>
+          </div>
         </div>
-        <div class="h-[65vh] min-h-[320px] overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700">
-          <iframe
+        <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-900" data-testid="showcase-preview-stage">
+          <PelicanArtworkPreview
             v-if="previewBody?.status === 'ready'"
-            :srcdoc="previewBody.html"
-            class="h-full w-full border-0"
-            sandbox="allow-scripts"
-            referrerpolicy="no-referrer"
+            :html="previewBody.html"
+            :mode="previewMode"
             :title="previewTitle"
           />
           <div v-else class="flex h-full items-center justify-center p-6 text-sm text-gray-500">
@@ -168,7 +180,7 @@
             <span v-else class="text-red-500">{{ t('pelicanShowcase.itemLoadError') }}</span>
           </div>
         </div>
-        <p class="text-xs text-gray-400 dark:text-gray-500">{{ t('pelicanShowcase.sandboxNote') }}</p>
+        <p class="shrink-0 text-xs text-gray-400 dark:text-gray-500">{{ t('pelicanShowcase.sandboxNote') }}</p>
       </div>
       <template #footer>
         <div class="flex w-full items-center justify-between gap-3">
@@ -209,7 +221,9 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
+import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
 import PelicanShowcaseCard from '@/components/user/pelican/PelicanShowcaseCard.vue'
+import PelicanShowcaseRow from '@/components/user/pelican/PelicanShowcaseRow.vue'
 import {
   pelicanDurationLabel,
   pelicanEffortLabel,
@@ -231,8 +245,9 @@ import { formatDateTimeToMinute, formatRelativeTime } from '@/utils/format'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
 import { platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
 
-const PAGE_SIZE = 8
 const MAX_CONCURRENT_BODIES = 4
+// Use 70% of the former width at every breakpoint; artwork keeps its 4:3 ratio.
+const CARD_WIDTH = 'w-[59.5%] shrink-0 sm:w-[calc((100%-1.25rem)/2*0.7)] lg:w-[calc((100%-2.5rem)/3*0.7)] 2xl:w-[calc((100%-3.75rem)/4*0.7)]'
 
 type TabKey = number | 'all'
 
@@ -244,9 +259,9 @@ const isAdmin = computed(() => authStore.isAdmin)
 const view = ref<PelicanShowcaseView | null>(null)
 const loading = ref(false)
 const activeGroup = ref<TabKey>('all')
-const pageSizes = reactive<Record<number, number>>({})
 const bodies = reactive<Record<number, PelicanBody>>({})
 const preview = ref<{ group: PelicanShowcaseGroup; item: PelicanShowcaseItem } | null>(null)
+const previewMode = ref<'fit' | 'actual'>('fit')
 const confirmingRemove = ref(false)
 const removing = ref(false)
 
@@ -275,18 +290,6 @@ const previewEffort = computed(() => (preview.value ? pelicanEffortLabel(t, prev
 watch(groups, (list) => {
   if (activeGroup.value !== 'all' && !list.some((group) => group.id === activeGroup.value)) activeGroup.value = 'all'
 })
-
-function visibleCount(group: PelicanShowcaseGroup) {
-  return pageSizes[group.id] ?? PAGE_SIZE
-}
-
-function visibleItems(group: PelicanShowcaseGroup) {
-  return group.items.slice(0, visibleCount(group))
-}
-
-function showMore(group: PelicanShowcaseGroup) {
-  pageSizes[group.id] = visibleCount(group) + PAGE_SIZE
-}
 
 function requestBody(id: number) {
   if (bodies[id]) return
@@ -346,6 +349,7 @@ async function load() {
 }
 
 function openPreview(group: PelicanShowcaseGroup, item: PelicanShowcaseItem) {
+  previewMode.value = 'fit'
   preview.value = { group, item }
   requestBody(item.id)
 }

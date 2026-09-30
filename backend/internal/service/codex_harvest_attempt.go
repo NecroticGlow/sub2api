@@ -91,7 +91,7 @@ func (s *OpenAIGatewayService) freshHarvestAccount(ctx context.Context, account 
 			return nil, false
 		}
 	}
-	if !isOpenAICodexTicketAccount(account) || account.IsRateLimited() || openAICodexSkipHarvest(account) || s.codexTicketChatHeld(account.ID) || s.ticketProbeCoolingDown(account.ID, model, time.Now()) {
+	if !isOpenAICodexTicketAccount(account, model) || account.IsRateLimited() || openAICodexSkipHarvest(account) || s.codexTicketChatHeld(account.ID) || s.ticketProbeCoolingDown(account.ID, model, time.Now()) {
 		return nil, false
 	}
 	cfg := s.openAICodexTicketConfig()

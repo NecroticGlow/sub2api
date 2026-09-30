@@ -128,6 +128,18 @@ type AccountRepository interface {
 	ListShadowsByParent(ctx context.Context, parentID int64) ([]*Account, error)
 }
 
+// AccountExcelBPSRepository disables only BPS, provided the account credentials
+// and both opt-in switches still match at the time of the write.
+type AccountExcelBPSRepository interface {
+	DisableExcelBPSOn403(ctx context.Context, account *Account) (bool, error)
+}
+
+// AccountExcelBPSGroupRepository applies an opted-in group action atomically
+// after rechecking the account identity, policy and current memberships.
+type AccountExcelBPSGroupRepository interface {
+	MoveExcelBPSOn403(ctx context.Context, account *Account) (bool, error)
+}
+
 type AccountDuplicateRepository interface {
 	// CreateWithAccountGroups atomically persists an account, its exact group priorities,
 	// and the scheduler outbox event for the new routing snapshot.
@@ -233,6 +245,9 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		if err := ValidateRateLimit429RetryCount(*req.RateLimit429RetryCount); err != nil {
 			return nil, err
 		}
+	}
+	if err := ValidateModelMappingMode(req.Credentials); err != nil {
+		return nil, err
 	}
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
@@ -346,6 +361,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 
 	if req.Credentials != nil {
+		if err := ValidateModelMappingMode(*req.Credentials); err != nil {
+			return nil, err
+		}
 		account.Credentials = SanitizeStoredCredentials(account.Platform, *req.Credentials)
 	}
 

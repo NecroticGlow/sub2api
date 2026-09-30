@@ -31,7 +31,7 @@ func (s *OpenAIGatewayService) listSchedulableAccountsForRequest(
 			continue
 		}
 		model := s.openAICodexTicketOutboundModel(account, requestedModel, requireCompact)
-		if !s.openAICodexTicketGatedModel(model) {
+		if !isOpenAICodexTicketAccount(account, model) || !s.openAICodexTicketGatedModel(model) {
 			continue
 		}
 		if _, exists := hydrate[account.ID]; !exists {

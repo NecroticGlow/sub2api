@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
+	"github.com/Wei-Shaw/sub2api/internal/requestcapture"
 	"io"
 	"log/slog"
 	"net"
@@ -34,6 +35,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/transportdiag"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
@@ -101,6 +103,8 @@ const (
 const (
 	upstreamProtocolModeDefault          = "default"
 	upstreamProtocolModeLongStreamH2     = "long_stream_h2"
+	upstreamProtocolModeBPSH2            = "bps_h2"
+	upstreamProtocolModeBPSH1            = "bps_h1"
 	upstreamProtocolModeOpenAIH1         = "openai_h1"
 	upstreamProtocolModeOpenAIH2         = "openai_h2"
 	upstreamProtocolModeOpenAIH1Fallback = "openai_h1_fallback"
@@ -169,6 +173,8 @@ type httpUpstreamService struct {
 	clients map[string]*upstreamClientEntry // 客户端缓存池，key 由隔离策略决定
 	// OpenAI 走 HTTP/HTTPS 代理时的 H2->H1 回退状态（key=标准化 proxyKey）
 	openAIHTTP2Fallbacks sync.Map
+	// BPS fallback state is isolated from Codex and contains only hashed proxy keys.
+	bpsHTTP2Fallbacks map[[32]byte]bpsHTTP2Fallback
 }
 
 // NewHTTPUpstream 创建通用 HTTP 上游服务
@@ -203,8 +209,15 @@ func NewHTTPUpstream(cfg *config.Config) service.HTTPUpstream {
 //   - 调用方必须关闭 resp.Body，否则会导致 inFlight 计数泄漏
 //   - inFlight > 0 的客户端不会被淘汰，确保活跃请求不被中断
 func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	if req != nil {
+		requestcapture.FromContext(req.Context()).BindAccount(accountID)
+		req = req.WithContext(requestcapture.WithAccount(req.Context(), accountID))
+	}
 	applyGrokCLIProxyHeaders(req)
 	if err := s.validateRequestHost(req); err != nil {
+		if req != nil {
+			requestcapture.FromContext(req.Context()).SelectionFailed(accountID, 0, nil, nil, err)
+		}
 		return nil, err
 	}
 	profile := service.HTTPUpstreamProfileDefault
@@ -215,21 +228,36 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	// 获取或创建对应的客户端，并标记请求占用
 	entry, err := s.acquireClientWithProfile(proxyURL, accountID, accountConcurrency, profile)
 	if err != nil {
+		requestcapture.FromContext(req.Context()).SelectionFailed(accountID, 0, nil, nil, err)
 		return nil, err
 	}
 
 	// 执行请求
 	client := s.httpClientForUpstreamRequest(entry.client, req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
+	var bpsTrace *transportdiag.Trace
+	if profile == service.HTTPUpstreamProfileExcelBPS {
+		bpsTrace = transportdiag.FromContext(req.Context())
+		if bpsTrace == nil {
+			bpsTrace = &transportdiag.Trace{}
+			req = bpsTrace.Request(req)
+		}
+	}
 	resp, err := doWithOpenAIPreRequestRetry(client, req, proxyURL, profile)
 	if err != nil {
 		s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, entry.proxyKey, err)
+		s.recordBPSHTTP2Failure(req.Context(), entry.proxyKey, bpsTrace, err)
 		// 请求失败，立即减少计数
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
 		return nil, err
 	}
 	s.recordOpenAIHTTP2Success(profile, entry.protocolMode, entry.proxyKey)
+	if bpsTrace != nil && bpsTrace.NegotiatedHTTP2() {
+		resp.Body = &bpsFeedbackBody{ReadCloser: resp.Body, trace: bpsTrace, failed: func(err error) {
+			s.recordBPSHTTP2Failure(req.Context(), entry.proxyKey, bpsTrace, err)
+		}}
+	}
 
 	// 包装响应体，在关闭时自动减少计数并更新时间戳
 	// 这确保了流式响应（如 SSE）在完全读取前不会被淘汰
@@ -254,6 +282,10 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	if req != nil && req.URL != nil && strings.EqualFold(req.URL.Scheme, "http") {
 		return s.Do(req, proxyURL, accountID, accountConcurrency)
 	}
+	if req != nil {
+		requestcapture.FromContext(req.Context()).BindAccount(accountID)
+		req = req.WithContext(requestcapture.WithAccount(req.Context(), accountID))
+	}
 	applyGrokCLIProxyHeaders(req)
 	upstreamProfile := service.HTTPUpstreamProfileDefault
 	if req != nil {
@@ -271,11 +303,15 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	slog.Debug("tls_fingerprint_enabled", "account_id", accountID, "target", targetHost, "proxy", proxyInfo, "profile", profile.Name)
 
 	if err := s.validateRequestHost(req); err != nil {
+		if req != nil {
+			requestcapture.FromContext(req.Context()).SelectionFailed(accountID, 0, nil, nil, err)
+		}
 		return nil, err
 	}
 
 	entry, err := s.acquireClientWithTLS(proxyURL, accountID, accountConcurrency, profile, upstreamProfile)
 	if err != nil {
+		requestcapture.FromContext(req.Context()).SelectionFailed(accountID, 0, nil, nil, err)
 		slog.Debug("tls_fingerprint_acquire_client_failed", "account_id", accountID, "error", err)
 		return nil, err
 	}
@@ -303,6 +339,9 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 func doUpstreamRequest(client *http.Client, req *http.Request) (result *http.Response, resultErr error) {
 	req, timingTrace := requesttiming.StartTransport(req)
 	defer func() { timingTrace.Response(result, resultErr) }()
+	_, observeCapture := requestcapture.FromContext(req.Context()).ObserveHTTPRequest(req, requestcapture.AccountFromContext(req.Context()))
+	defer func() { observeCapture(result, resultErr) }()
+
 	ctx, cancel := context.WithCancel(req.Context())
 	resp, err := servertiming.Do(client, req.WithContext(ctx))
 	if err != nil {
@@ -1060,6 +1099,13 @@ func (s *httpUpstreamService) resolveOpenAIHTTP2Settings() openAIHTTP2Settings {
 }
 
 func (s *httpUpstreamService) resolveProtocolMode(profile service.HTTPUpstreamProfile, proxyKey string, parsedProxy *url.URL) string {
+	if profile == service.HTTPUpstreamProfileExcelBPS {
+		if s.bpsHTTP1Active(proxyKey, time.Now()) {
+			return upstreamProtocolModeBPSH1
+		}
+		return upstreamProtocolModeBPSH2
+	}
+
 	if profile == service.HTTPUpstreamProfileLongStream {
 		return upstreamProtocolModeLongStreamH2
 	}
@@ -1391,14 +1437,14 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		ResponseHeaderTimeout: settings.responseHeaderTimeout,
 	}
 	switch protocolMode {
-	case upstreamProtocolModeLongStreamH2, upstreamProtocolModeOpenAIH2:
+	case upstreamProtocolModeLongStreamH2, upstreamProtocolModeOpenAIH2, upstreamProtocolModeBPSH2:
 		transport.ForceAttemptHTTP2 = true
 		// 显式配置 http2 并启用 PING 健康探测，剔除代理/NAT 静默掐断的死连接，
 		// 避免请求挂在死连接上直到 TCP 重传超时（分钟级）。
 		if _, err := enableHTTP2KeepAlive(transport, protocolMode); err != nil {
 			return nil, err
 		}
-	case upstreamProtocolModeOpenAIH1:
+	case upstreamProtocolModeOpenAIH1, upstreamProtocolModeBPSH1:
 		transport.ForceAttemptHTTP2 = false
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 	case upstreamProtocolModeOpenAIH1NoReuse:

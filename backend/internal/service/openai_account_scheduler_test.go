@@ -912,11 +912,17 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_GrokMediaCapabilityFilt
 	ineligible := Account{
 		ID: 36051, Platform: PlatformGrok, Type: AccountTypeOAuth,
 		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"grok-4.3": "grok-4.3"},
+		},
 		Extra: map[string]any{GrokMediaEligibleExtraKey: false},
 	}
 	eligible := Account{
 		ID: 36052, Platform: PlatformGrok, Type: AccountTypeOAuth,
 		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"grok-4.3": "grok-4.3"},
+		},
 		Extra: map[string]any{GrokMediaEligibleExtraKey: true},
 	}
 	newService := func(accounts []Account) *OpenAIGatewayService {
@@ -1906,7 +1912,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshUsageWind
 // inversion) gets excluded from scheduling, and a paused account never receives traffic to
 // refresh its snapshot. When the snapshot is stale (codex_usage_updated_at older than the
 // staleness bound) the account must be allowed a request so it can self-heal from the real
-// response headers — independent of the window's reset time.
+// response headers when no valid future window reset is known.
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageSnapshotSkipsPause_Issue2994(t *testing.T) {
 	ctx := context.Background()
 	primary := Account{
@@ -1920,8 +1926,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageSnap
 		Extra: map[string]any{
 			"codex_5h_used_percent":   99.0,
 			"auto_pause_5h_threshold": 0.95,
-			// Window has NOT reset yet, so the reset guard stays inactive.
-			"codex_5h_reset_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+			// No reset time is known, so stale snapshot self-heal applies.
 			// Snapshot is stale: older than openAICodexAutoPauseStaleAfter (2h).
 			"codex_usage_updated_at": time.Now().Add(-3 * time.Hour).Format(time.RFC3339),
 		},
@@ -2816,14 +2821,15 @@ func TestReportOpenAIAccountScheduleResult_SuccessClearsModelTransientState(t *t
 
 func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBoundary(t *testing.T) {
 	stats := newOpenAIAccountRuntimeStats()
+	now := time.Now()
 	accountID := int64(21501)
 	ttft := 15000
-	stats.report(accountID, true, &ttft)
-	stats.report(accountID, false, nil)
-	stats.report(accountID, true, nil)
+	stats.reportAt(accountID, true, &ttft, now)
+	stats.reportAt(accountID, false, nil, now)
+	stats.reportAt(accountID, true, nil, now)
 	scheduler := &defaultOpenAIAccountScheduler{stats: stats}
 
-	reason, errorRate, observedTTFT, shouldEscape := scheduler.shouldEscapeStickyAccount(accountID, openAIStickyEscapeConfig{
+	reason, errorRate, observedTTFT, shouldEscape := scheduler.shouldEscapeStickyAccountAt(accountID, now, openAIStickyEscapeConfig{
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: 0.5,
@@ -2834,16 +2840,16 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 	require.InDelta(t, 15000, observedTTFT, 1e-9)
 
 	for i := 0; i < 4; i++ {
-		stats.report(accountID, false, nil)
+		stats.reportAt(accountID, false, nil, now)
 	}
-	reason, errorRate, _, shouldEscape = scheduler.shouldEscapeStickyAccount(accountID, openAIStickyEscapeConfig{
+	reason, errorRate, _, shouldEscape = scheduler.shouldEscapeStickyAccountAt(accountID, now, openAIStickyEscapeConfig{
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: 1,
 	})
 	require.False(t, shouldEscape)
 	require.Empty(t, reason)
-	reason, errorRate, observedTTFT, shouldEscape = scheduler.shouldEscapeStickyAccount(accountID, openAIStickyEscapeConfig{
+	reason, errorRate, observedTTFT, shouldEscape = scheduler.shouldEscapeStickyAccountAt(accountID, now, openAIStickyEscapeConfig{
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: errorRate,
@@ -3287,13 +3293,14 @@ func intPtrForTest(v int) *int {
 
 func TestOpenAIAccountRuntimeStats_ReportAndSnapshot(t *testing.T) {
 	stats := newOpenAIAccountRuntimeStats()
-	stats.report(1001, true, nil)
+	now := time.Now()
+	stats.reportAt(1001, true, nil, now)
 	firstTTFT := 100
-	stats.report(1001, false, &firstTTFT)
+	stats.reportAt(1001, false, &firstTTFT, now)
 	secondTTFT := 200
-	stats.report(1001, false, &secondTTFT)
+	stats.reportAt(1001, false, &secondTTFT, now)
 
-	errorRate, ttft, hasTTFT := stats.snapshot(1001)
+	errorRate, ttft, hasTTFT := stats.snapshotAt(1001, now)
 	require.True(t, hasTTFT)
 	require.InDelta(t, 0.36, errorRate, 1e-9)
 	require.InDelta(t, 120.0, ttft, 1e-9)

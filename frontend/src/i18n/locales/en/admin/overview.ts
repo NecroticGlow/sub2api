@@ -739,7 +739,23 @@ export default {
       failedToLoadBalanceHistory: 'Failed to load balance history',
       createdAt: 'Created',
       totalRecharged: 'Total Recharged',
+      observerGroups: 'Managed account groups',
+      observerSetup: {
+        title: 'Actions when changing to observer',
+        createGroup: 'Create an exclusive group named after this user',
+        createGroupHint: 'Uses OpenAI with a 1x multiplier. Grants account management and API access to the group. An existing group with the same name causes the update to fail.',
+        simpleModeHint: 'Exclusive groups are unavailable in simple mode.',
+        revokePublic: 'Revoke access to other public groups',
+        revokePublicHint: 'Restricts public standard groups and existing API keys using them. Keeps exclusive-group access and purchased subscriptions. Managed account groups are unchanged.',
+        grantResources: 'Add 99999 balance and 1000 concurrency',
+        grantResourcesHint: 'Adds 99999 to the balance and 1000 to the concurrency entered in this form. Zero remains unlimited. Changes appear in balance/concurrency history.',
+        onceHint: 'Unchecked by default. Runs only when changing a non-observer user to observer; later edits do not repeat these actions.',
+        usernameRequired: 'Enter a username before creating an exclusive group'
+      },
+      observerGroupsHint: 'Account management only; independent of API consumption groups. No groups means no account access. Credentials can be viewed and exported. Changes to shared accounts also affect other groups.',
+      observerImportHint: 'Select destination groups. Observer imports exclude proxy configurations; use an export without proxies.',
       roles: {
+        observer: 'Observer',
         admin: 'Admin',
         user: 'User'
       },
@@ -1157,19 +1173,18 @@ export default {
       },
       modelAllowlist: {
         title: 'Model Allowlist',
-        hint: 'When enabled, models outside the allowlist are rejected with 404 model_not_found, and model listing endpoints only show allowlisted models. Entries support exact model IDs and trailing * wildcards. Note: Claude Code probes with haiku-family models for titles/summaries and /messages/count_tokens is also allowlist-controlled, so make sure the small models you need are selected too.',
+        hint: 'When enabled, models outside the allowlist are rejected with 404 model_not_found, and model listing endpoints only show allowlisted models. Entries support exact model IDs and * wildcards anywhere (e.g., gpt-*-codex). Note: Claude Code probes with haiku-family models for titles/summaries and /messages/count_tokens is also allowlist-controlled, so make sure the small models you need are selected too.',
         loading: 'Loading candidate models...',
         empty: 'No candidate models; add custom entries below',
         selectedSummary: 'Selected {selected} / {total}',
         selectAll: 'Select all',
         invertSelection: 'Invert',
         wildcardTag: 'wildcard',
-        customPlaceholder: 'Custom entry, e.g. claude-* or gpt-5.5-codex',
+        customPlaceholder: 'Custom entry, e.g. gpt-*-codex or claude-*',
         addCustom: 'Add',
         emptySelectionError: 'The model allowlist is enabled; select or add at least one model entry',
         errors: {
           empty: 'Please enter a model entry',
-          invalidWildcard: 'Wildcard * is only allowed at the end of an entry',
           duplicate: 'This entry already exists'
         }
       },

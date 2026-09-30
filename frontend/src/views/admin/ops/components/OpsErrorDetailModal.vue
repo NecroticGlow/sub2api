@@ -12,6 +12,10 @@
     </div>
 
     <div v-else class="space-y-6 p-6">
+      <div v-if="balanceSource" class="rounded-xl bg-amber-50 p-4 dark:bg-amber-900/10" data-testid="balance-source">
+        <div class="font-semibold text-amber-900 dark:text-amber-200">{{ t(`admin.ops.balanceError.${balanceSource}`) }}</div>
+        <p class="mt-1 text-sm text-amber-800 dark:text-amber-100">{{ t(`admin.ops.balanceError.${balanceSource}Hint`) }}</p>
+      </div>
       <!-- Summary -->
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
@@ -225,7 +229,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { balanceErrorSource } from '../utils/balanceError'
+import { computed, ref, watch, inject } from 'vue'
+import { observerUsageAPI } from '@/api/observerUsage'
+import { observerUsageContext } from '@/components/admin/usage/observerUsageContext'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -246,6 +253,8 @@ interface Emits {
   (e: 'back'): void
 }
 
+const observerMode = inject(observerUsageContext, false)
+
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
@@ -255,7 +264,9 @@ const appStore = useAppStore()
 const loading = ref(false)
 const detail = ref<OpsErrorDetail | null>(null)
 
-const showUpstreamList = computed(() => props.errorType === 'request')
+const showUpstreamList = computed(() => !observerMode && props.errorType === 'request')
+
+const balanceSource = computed(() => balanceErrorSource(detail.value))
 
 const requestId = computed(() => detail.value?.request_id || detail.value?.client_request_id || '')
 
@@ -306,7 +317,7 @@ function isUpstreamError(d: OpsErrorDetail | null): boolean {
   if (!d) return false
   const phase = String(d.phase || '').toLowerCase()
   const owner = String(d.error_owner || '').toLowerCase()
-  return phase === 'upstream' && owner === 'provider'
+  return balanceErrorSource(d) === 'upstream' || (phase === 'upstream' && owner === 'provider')
 }
 
 function formatRequestTypeLabel(type: number | null | undefined): string {
@@ -355,6 +366,7 @@ function toggleUpstreamDetail(id: number) {
 }
 
 async function fetchCorrelatedUpstreamErrors(requestErrorId: number) {
+  if (observerMode) return
   correlatedUpstreamLoading.value = true
   try {
     const res = await opsAPI.listRequestErrorUpstreamErrors(
@@ -393,7 +405,7 @@ async function fetchDetail(id: number) {
   loading.value = true
   try {
     const kind = props.errorType || (detail.value?.phase === 'upstream' ? 'upstream' : 'request')
-    const d = kind === 'upstream' ? await opsAPI.getUpstreamErrorDetail(id) : await opsAPI.getRequestErrorDetail(id)
+    const d = observerMode ? await observerUsageAPI.getErrorDetail(id) : kind === 'upstream' ? await opsAPI.getUpstreamErrorDetail(id) : await opsAPI.getRequestErrorDetail(id)
     detail.value = d
   } catch (err: any) {
     detail.value = null
@@ -413,7 +425,7 @@ watch(
     if (typeof id === 'number' && id > 0) {
       expandedUpstreamDetailIds.value = new Set()
       fetchDetail(id)
-      if (props.errorType === 'request') {
+      if (!observerMode && props.errorType === 'request') {
         fetchCorrelatedUpstreamErrors(id)
       } else {
         correlatedUpstream.value = []

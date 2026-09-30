@@ -25,7 +25,19 @@ const PelicanDeliveryContract = "所有账号使用相同交付约定：直接�
 
 var pelicanHTMLPattern = regexp.MustCompile(`(?i)<(?:!doctype\s+html|html|svg)[\s>]`)
 
+// Failures that describe the model's output rather than the account; group tests keep
+// them as the group's answer instead of trying another account.
+const (
+	pelicanErrEmptyOutput  = "Model returned empty output"
+	pelicanErrCaptureLimit = "Response exceeds 4 MiB capture limit"
+	pelicanErrHistoryLimit = "Output exceeds 2 MiB history limit"
+)
+
 func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID int64, model string, cfg *PelicanTestConfig) (*ScheduledTestResult, error) {
+	// 探针题型不下发题目，直接走门票探针。
+	if isOpenAICodexStateProbePlan(cfg) {
+		return s.runOpenAICodexStateProbeScheduled(ctx, accountID, model, cfg)
+	}
 	// Recognize the exact built-in question in legacy HTML plans as well.
 	if isBuiltinCandyPlan(cfg) {
 		copy := *cfg
@@ -34,16 +46,20 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 
 	}
 	started := time.Now()
+	ctx = withPelicanTestOptions(ctx, pelicanTestOptions{
+		testChannel: cfg.TestChannel,
+		observeOnly: cfg.Quality != nil && cfg.Quality.Action == QualityActionObserveOnly,
+	})
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	w := &pelicanRecorder{ResponseRecorder: httptest.NewRecorder(), cancel: cancel}
 	c, _ := gin.CreateTestContext(w)
-	c.Request = (&http.Request{}).WithContext(ctx)
+	c.Request = (&http.Request{Header: make(http.Header)}).WithContext(ctx)
 	err := s.TestPelicanAccountConnection(c, accountID, model, intelligenceTestPrompt(cfg), cfg.ReasoningEffort)
 	output, message := parsePelicanOutput(w.Body.String())
 	if w.overflow {
 		output = ""
-		message = "Response exceeds 4 MiB capture limit"
+		message = pelicanErrCaptureLimit
 	}
 	if err != nil && message == "" {
 		message = err.Error()
@@ -54,7 +70,7 @@ func (s *AccountTestService) RunPelicanBackground(ctx context.Context, accountID
 	// Bounded history storage; never persist a truncated animation as a success.
 	if len(output) > 2<<20 {
 		output = ""
-		message = "Output exceeds 2 MiB history limit"
+		message = pelicanErrHistoryLimit
 	}
 	status := "success"
 	if message != "" {
@@ -83,6 +99,22 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 	if err != nil || !claimed {
 		return
 	}
+	// Legacy rules can target API-key accounts, or an account can change type
+	// after a rule is saved. Advance the claimed schedule without running a
+	// probe or recording a misleading inconclusive quality round.
+	if isOpenAICodexStateProbePlan(plan.PelicanConfig) && s.accountTestSvc != nil {
+		account, lookupErr := s.accountTestSvc.accountRepo.GetByID(ctx, plan.AccountID)
+		ignoreBPS := plan.PelicanConfig.Quality != nil && (plan.PelicanConfig.Quality.Action == QualityActionEnableBPS || plan.PelicanConfig.BPSRecoveryPending)
+		if lookupErr != nil || openAICodexStateProbeUnsupportedReason(account, plan.ModelID, ignoreBPS) != "" {
+			logger.LegacyPrintf("service.scheduled_test_runner", "state probe plan=%d account=%d skipped: account unavailable or unsupported", plan.ID, plan.AccountID)
+			finishCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
+			defer stop()
+			if finishErr := s.planRepo.FinishPelican(finishCtx, plan.ID, until, time.Now()); finishErr != nil {
+				logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d finish failed: %v", plan.ID, finishErr)
+			}
+			return
+		}
+	}
 	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	results := make([]*ScheduledTestResult, plan.PelicanConfig.ParallelCount)
@@ -91,20 +123,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			result, err := s.runPelican(runCtx, plan.AccountID, plan.ModelID, plan.PelicanConfig)
-			if err != nil {
-				result = &ScheduledTestResult{Status: "failed", ErrorMessage: fmt.Sprint(err), StartedAt: now, FinishedAt: time.Now(), PelicanConfig: plan.PelicanConfig}
-			}
-			if plan.PelicanConfig.Quality != nil && result.Status == "success" {
-				var judgment *QualityJudgment
-				if s.judgeQuality != nil {
-					judgment = s.judgeQuality(runCtx, plan.AccountID, plan.PelicanConfig, result.ResponseText)
-				}
-				applyQualityJudgment(result, judgment)
-				result.FinishedAt = time.Now()
-				result.LatencyMs = result.FinishedAt.Sub(result.StartedAt).Milliseconds()
-			}
-			results[index] = result
+			results[index] = s.runPelicanSample(runCtx, plan)
 		}(i)
 	}
 	wg.Wait()
@@ -133,12 +152,48 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 			logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d save failed: %v", plan.ID, err)
 		}
 	}
-	if succeeded && plan.AutoRecover && plan.PelicanConfig.Quality == nil && !isBuiltinCandyPlan(plan.PelicanConfig) && plan.PelicanConfig.QuestionKind != "knowledge" {
+	if succeeded && plan.AutoRecover && plan.PelicanConfig.Quality == nil && !isBuiltinCandyPlan(plan.PelicanConfig) && plan.PelicanConfig.QuestionKind != "knowledge" && !isOpenAICodexStateProbePlan(plan.PelicanConfig) {
 		s.tryRecoverAccount(saveCtx, plan.AccountID, plan.ID)
 	}
 	if err := s.planRepo.FinishPelican(saveCtx, plan.ID, until, time.Now()); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d finish failed: %v", plan.ID, err)
 	}
+}
+
+// Each sample runs in its own goroutine, outside Gin recovery. Always return a
+// result so an upstream adapter or judge panic cannot kill the process or leave
+// the persistence loop with a nil entry. Panic values may contain request data.
+func (s *ScheduledTestRunnerService) runPelicanSample(ctx context.Context, plan *ScheduledTestPlan) (result *ScheduledTestResult) {
+	started := time.Now()
+	failure := func(message string) *ScheduledTestResult {
+		finished := time.Now()
+		return &ScheduledTestResult{Status: "failed", ErrorMessage: message, StartedAt: started, FinishedAt: finished, LatencyMs: finished.Sub(started).Milliseconds(), PelicanConfig: plan.PelicanConfig}
+	}
+	defer func() {
+		if recover() != nil {
+			result = failure("scheduled_test_panic: background sample failed")
+			logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d account=%d sample panicked", plan.ID, plan.AccountID)
+		}
+	}()
+	var err error
+	result, err = s.runPelican(ctx, plan.AccountID, plan.ModelID, plan.PelicanConfig)
+	if err != nil {
+		return failure(fmt.Sprint(err))
+	}
+	if result == nil {
+		return failure("scheduled_test_empty_result: background sample returned no result")
+	}
+	// 探针题型的结果自带 correct/incorrect/unknown 判定，不经过判题模型。
+	if plan.PelicanConfig.Quality != nil && result.Status == "success" && !isOpenAICodexStateProbePlan(plan.PelicanConfig) {
+		var judgment *QualityJudgment
+		if s.judgeQuality != nil {
+			judgment = s.judgeQuality(ctx, plan.AccountID, plan.PelicanConfig, result.ResponseText)
+		}
+		applyQualityJudgment(result, judgment)
+		result.FinishedAt = time.Now()
+		result.LatencyMs = result.FinishedAt.Sub(result.StartedAt).Milliseconds()
+	}
+	return result
 }
 
 // The generated SSE is captured in memory, so cap it before buffering, not just at persistence.
@@ -204,15 +259,15 @@ func intelligenceTestOutputError(cfg *PelicanTestConfig, output string) string {
 	if cfg.Quality != nil {
 		// Completed answers are graded by the configured model in the runner.
 		if strings.TrimSpace(output) == "" {
-			return "Model returned empty output"
+			return pelicanErrEmptyOutput
 		}
 		return ""
 	}
-	if isBuiltinCandyPlan(cfg) && strings.TrimSpace(output) != "21" {
-		return "answer_mismatch: expected 21"
-	}
 	if strings.TrimSpace(output) == "" {
-		return "Model returned empty output"
+		return pelicanErrEmptyOutput
+	}
+	if isBuiltinCandyPlan(cfg) && !CandyAnswerCorrect(output) {
+		return "answer_mismatch: expected 21"
 	}
 	if cfg.QuestionKind != "candy" && cfg.QuestionKind != "knowledge" && !isBuiltinCandyPlan(cfg) && !pelicanHTMLPattern.MatchString(output) {
 		return "Model did not return HTML or SVG"

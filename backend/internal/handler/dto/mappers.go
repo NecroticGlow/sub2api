@@ -2,6 +2,7 @@
 package dto
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ func UserFromServiceShallow(u *service.User) *User {
 		Concurrency:                u.Concurrency,
 		Status:                     u.Status,
 		AllowedGroups:              u.AllowedGroups,
+		ObserverGroupIDs:           u.ObserverGroupIDs,
 		LastActiveAt:               u.LastActiveAt,
 		CreatedAt:                  u.CreatedAt,
 		UpdatedAt:                  u.UpdatedAt,
@@ -290,7 +292,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		QuotaDimension:          a.QuotaDimension,
 	}
 
-	// 提取 5h 窗口费用控制和会话数量控制配置（仅 Anthropic OAuth/SetupToken 账号有效）
+	// 提取 Anthropic OAuth/SetupToken 的配额控制配置。
 	if a.IsAnthropicOAuthOrSetupToken() {
 		if limit := a.GetWindowCostLimit(); limit > 0 {
 			out.WindowCostLimit = &limit
@@ -343,6 +345,12 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			if customURL := a.GetCustomBaseURL(); customURL != "" {
 				out.CustomBaseURL = &customURL
 			}
+		}
+	}
+	// OpenAI OAuth uses only a strict per-minute request ceiling.
+	if a.IsOpenAIOAuth() {
+		if rpm := a.GetBaseRPM(); rpm > 0 {
+			out.BaseRPM = &rpm
 		}
 	}
 
@@ -972,4 +980,28 @@ func PromoCodeUsageFromService(u *service.PromoCodeUsage) *PromoCodeUsage {
 		UsedAt:      u.UsedAt,
 		User:        UserFromServiceShallow(u.User),
 	}
+}
+
+// AccountForObserver filters only the freshly allocated response DTO. Never
+// mutate service accounts: they also feed credential refresh and scheduler caches.
+func AccountForObserver(ctx context.Context, account *Account) *Account {
+	if _, scoped := service.ObserverGroupIDs(ctx); !scoped || account == nil {
+		return account
+	}
+	account.GroupIDs = service.ObserverVisibleGroups(ctx, account.GroupIDs)
+	groups := account.Groups[:0]
+	for _, group := range account.Groups {
+		if group != nil && service.ObserverCanManageGroup(ctx, group.ID) {
+			groups = append(groups, group)
+		}
+	}
+	account.Groups = groups
+	links := account.AccountGroups[:0]
+	for _, link := range account.AccountGroups {
+		if service.ObserverCanManageGroup(ctx, link.GroupID) {
+			links = append(links, link)
+		}
+	}
+	account.AccountGroups = links
+	return account
 }

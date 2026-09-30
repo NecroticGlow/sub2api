@@ -79,7 +79,7 @@ export default {
   "parent": "Parent egress",
   "success": "Forward succeeded",
   "client_disconnected": "Client disconnected",
-  "tpsNote": "TPS is estimated from the usage record. Reasoning tokens, upstream buffering or a short post-first-token window may inflate it; it is not a direct measurement of model generation speed.",
+  "tpsNote": "Average TPS = output tokens ÷ total recorded duration (seconds). Includes waiting time and any reasoning tokens reported in output usage. The first-token latency is not subtracted; this is not a measurement of model generation speed.",
   "health": {
     "good": "Normal",
     "warn": "Watch",

@@ -330,7 +330,27 @@ type SystemSettings struct {
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds"`
 
 	// 允许终端用户在用量页查看自己的失败请求
-	AllowUserViewErrorRequests bool
+	AllowUserViewErrorRequests  bool
+	RequestCaptureEnabled       bool
+	RequestCaptureQuotaMiB      int64
+	RequestCaptureRetentionDays int
+	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
+	ExcelBPSImageMode             string
+	UsageShowLongContextBadge     bool
+	ExcelBPSImageRelayEnabled     bool
+	ExcelBPSImageBaseURL          string
+	ExcelBPSImageBodyLimitMiB     int
+	ExcelBPSImageBudgetMiB        int
+	ExcelBPSImageMaxRequests      int
+	ExcelBPSImageMaxImageMiB      int
+	ExcelBPSImageMaxImages        int
+	ExcelBPSImageLimitPolicy      string
+	ExcelBPSImageWarningRemaining int
+	ExcelBPSImageCompactReserve   int
+	ExcelBPSImageMaxTotalMiB      int
+	ExcelBPSImageStorageMiB       int
+	ExcelBPSImageStorageEntries   int
+	ExcelBPSImageTTLMinutes       int
 }
 
 type DefaultSubscriptionSetting struct {
@@ -435,6 +455,9 @@ type PublicSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
+	UsageShowLongContextBadge bool `json:"usage_show_long_context_badge"`
 }
 
 type LoginAgreementDocument struct {

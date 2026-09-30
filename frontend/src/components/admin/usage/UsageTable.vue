@@ -28,8 +28,9 @@
       >
         <template #cell-user="{ row }">
           <div class="text-sm">
+            <span v-if="observerMode" class="font-medium text-gray-900 dark:text-white">{{ row.user?.email || "-" }}</span>
             <button
-              v-if="row.user?.email"
+              v-else-if="row.user?.email"
               class="font-medium text-primary-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
               @click="$emit('userClick', row.user_id, row.user?.email)"
               :title="t('admin.usage.clickToViewBalance')"
@@ -210,7 +211,7 @@
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
               <span
-                v-if="row.long_context_billing_applied"
+                v-if="showLongContextBadge && row.long_context_billing_applied"
                 data-testid="long-context-billing-marker"
                 class="inline-flex items-center rounded px-1 py-px text-[10px] font-semibold leading-tight bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30"
               >x2</span>
@@ -252,7 +253,7 @@
                 data-testid="latency-tps"
                 class="font-medium tabular-nums"
                 :class="LATENCY_TEXT_CLASSES[tpsSeverity(usageOutputTps(row) ?? 0)]"
-                :title="row.first_token_ms != null ? t('usage.latencyTpsHint') : t('usage.latencyTpsHintNoFirstToken')"
+                :title="t('usage.latencyTpsHint')"
               >{{ formatUsageOutputTps(row) }}</span>
               <span v-else data-testid="latency-tps" class="text-gray-400 dark:text-gray-500">-</span>
             </div>
@@ -541,8 +542,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, inject } from 'vue'
 import UsageTimingDialog from './UsageTimingDialog.vue'
+import { observerUsageContext } from './observerUsageContext'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
@@ -612,6 +614,8 @@ interface Props {
   flat?: boolean
 }
 
+const observerMode = inject(observerUsageContext, false)
+
 const timingRecord = ref<AdminUsageLog | null>(null)
 
 const props = withDefaults(defineProps<Props>(), {
@@ -635,6 +639,9 @@ const copiedRequestId = ref<string | null>(null)
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
 const ipGeoBatchLoading = ref(false)
+
+// 长上下文计费 x2 徽标展示开关（公开设置，默认开启；未加载/缺失时按开启处理）
+const showLongContextBadge = computed(() => appStore.cachedPublicSettings?.usage_show_long_context_badge !== false)
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
 

@@ -106,6 +106,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return admissionErr
 	}
 	account = latest
+	if account.IsExcelBPSEnabledForModel(extractOpenAICodexTicketModel(firstClientMessage)) {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "Excel BPS models require HTTP/SSE", nil)
+	}
 	if s.accountHasLiveCodexTicket(account) {
 		defer s.holdCodexTicketChat(account)()
 	}
@@ -219,6 +222,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		rawForHash               []byte
 		promptCacheKey           string
 		previousResponseID       string
+		clientWindowID           string
 		originalModel            string
 		imageBillingModel        string
 		imageSizeTier            string
@@ -261,6 +265,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		if !gjson.ValidBytes(trimmed) {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", errors.New("invalid json"))
+		}
+
+		// Keep the client's per-frame window separate from handshake/account identity
+		// normalization. A handshake window can initialize the session, but must
+		// not turn a later omitted window into a rollover back to that old value.
+		clientWindowID := openAIWSPayloadCodexWindowID(trimmed)
+		if turn == 1 && clientWindowID == "" {
+			clientWindowID = strings.TrimSpace(gjson.Get(c.GetHeader(openAIWSTurnMetadataHeader), "window_id").String())
 		}
 
 		values := gjson.GetManyBytes(trimmed, "type", "model", "prompt_cache_key", "previous_response_id")
@@ -492,7 +504,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			eventBytes := buildOpenAIFastPolicyBlockedWSEvent(blocked)
 			if eventBytes != nil {
 				writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
-				_ = clientConn.Write(writeCtx, coderws.MessageText, eventBytes)
+				_ = WriteCapturedWSClient(writeCtx, clientConn, coderws.MessageText, eventBytes)
 				cancel()
 			}
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
@@ -510,6 +522,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			rawForHash:               trimmed,
 			promptCacheKey:           promptCacheKey,
 			previousResponseID:       previousResponseID,
+			clientWindowID:           clientWindowID,
 			originalModel:            originalModel,
 			imageBillingModel:        imageBillingModel,
 			imageSizeTier:            imageSizeTier,
@@ -523,7 +536,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
 		defer cancel()
 		message = restoreCodexToolNamesFromContext(c, message)
-		return clientConn.Write(writeCtx, coderws.MessageText, message)
+		return WriteCapturedWSClient(writeCtx, clientConn, coderws.MessageText, message)
 	}
 
 	readClientMessage := func() ([]byte, error) {
@@ -1092,6 +1105,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		turnStart := time.Now()
 		wroteDownstream := false
 		payload = s.prepareCodexQuotaOverdraftBody(ctx, account, false, payload)
+		if err := s.acquireOpenAIRPMForSend(ctx, latest); err != nil {
+			return nil, err
+		}
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",
@@ -1401,6 +1417,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	currentPayload := firstPayload.payloadRaw
+	currentClientWindowID := firstPayload.clientWindowID
 	currentOriginalModel := firstPayload.originalModel
 	currentImageBillingModel := firstPayload.imageBillingModel
 	currentImageSizeTier := firstPayload.imageSizeTier
@@ -1469,6 +1486,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	turnPrevRecoveryTried := false
 	lastTurnFinishedAt := time.Time{}
 	lastTurnResponseID := ""
+	lastTurnWindowID := ""
 	lastTurnPayload := []byte(nil)
 	var lastTurnStrictState *openAIWSIngressPreviousTurnStrictState
 	lastTurnReplayInput := []json.RawMessage(nil)
@@ -1641,8 +1659,34 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				lastTurnReplayInput, _ = stripOpenAIInvalidEncryptedContentFromReplayItems(lastTurnReplayInput, invalidDigests)
 			}
 		}
+		boundaryPayload, contextWindowBoundary, boundaryErr := normalizeOpenAIWSContextWindowBoundary(
+			currentPayload,
+			lastTurnWindowID,
+			currentClientWindowID,
+		)
+		if boundaryErr != nil {
+			return fmt.Errorf("normalize Codex websocket context-window boundary: %w", boundaryErr)
+		}
+		if contextWindowBoundary.Changed {
+			currentPayload = boundaryPayload
+			currentPayloadBytes = len(boundaryPayload)
+			logOpenAIWSModeInfo(
+				"ingress_ws_context_window_changed account_id=%d turn=%d conn_id=%s action=break_previous_response_chain previous_window_id=%s current_window_id=%s previous_response_id_removed=%v",
+				account.ID,
+				turn,
+				truncateOpenAIWSLogValue(sessionConnID, openAIWSIDValueMaxLen),
+				truncateOpenAIWSLogValue(lastTurnWindowID, openAIWSIDValueMaxLen),
+				truncateOpenAIWSLogValue(contextWindowBoundary.WindowID, openAIWSIDValueMaxLen),
+				contextWindowBoundary.PreviousResponseIDRemoved,
+			)
+		}
 		currentPreviousResponseID := openAIWSPayloadStringFromRaw(currentPayload, "previous_response_id")
 		expectedPrev := strings.TrimSpace(lastTurnResponseID)
+		if contextWindowBoundary.Changed {
+			// A context-window rollover is a new Responses root. Do not infer a
+			// continuation anchor from the response produced in the old window.
+			expectedPrev = ""
+		}
 		toolSignals := ToolContinuationSignals{
 			HasFunctionCallOutput: openAIWSRawPayloadHasToolCallOutput(currentPayload),
 		}
@@ -1958,7 +2002,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				continue
 			}
 			finalErr := relayErr
-			if unwrapped := errors.Unwrap(relayErr); unwrapped != nil && !IsOpenAITurnAdmissionError(relayErr) {
+			if unwrapped := errors.Unwrap(relayErr); unwrapped != nil && !IsOpenAITurnAdmissionError(relayErr) && !IsOpenAIRPMError(relayErr) {
 				finalErr = unwrapped
 			}
 			if hooks != nil && hooks.AfterTurn != nil {
@@ -1979,6 +2023,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		responseID := strings.TrimSpace(result.RequestID)
 		lastTurnResponseID = responseID
+		if contextWindowBoundary.WindowID != "" {
+			lastTurnWindowID = contextWindowBoundary.WindowID
+		}
 		// 正文共享：currentPayload/currentTurnReplayInput 均不可变，历史直接引用；
 		// collector 增量经 combine 合并（新头数组）。
 		lastTurnReplayInput = currentTurnReplayInput
@@ -2098,6 +2145,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		currentPayload = nextPayload.payloadRaw
+		currentClientWindowID = nextPayload.clientWindowID
 		currentOriginalModel = nextPayload.originalModel
 		currentImageBillingModel = nextPayload.imageBillingModel
 		currentImageSizeTier = nextPayload.imageSizeTier

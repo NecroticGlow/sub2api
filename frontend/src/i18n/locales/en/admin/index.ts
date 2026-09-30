@@ -1,3 +1,4 @@
+import requestCapture from './requestCapture'
 import overview from './overview'
 import channels from './channels'
 import accounts from './accounts'
@@ -10,6 +11,7 @@ import plugins from './plugins'
 import harvestFlow from './harvestFlow'
 
 export default {
+  ...requestCapture,
   ...overview,
   ...channels,
   ...accounts,

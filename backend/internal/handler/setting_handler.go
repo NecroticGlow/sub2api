@@ -124,6 +124,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		RiskControlEnabled: settings.RiskControlEnabled,
 
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
+		UsageShowLongContextBadge:  settings.UsageShowLongContextBadge,
 	})
 }
 

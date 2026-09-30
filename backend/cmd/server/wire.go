@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/requestcapture"
 	"log"
 	"net/http"
 	"sync"
@@ -25,6 +26,7 @@ import (
 )
 
 type Application struct {
+	Lifecycle     *server.Lifecycle
 	Server        *http.Server
 	PromptAudit   *securityaudit.PromptService
 	PluginManager *service.PluginManager
@@ -58,7 +60,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		provideCleanup,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Lifecycle", "Cleanup"),
 	)
 	return nil, nil
 }
@@ -82,6 +84,8 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 }
 
 func provideCleanup(
+	cfg *config.Config,
+	requestCaptures *requestcapture.Manager,
 	entClient *ent.Client,
 	rdb *redis.Client,
 	opsMetricsCollector *service.OpsMetricsCollector,
@@ -119,6 +123,8 @@ func provideCleanup(
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	accountOps *service.AccountOpsService,
+	accountTokenGuard *service.AccountTokenGuardService,
+	accountTokenGuardV2 *service.AccountTokenGuardV2Service,
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
@@ -132,6 +138,12 @@ func provideCleanup(
 	promptAudit *securityaudit.PromptService,
 	pluginManager *service.PluginManager,
 ) func() {
+	if openAIGateway != nil {
+		openAIGateway.StartBPSWarmPool()
+		if cfg.RunsBackgroundJobs() {
+			openAIGateway.StartBPS403Recovery()
+		}
+	}
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -143,6 +155,19 @@ func provideCleanup(
 
 		// 应用层清理步骤可并行执行，基础设施资源（Redis/Ent）最后按顺序关闭。
 		parallelSteps := []cleanupStep{
+			{"BPSWarmPool", func() error {
+				if openAIGateway != nil {
+					openAIGateway.StopBPS403Recovery()
+					openAIGateway.StopBPSWarmPool()
+				}
+				return nil
+			}},
+			{"AccountTokenGuardService", func() error {
+				if accountTokenGuard != nil {
+					accountTokenGuard.Stop()
+				}
+				return nil
+			}},
 			{"PluginManager", func() error {
 				if pluginManager != nil {
 					pluginManager.Stop()
@@ -191,6 +216,7 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"RequestCapture", func() error { requestCaptures.Close(); return nil }},
 			{"OpsCleanupService", func() error {
 				if opsCleanup != nil {
 					opsCleanup.Stop()
@@ -333,6 +359,9 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"ExcelBPSImages", func() error {
+				return openAIGateway.CloseExcelBPSImages()
+			}},
 			{"OpenAIWSPool", func() error {
 				if openAIGateway != nil {
 					openAIGateway.CloseOpenAIWSPool()
@@ -348,6 +377,12 @@ func provideCleanup(
 			{"AccountOpsService", func() error {
 				if accountOps != nil {
 					accountOps.Stop()
+				}
+				return nil
+			}},
+			{"AccountTokenGuardV2Service", func() error {
+				if accountTokenGuardV2 != nil {
+					accountTokenGuardV2.Stop()
 				}
 				return nil
 			}},

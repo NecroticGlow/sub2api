@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CC_SWITCH_PROVIDER_API_BASE_URL,
+  CC_SWITCH_USAGE_SCRIPT,
   GROK_CC_SWITCH_MODEL,
   OPENAI_CC_SWITCH_CODEX_MODEL,
   buildCcSwitchImportDeeplink
@@ -13,6 +14,12 @@ function paramsFromDeeplink(deeplink: string): URLSearchParams {
 }
 
 describe('ccswitchImport utils', () => {
+  it.each(['https://wanwuplus.com', 'https://wanwuplus.com/', 'https://wanwuplus.com/v1', 'https://wanwuplus.com/v1/'])('uses exactly one /v1 for the balance query from %s', baseUrl => {
+    const script = CC_SWITCH_USAGE_SCRIPT.replaceAll('{{baseUrl}}', baseUrl).replaceAll('{{apiKey}}', 'test-key')
+    const config = Function(`return ${script}`)()
+    expect(config.request.url).toBe('https://wanwuplus.com/v1/usage')
+    expect(config.request.headers.Authorization).toBe('Bearer test-key')
+  })
   it('defaults OpenAI CC Switch imports to the current Codex model', () => {
     expect(OPENAI_CC_SWITCH_CODEX_MODEL).toBe('gpt-5.6-sol')
   })
@@ -35,7 +42,7 @@ describe('ccswitchImport utils', () => {
 
     expect(CC_SWITCH_PROVIDER_API_BASE_URL).toBe('https://wanwuplus.com')
     expect(params.get('homepage')).toBe('https://current-site.example.com')
-    expect(params.get('endpoint')).toBe('https://wanwuplus.com/v1')
+    expect(params.get('endpoint')).toBe('https://wanwuplus.com')
   })
 
   const baseInput = {
@@ -58,7 +65,7 @@ describe('ccswitchImport utils', () => {
     expect(params.get('resource')).toBe('provider')
     expect(params.get('app')).toBe('codex')
     expect(params.get('homepage')).toBe(baseInput.homepage)
-    expect(params.get('endpoint')).toBe(`${CC_SWITCH_PROVIDER_API_BASE_URL}/v1`)
+    expect(params.get('endpoint')).toBe(CC_SWITCH_PROVIDER_API_BASE_URL)
     expect(params.get('model')).toBe(OPENAI_CC_SWITCH_CODEX_MODEL)
     expect(atob(params.get('usageScript') || '')).toBe(baseInput.usageScript)
   })

@@ -1002,7 +1002,7 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	}
 	// Candidate-list admission evaluates the account override before hydrating
 	// the full account. Dropping it silently falls back to the platform threshold.
-	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "account_scheduling_threshold"}
+	keys := []string{"model_mapping", "model_mapping_mode", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "account_scheduling_threshold"}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := credentials[key]; ok && value != nil {
@@ -1020,6 +1020,9 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		return nil
 	}
 	keys := []string{
+		// Priority scoring runs on candidate metadata before full hydration.
+		// Dropping saved procurement cost silently substitutes the 0.1 default.
+		service.AccountCostMultiplierExtraKey,
 		// Anthropic shared-window and Fable-only threshold checks run on this
 		// projection. UpdateExtra refreshes both payloads without a bucket rebuild.
 		"session_window_utilization",
@@ -1067,6 +1070,14 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		// 走网关报 no available accounts"。
 		"openai_passthrough",
 		"openai_oauth_passthrough",
+		"openai_excel_bps",
+		"openai_excel_bps_auto_disable_on_403",
+		service.ExcelBPSAutoRecoverOn403Key,
+		service.ExcelBPS403RecoveryIntervalMinutesKey,
+		service.ExcelBPSAutoMoveOn403Key,
+		service.ExcelBPS403TargetGroupIDKey,
+		"openai_excel_bps_mihomo",
+		"openai_excel_bps_models",
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
 		service.OpenAICodexSkipHarvestExtraKey,
@@ -1081,6 +1092,13 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"auto_pause_7d_threshold",
 		"auto_pause_5h_disabled",
 		"auto_pause_7d_disabled",
+		// 自动用卡：卡可用的 OpenAI 号在暂停阈值与用卡阈值之间继续调度。
+		// 候选过滤读的是本投影，缺这几个键时放行分支永远不会生效，
+		// 账号会在暂停阈值处被一刀切停调，直到窗口自然重置。
+		service.OpenAIAutoResetCreditEnabledExtraKey,
+		service.OpenAIAutoResetCredit5hThresholdExtraKey,
+		service.OpenAIAutoResetCredit7dThresholdExtraKey,
+		service.OpenAIAutoResetCreditStateExtraKey,
 		"model_rate_limits",
 		service.UpstreamBillingProbeExtraKey,
 		service.GrokMediaEligibleExtraKey,
@@ -1088,7 +1106,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 	}
 	filtered := make(map[string]any)
 	for _, key := range keys {
-		if value, ok := extra[key]; ok && value != nil {
+		if value, ok := extra[key]; ok && (value != nil || key == "openai_excel_bps_models") {
 			if key == service.UpstreamBillingProbeExtraKey {
 				filteredProbe := filterSchedulerUpstreamBillingProbe(value)
 				if filteredProbe == nil {

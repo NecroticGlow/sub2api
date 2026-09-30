@@ -79,7 +79,7 @@ export default {
   "parent": "所属出口尝试",
   "success": "转发成功",
   "client_disconnected": "客户端已断开",
-  "tpsNote": "TPS 按现有使用记录估算；推理 Token、上游缓冲或首字后窗口很短时可能偏高，不代表模型实际生成速度。",
+  "tpsNote": "平均 TPS = 输出 Token ÷ 记录的总耗时(秒). 包含等待时间及上游计入输出用量的推理 Token, 不扣除首字延迟, 不代表模型实际生成速度.",
   "health": {
     "good": "正常",
     "warn": "需留意",

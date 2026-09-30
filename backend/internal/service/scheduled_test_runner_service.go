@@ -21,6 +21,9 @@ type ScheduledTestRunnerService struct {
 	cfg            *config.Config
 	judgeQuality   func(context.Context, int64, *PelicanTestConfig, string) *QualityJudgment
 	runPelican     func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error)
+	// groupTests runs the Pelican group tests on the same tick; nil disables them.
+	groupTests   *PelicanGroupTestService
+	candyMonitor *ChannelMonitorV2CandyService
 
 	cron      *cron.Cron
 	startOnce sync.Once
@@ -98,7 +101,22 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 	if err := s.scheduledSvc.resultRepo.PruneExpiredPelican(ctx, now.Add(-7*24*time.Hour)); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "pelican history cleanup failed: %v", err)
 	}
-	s.scheduledSvc.showcase.Cleanup(ctx, now)
+	s.groupTests.Cleanup(ctx, now)
+	// Group tests run beside the account plans rather than after them.
+	var groupRuns sync.WaitGroup
+	groupRuns.Add(2)
+	go func() { defer groupRuns.Done(); s.candyMonitor.RunDue(ctx, now) }()
+	go func() {
+		defer groupRuns.Done()
+		s.groupTests.RunDue(ctx, now)
+	}()
+	defer groupRuns.Wait()
+	// Group rules cover accounts that started matching since the last tick.
+	if created, err := s.scheduledSvc.SyncQualityTemplates(ctx); err != nil {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] quality template sync error: %v", err)
+	} else if created > 0 {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] quality templates added %d rules", created)
+	}
 	plans, err := s.planRepo.ListDue(ctx, now)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] ListDue error: %v", err)
@@ -127,6 +145,12 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 }
 
 func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
+	// Background plans do not run under the HTTP recovery middleware.
+	defer func() {
+		if recover() != nil {
+			logger.LegacyPrintf("service.scheduled_test_runner", "scheduled plan=%d account=%d panicked", plan.ID, plan.AccountID)
+		}
+	}()
 	if plan.PelicanConfig != nil {
 		s.runPelicanPlan(ctx, plan)
 		return

@@ -625,7 +625,23 @@ export default {
       failedToToggle: '更新用户状态失败',
       failedToLoadApiKeys: '加载用户 API 密钥失败',
       deleteConfirm: "确定要删除用户 '{email}' 吗？此操作无法撤销。",
+      observerGroups: '可管理的账号分组',
+      observerSetup: {
+        title: '转为观察者时同步执行',
+        createGroup: '创建以该用户名称命名的专属分组',
+        createGroupHint: '固定为 OpenAI 平台, 倍率为 1. 自动授予该分组的账号管理和 API 使用权限. 同名分组已存在时提交失败.',
+        simpleModeHint: '简易模式不支持专属分组, 此选项不可用.',
+        revokePublic: '取消该用户使用其他公开分组的权限',
+        revokePublicHint: '限制公开普通分组及其已有 API Key. 保留专属分组授权和已购订阅; 账号管理分组不受此选项影响.',
+        grantResources: '增加 99999 余额额度和 1000 并发',
+        grantResourcesHint: '余额累加 99999, 并发在表单值基础上增加 1000. 并发为 0 时保持无限制. 变更记录在余额/并发历史中.',
+        onceHint: '默认不勾选. 仅在本次从其他角色改为观察者时执行, 后续编辑不会重复执行.',
+        usernameRequired: '创建专属分组前请填写用户名'
+      },
+      observerGroupsHint: '仅授权账号管理, 不影响用户调用 API 的分组权限. 未选择分组时无账号管理权限. 允许查看和导出账号凭据; 共享账号的操作也会影响其他分组.',
+      observerImportHint: '选择导入目标分组. 观察者导入不包含代理配置, 请使用不含代理的备份文件.',
       roles: {
+        observer: '观察者',
         admin: '管理员',
         user: '用户'
       },
@@ -1154,19 +1170,18 @@ export default {
       },
       modelAllowlist: {
         title: '模型白名单',
-        hint: '开启后，不在白名单中的模型会被拒绝（404 model_not_found），模型列表接口也只展示白名单内的模型。条目支持精确模型 ID 与末尾 * 通配。注意：Claude Code 会用 haiku 系小模型做标题/摘要等探测，/messages/count_tokens 同样受白名单控制，请一并勾选所需的小模型。',
+        hint: '开启后，不在白名单中的模型会被拒绝（404 model_not_found），模型列表接口也只展示白名单内的模型。条目支持精确模型 ID 与任意位置的 * 通配（如 gpt-*-codex）。注意：Claude Code 会用 haiku 系小模型做标题/摘要等探测，/messages/count_tokens 同样受白名单控制，请一并勾选所需的小模型。',
         loading: '正在加载候选模型...',
         empty: '暂无候选模型，可在下方手工添加条目',
         selectedSummary: '已选 {selected} / {total}',
         selectAll: '全选',
         invertSelection: '反选',
         wildcardTag: '通配',
-        customPlaceholder: '自定义条目，如 claude-* 或 gpt-5.5-codex',
+        customPlaceholder: '自定义条目，如 gpt-*-codex 或 claude-*',
         addCustom: '添加',
         emptySelectionError: '模型白名单已开启，请至少选择或添加一个模型条目',
         errors: {
           empty: '请输入模型条目',
-          invalidWildcard: '通配符 * 只能出现在条目末尾',
           duplicate: '该条目已存在'
         }
       },

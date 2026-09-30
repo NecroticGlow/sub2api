@@ -285,7 +285,7 @@ func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketCon
 	out := make([]OpenAICodexTicketStatus, 0, len(models))
 	for _, model := range models {
 		model = normalizeOpenAICodexTicketModel(model)
-		if model == "" {
+		if model == "" || !isOpenAICodexTicketAccount(account, model) {
 			continue
 		}
 		status := OpenAICodexTicketStatus{Model: model}
@@ -353,13 +353,126 @@ func (s *OpenAIGatewayService) openAICodexTicketHarvestProxyURL() string {
 	return s.openAICodexTicketHarvestProxyURLContext(context.Background())
 }
 
-func (s *OpenAIGatewayService) openAICodexTicketHarvestProxyURLContext(ctx context.Context) string {
+// openAICodexTicketHarvestProxySetting returns the configured harvest exit
+// verbatim, including the IP-pool sentinel.
+func (s *OpenAIGatewayService) openAICodexTicketHarvestProxySetting(ctx context.Context) string {
 	if s.settingService != nil {
 		if proxy := s.settingService.GetOpenAICodexTicketHarvestProxyURL(ctx); proxy != "" {
 			return proxy
 		}
 	}
 	return strings.TrimSpace(s.openAICodexTicketConfig().HarvestProxyURL)
+}
+
+func (s *OpenAIGatewayService) openAICodexTicketHarvestIPPoolEnabled(ctx context.Context) bool {
+	return s.openAICodexTicketHarvestProxySetting(ctx) == OpenAICodexTicketHarvestIPPoolURL
+}
+
+// A pool-harvested ticket records its concrete exit, so request pinning never
+// needs the pool itself. Without a recorded exit it must fall back to the
+// account's own proxy rather than an arbitrary pool member.
+func (s *OpenAIGatewayService) openAICodexTicketHarvestFixedProxyURL(ctx context.Context) string {
+	proxy := s.openAICodexTicketHarvestProxySetting(ctx)
+	if proxy == OpenAICodexTicketHarvestIPPoolURL {
+		return ""
+	}
+	return proxy
+}
+
+func (s *OpenAIGatewayService) openAICodexTicketHarvestProxyURLContext(ctx context.Context) string {
+	proxy := s.openAICodexTicketHarvestProxySetting(ctx)
+	if proxy == OpenAICodexTicketHarvestIPPoolURL {
+		exit, _ := s.pickHarvestIPPoolExit(ctx, nil)
+		return exit.url
+	}
+	return proxy
+}
+
+type harvestIPPoolExit struct {
+	url  string
+	name string
+}
+
+// Membership is cached with a short TTL and rotated round-robin, so consecutive
+// harvest attempts spread across the whole active pool without a per-attempt DB
+// read. An empty pool yields no exit, which callers treat as "skip this round"
+// rather than harvesting on a direct connection.
+const harvestIPPoolRefreshTTL = 15 * time.Second
+
+func (s *OpenAIGatewayService) pickHarvestIPPoolExit(ctx context.Context, tried map[string]bool) (harvestIPPoolExit, bool) {
+	s.refreshHarvestIPPool(ctx)
+	s.harvestIPPoolMu.Lock()
+	exits := s.harvestIPPoolExits
+	s.harvestIPPoolMu.Unlock()
+	if len(exits) == 0 {
+		return harvestIPPoolExit{}, false
+	}
+	start := s.harvestIPPoolCursor.Add(1) - 1
+	for i := range exits {
+		exit := exits[(start+uint64(i))%uint64(len(exits))]
+		if !tried[exit.url] {
+			return exit, true
+		}
+	}
+	return harvestIPPoolExit{}, false
+}
+
+func (s *OpenAIGatewayService) harvestIPPoolMember(ctx context.Context, proxyURL string) (harvestIPPoolExit, bool) {
+	s.refreshHarvestIPPool(ctx)
+	s.harvestIPPoolMu.Lock()
+	defer s.harvestIPPoolMu.Unlock()
+	for _, exit := range s.harvestIPPoolExits {
+		if exit.url == proxyURL {
+			return exit, true
+		}
+	}
+	return harvestIPPoolExit{}, false
+}
+
+// pickHarvestIPPoolExitFor keeps a refresh on the exit its ticket was
+// harvested from while that proxy is still an active pool member, then rotates.
+func (s *OpenAIGatewayService) pickHarvestIPPoolExitFor(ctx context.Context, account *Account, model string, tried map[string]bool) (harvestIPPoolExit, bool) {
+	if pinned := s.lookupOpenAICodexTicket(account, model); pinned != nil {
+		if url := strings.TrimSpace(pinned.HarvestProxyURL); url != "" && !tried[url] {
+			if exit, ok := s.harvestIPPoolMember(ctx, url); ok {
+				return exit, true
+			}
+		}
+	}
+	return s.pickHarvestIPPoolExit(ctx, tried)
+}
+
+func (s *OpenAIGatewayService) refreshHarvestIPPool(ctx context.Context) {
+	if s.proxyRepo == nil {
+		return
+	}
+	now := time.Now()
+	s.harvestIPPoolMu.Lock()
+	fresh := now.Before(s.harvestIPPoolSyncedAt.Add(harvestIPPoolRefreshTTL))
+	if !fresh {
+		s.harvestIPPoolSyncedAt = now
+	}
+	s.harvestIPPoolMu.Unlock()
+	if fresh {
+		return
+	}
+	proxies, err := s.proxyRepo.ListActive(ctx)
+	if err != nil {
+		// Keep the last membership on a transient listing error rather than
+		// collapsing the pool to empty and skipping every harvest round.
+		logger.FromContext(ctx).Warn("openai_codex_ticket.ip_pool_refresh_failed", zap.Error(err))
+		return
+	}
+	exits := make([]harvestIPPoolExit, 0, len(proxies))
+	for i := range proxies {
+		if proxies[i].IsExpired(now) {
+			continue
+		}
+		exits = append(exits, harvestIPPoolExit{url: proxies[i].URL(), name: strings.TrimSpace(proxies[i].Name)})
+	}
+	s.harvestIPPoolMu.Lock()
+	s.harvestIPPoolExits = exits
+	s.harvestIPPoolMu.Unlock()
 }
 
 func openAICodexTicketRemainingUntil(t *openAICodexTicket) time.Time {
@@ -469,7 +582,7 @@ func (s *OpenAIGatewayService) lookupCodexTicketLocked(account *Account, model s
 		}
 		gateway := controls.TargetGateway
 		if gateway == "" {
-			gateway = "unified-95"
+			gateway = "unified-88"
 		}
 		if mem != nil && (mem.Transport != protocol || !codex780GatewayAllowed(mem.Gateway, gateway)) {
 			mem = nil
@@ -617,7 +730,7 @@ func (s *OpenAIGatewayService) harvestPinsCodexIdentity(ctx context.Context, acc
 // 请求路径只注入已捕获的有效门票，不现场打票；无票则返回
 // ErrOpenAICodexTicketUnavailable。打票由后台 harvester 完成。
 func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, account *Account, model string, h http.Header, transport ...string) error {
-	if s == nil || h == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabledContext(ctx) {
+	if s == nil || h == nil || !isOpenAICodexTicketAccount(account, model) || !s.openAICodexTicketEnabledContext(ctx) {
 		return nil
 	}
 	model = normalizeOpenAICodexTicketModel(model)
@@ -671,6 +784,9 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 // （默认非空），此时若门控仍按客户端原始模型判定，就会把「实际出站是非门控
 // 模型、根本不需要票」的 compact 请求整片误拦成不可调度。
 func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, requestedModel string, requireCompact bool) string {
+	if account.IsExcelBPSEnabledForModel(requestedModel) {
+		return account.GetMappedModel(requestedModel)
+	}
 	model := strings.TrimSpace(requestedModel)
 	if account == nil || model == "" {
 		return model
@@ -694,7 +810,7 @@ func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, 
 // outboundModel 必须是真正会发给上游的模型名（openAICodexTicketOutboundModel），
 // 不是客户端原始模型：注入侧读的是出站 body.model，两侧口径必须一致。
 func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, outboundModel string) bool {
-	if s == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabled() {
+	if s == nil || !isOpenAICodexTicketAccount(account, outboundModel) || !s.openAICodexTicketEnabled() {
 		return false
 	}
 	cfg := s.openAICodexTicketConfig()
@@ -720,6 +836,9 @@ func (s *OpenAIGatewayService) openAICodexTicketReadyForRequest(account *Account
 		return false
 	}
 	outbound := s.openAICodexTicketOutboundModel(account, requestedModel, requireCompact)
+	if !isOpenAICodexTicketAccount(account, outbound) {
+		return false
+	}
 	model := normalizeOpenAICodexTicketModel(outbound)
 	if model == "" || !s.openAICodexTicketGatedModel(model) {
 		return false
@@ -934,7 +1053,7 @@ func needsOpenAICodexAstraVersion(model string) bool {
 }
 
 func (s *OpenAIGatewayService) StartOpenAICodexTicketHarvester() {
-	if s == nil {
+	if s == nil || !s.cfg.RunsBackgroundJobs() {
 		return
 	}
 	s.openaiCodexTicketLifecycleMu.Lock()
@@ -1056,7 +1175,7 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 		})
 		defer s.codexHarvest.setRuntime(func(r *CodexHarvestRuntime) { r.Running = false; r.CurrentNode = "" })
 	}
-	observeCodexHarvestProxy(ctx, s.openAICodexTicketHarvestProxyURLContext(ctx))
+	observeCodexHarvestProxy(ctx, s.openAICodexTicketHarvestProxySetting(ctx))
 	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
 	if err != nil {
 		logger.L().Warn("openai_codex_ticket list accounts failed", zap.Error(err))
@@ -1211,6 +1330,10 @@ func ValidateOpenAICodexTicketHarvestProxyURL(raw string) error {
 	if raw == "" {
 		return nil
 	}
+	// The IP 管理 pool sentinel is not a dialable exit; it is resolved per attempt.
+	if raw == OpenAICodexTicketHarvestIPPoolURL {
+		return nil
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Hostname() == "" || parsed.Opaque != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
 		return errors.New("harvest proxy must be an HTTP(S) or SOCKS5(h) URL with a host and no path, query or fragment")
@@ -1234,6 +1357,11 @@ func MaskProxyURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || ValidateOpenAICodexTicketHarvestProxyURL(raw) != nil {
 		return ""
+	}
+	// The pool sentinel carries no credentials; surface it verbatim so the panel
+	// can restore the "IP 管理 pool" selection after save.
+	if raw == OpenAICodexTicketHarvestIPPoolURL {
+		return raw
 	}
 	parsed, _ := url.Parse(raw)
 	if parsed.User != nil {
@@ -1260,8 +1388,11 @@ func IsMaskedProxyURL(raw string) bool {
 
 // Credential shadows do not own tickets. Keep their existing forwarding policy
 // instead of imposing a gate for a key the harvester never populates.
-func isOpenAICodexTicketAccount(account *Account) bool {
-	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow() && !account.IsExcelBPSEnabled()
+func isOpenAICodexTicketAccount(account *Account, upstreamModels ...string) bool {
+	if account == nil || !account.IsOpenAIOAuthLike() || account.IsShadow() || account.isExcelBPSAllModelsEnabled() {
+		return false
+	}
+	return len(upstreamModels) == 0 || !account.isExcelBPSUpstreamModelEnabled(upstreamModels[0])
 }
 
 // IsOpenAICodexTicketPrivateExtraKey also covers the retired account-level proxy

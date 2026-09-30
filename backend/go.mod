@@ -34,6 +34,7 @@ require (
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/refraction-networking/utls v1.8.2
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/shirou/gopsutil/v4 v4.25.6
 	github.com/shopspring/decimal v1.4.0
 	github.com/smartwalle/alipay/v3 v3.2.29
@@ -51,7 +52,7 @@ require (
 	github.com/zeromicro/go-zero v1.9.4
 	go.uber.org/zap v1.24.0
 	golang.org/x/crypto v0.55.0
-	golang.org/x/image v0.41.0
+	golang.org/x/image v0.45.0
 	golang.org/x/mod v0.38.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.22.0

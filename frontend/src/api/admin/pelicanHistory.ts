@@ -1,8 +1,10 @@
 import { apiClient } from '../client'
-import type { IntelligenceQuestion } from '@/utils/intelligenceTest'
+import type { StateProbeVerdict } from '@/utils/intelligenceTest'
+import type { PelicanTestConfig } from '@/types'
 
 export interface IntelligenceRun {
-  questionKind?: IntelligenceQuestion
+  questionKind?: PelicanTestConfig['question_kind']
+  verdict?: StateProbeVerdict
   id: string
   status: 'running' | 'success' | 'error'
   output: string
@@ -16,7 +18,7 @@ export interface IntelligenceRun {
   reasoningEffort?: string
 }
 export interface IntelligenceRecord {
-  questionKind?: IntelligenceQuestion
+  questionKind?: PelicanTestConfig['question_kind']
   id: string
   createdAt: string
   prompt: string

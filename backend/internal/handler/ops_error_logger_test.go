@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1163,6 +1164,15 @@ func TestClassifyOpsLocalBusinessLimitErrorsExcludedFromSLA(t *testing.T) {
 			wantPhase:   "request",
 		},
 		{
+			name:        "explicit local user balance",
+			errType:     "billing_error",
+			message:     service.InsufficientUserBalanceMessage,
+			code:        "",
+			status:      http.StatusForbidden,
+			wantErrType: "billing_error",
+			wantPhase:   "request",
+		},
+		{
 			name:        "gemini group platform mismatch",
 			errType:     "api_error",
 			message:     "API key group platform is not gemini",
@@ -2167,4 +2177,120 @@ func TestNormalizeOpsErrorType_KeepsGeminiInBandSignalTypes(t *testing.T) {
 	} {
 		require.Equal(t, errType, normalizeOpsErrorType(errType, "PROHIBITED_CONTENT"), errType)
 	}
+}
+
+type opsAdvancedSettingsRepoStub struct {
+	service.SettingRepository
+	advanced string
+}
+
+func (r *opsAdvancedSettingsRepoStub) GetValue(context.Context, string) (string, error) {
+	return "", service.ErrSettingNotFound
+}
+
+func (r *opsAdvancedSettingsRepoStub) GetMultiple(context.Context, []string) (map[string]string, error) {
+	return map[string]string{service.SettingKeyOpsAdvancedSettings: r.advanced}, nil
+}
+
+func (r *opsAdvancedSettingsRepoStub) Set(context.Context, string, string) error {
+	return nil
+}
+
+// serveClientClosedRequest 以已取消的请求 context 走 failoverClientGone，复现网关标记 499 的收尾路径。
+func serveClientClosedRequest(t *testing.T, ops *service.OpsService, prepare func(c *gin.Context)) {
+	t.Helper()
+	router := gin.New()
+	router.Use(OpsErrorLoggerMiddleware(ops))
+	router.POST("/v1/messages", func(c *gin.Context) {
+		if prepare != nil {
+			prepare(c)
+		}
+		failoverClientGone(c)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(ctx))
+	require.Equal(t, statusClientClosedRequest, recorder.Code)
+	require.Zero(t, recorder.Body.Len())
+}
+
+func TestOpsErrorLoggerMiddleware_SkipsPureClientClosed(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 2)
+	gin.SetMode(gin.TestMode)
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	require.True(t, ops.OpsAdvancedSettingsSnapshot().IgnoreContextCanceled)
+
+	serveClientClosedRequest(t, ops, nil)
+
+	require.Zero(t, OpsErrorLogQueueLength(), "纯客户端取消的 499 按 IgnoreContextCanceled 跳过")
+}
+
+func TestOpsErrorLoggerMiddleware_RecordsClientClosedAfterUpstreamFailure(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 2)
+	gin.SetMode(gin.TestMode)
+	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	serveClientClosedRequest(t, ops, func(c *gin.Context) {
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
+			AccountID: 7, UpstreamStatusCode: 524, Kind: "failover", Message: "upstream timeout",
+		}})
+	})
+
+	require.Equal(t, int64(1), OpsErrorLogQueueLength(), "上游失败后客户端离开仍按上游失败落库")
+	job := <-opsErrorLogQueue
+	require.Equal(t, statusClientClosedRequest, job.entry.StatusCode)
+	require.Equal(t, "upstream", job.entry.ErrorPhase)
+	require.NotNil(t, job.entry.UpstreamStatusCode)
+	require.Equal(t, 524, *job.entry.UpstreamStatusCode)
+}
+
+func TestOpsErrorLoggerMiddleware_RecordsClientClosedWhenIgnoreContextCanceledDisabled(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 2)
+	gin.SetMode(gin.TestMode)
+	settings := &opsAdvancedSettingsRepoStub{advanced: `{"ignore_context_canceled":false}`}
+	ops := service.NewOpsService(nil, settings, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	require.False(t, ops.OpsAdvancedSettingsSnapshot().IgnoreContextCanceled)
+
+	serveClientClosedRequest(t, ops, nil)
+
+	require.Equal(t, int64(1), OpsErrorLogQueueLength())
+	job := <-opsErrorLogQueue
+	require.Equal(t, statusClientClosedRequest, job.entry.StatusCode)
+}
+
+func TestOpsBalanceFilterRecognizesExplicitUserMessage(t *testing.T) {
+	settings := &opsAdvancedSettingsRepoStub{advanced: `{"ignore_insufficient_balance_errors":true}`}
+	ops := service.NewOpsService(nil, settings, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	require.True(t, ops.OpsAdvancedSettingsSnapshot().IgnoreInsufficientBalanceErrors)
+	for _, message := range []string{"insufficient balance", "Insufficient account balance", service.InsufficientUserBalanceMessage} {
+		require.True(t, shouldSkipOpsErrorLog(context.Background(), ops, message, "", "/v1/responses"))
+		require.True(t, shouldSkipOpsErrorLog(context.Background(), ops, "", message, "/v1/responses"))
+	}
+}
+
+type opsFlushFailureRecorder struct {
+	*httptest.ResponseRecorder
+	calls int
+}
+
+func (w *opsFlushFailureRecorder) FlushError() error {
+	w.calls++
+	return io.ErrClosedPipe
+}
+
+func TestOpsCaptureWriterFlushErrorPropagatesAndHonorsLease(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := &opsFlushFailureRecorder{ResponseRecorder: httptest.NewRecorder()}
+	c, _ := gin.CreateTestContext(rec)
+	writer := acquireOpsCaptureWriter(c.Writer)
+	defer releaseOpsCaptureWriter(writer)
+	writer.WriteHeader(http.StatusAccepted)
+	require.ErrorIs(t, service.FlushGatewayResponse(writer), io.ErrClosedPipe)
+	require.True(t, writer.Written(), "flush must preserve Gin header bookkeeping")
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, 1, rec.calls)
+	releaseOpsCaptureWriter(writer)
+	require.ErrorContains(t, writer.FlushError(), "released")
+	require.Equal(t, 1, rec.calls, "released handles must not reach the old transport")
 }

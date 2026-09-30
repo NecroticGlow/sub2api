@@ -33,6 +33,16 @@ func (h *SettingHandler) auditSettingsUpdate(c *gin.Context, before *service.Sys
 
 func diffSettings(before *service.SystemSettings, after *service.SystemSettings, beforeAuthSourceDefaults *service.AuthSourceDefaultSettings, afterAuthSourceDefaults *service.AuthSourceDefaultSettings, req UpdateSettingsRequest) []string {
 	changed := make([]string, 0, 20)
+	if before.RequestCaptureEnabled != after.RequestCaptureEnabled {
+		changed = append(changed, "request_capture_enabled")
+	}
+	if before.RequestCaptureQuotaMiB != after.RequestCaptureQuotaMiB {
+		changed = append(changed, "request_capture_quota_mib")
+	}
+	if before.RequestCaptureRetentionDays != after.RequestCaptureRetentionDays {
+		changed = append(changed, "request_capture_retention_days")
+	}
+
 	if before.RegistrationEnabled != after.RegistrationEnabled {
 		changed = append(changed, "registration_enabled")
 	}
@@ -905,8 +915,8 @@ func stringSetting(value *string, fallback string) string {
 	return *value
 }
 
-// pelicanShowcaseConfigChanged compares normalized configs: the request carries the
-// admin's raw group order, while the stored config is sorted and deduplicated.
+// pelicanShowcaseConfigChanged compares normalized configs: the request may leave limits
+// at zero, which the stored config fills with defaults.
 func pelicanShowcaseConfigChanged(before, after service.PelicanShowcaseConfig) bool {
 	normalizedBefore, errBefore := service.NormalizePelicanShowcaseConfig(before)
 	normalizedAfter, errAfter := service.NormalizePelicanShowcaseConfig(after)

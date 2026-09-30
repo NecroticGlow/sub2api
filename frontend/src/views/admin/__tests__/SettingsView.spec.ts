@@ -1,3 +1,4 @@
+import { excelBPSImageLimits } from "@/utils/excelBPSImageLimits";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h } from "vue";
 import { flushPromises, mount } from "@vue/test-utils";
@@ -128,8 +129,6 @@ vi.mock("@/stores", () => ({
     showInfo: vi.fn(),
     fetchPublicSettings,
   }),
-  // GroupSelector (Pelican showcase groups) reads simple mode.
-  useAuthStore: () => ({ isSimpleMode: false }),
 }));
 
 vi.mock("@/stores/adminSettings", () => ({
@@ -240,7 +239,6 @@ vi.mock("vue-i18n", async () => {
     "admin.settings.openaiFastPolicy.summaryAction.pass": "透传",
     "admin.settings.security.passkeyDeploymentHint":
       "请由服务器运维在部署配置中将 webauthn.enabled 设为 true，填写 webauthn.rp_id（仅域名）与 webauthn.rp_origins（完整 HTTPS 来源），然后重启服务。",
-    "admin.settings.features.pelicanShowcase.staleGroupLabel": "不可用的分组 #{id}",
     "admin.settings.site.uploadImage": "上传图片",
     "admin.settings.site.remove": "移除",
     "admin.settings.platformQuota.platform": "平台",
@@ -393,6 +391,16 @@ const baseSettingsResponse = {
   doc_url: "",
   home_content: "",
   compact_home_enabled: false,
+  excel_bps_image_mode: 'relay',
+  excel_bps_image_relay_enabled: false,
+  excel_bps_image_base_url: '',
+  excel_bps_image_max_image_mib: 20,
+  excel_bps_image_max_images: 20,
+  excel_bps_image_max_total_mib: 32,
+  excel_bps_image_storage_mib: 1024,
+  excel_bps_image_storage_entries: 512,
+  excel_bps_image_ttl_minutes: 30,
+
   hide_ccs_import_button: false,
   table_default_page_size: 20,
   table_page_size_options: [10, 20, 50, 100],
@@ -564,6 +572,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        EmailTemplateEditor: true,
       },
     },
   });
@@ -725,47 +734,254 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
-  it("saves Pelican showcase groups and gallery limits", async () => {
-    getGroups.mockResolvedValue([
-      { id: 1, name: "Claude Max", platform: "anthropic", status: "active", subscription_type: "standard", rate_multiplier: 1 },
-      { id: 2, name: "GPT Plus", platform: "openai", status: "active", subscription_type: "standard", rate_multiplier: 1 },
-      { id: 3, name: "Paused", platform: "openai", status: "disabled", subscription_type: "standard", rate_multiplier: 1 },
-    ]);
+  it("points to Smart Ops for the Pelican showcase and never saves its settings", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
       pelican_showcase_enabled: true,
-      pelican_showcase_config: { group_ids: [1, 9], max_items: 20, auto_cleanup: true, retention_days: 7 },
+      pelican_showcase_config: { max_items: 30, auto_cleanup: true, retention_days: 7 },
     });
     const wrapper = mountView();
     await flushPromises();
-    const card = wrapper.get('[data-testid="pelican-showcase-settings"]');
+    const card = wrapper.get('[data-testid="pelican-showcase-moved"]');
+    expect(card.get("router-link").attributes("to")).toBe("/admin/pelican-tests");
 
-    // Only active groups are offered; a selected group that no longer exists is listed for removal.
-    const options = card.findAll('input[type="checkbox"][value]').map((input) => (input.element as HTMLInputElement).value);
-    expect(options).toEqual(["1", "2"]);
-    expect(card.get('[data-testid="pelican-showcase-stale-groups"]').text()).toContain("#9");
-    await card.get('[data-testid="pelican-showcase-stale-groups"] button').trigger("click");
-    expect(card.find('[data-testid="pelican-showcase-stale-groups"]').exists()).toBe(false);
-
-    await card.get('input[type="checkbox"][value="2"]').setValue(true);
-    await card.get('[data-testid="pelican-showcase-max-items"]').setValue("150");
-    await card.get('[data-testid="pelican-showcase-retention-days"]').setValue("30");
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
     const payload = updateSettings.mock.calls[0]?.[0];
-    expect(payload.pelican_showcase_enabled).toBe(true);
-    expect(payload.pelican_showcase_config).toEqual({
-      group_ids: [1, 2],
-      max_items: 100, // clamped to the backend limit instead of failing the whole save
-      auto_cleanup: true,
-      retention_days: 30,
-    });
+    expect(payload).toBeDefined();
+    // Saving system settings must not overwrite what the Smart Ops page saved.
+    expect(payload).not.toHaveProperty("pelican_showcase_enabled");
+    expect(payload).not.toHaveProperty("pelican_showcase_config");
+    wrapper.unmount();
+  });
 
-    // Turning auto cleanup off hides the day limit but keeps the count limit.
-    await card.get('[data-testid="pelican-showcase-auto-cleanup"]').setValue(false);
-    expect(card.find('[data-testid="pelican-showcase-retention-days"]').exists()).toBe(false);
-    await card.get('[data-testid="pelican-showcase-enabled"]').setValue(false);
-    expect(card.find('[data-testid="pelican-showcase-max-items"]').exists()).toBe(false);
+  it("saves expanded image capacity and rejects values above each ceiling", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.get('#excel-bps-image-enabled').setValue(true);
+    await wrapper.get('#excel-bps-image-base-url').setValue('https://images.example');
+    const fields = [
+      ['body-limit', 'body_limit_mib', excelBPSImageLimits.bodyMiB],
+      ['budget', 'budget_mib', excelBPSImageLimits.budgetMiB],
+      ['max-requests', 'max_requests', excelBPSImageLimits.requests],
+      ['max-image-mib', 'max_image_mib', excelBPSImageLimits.imageMiB],
+      ['max-total-mib', 'max_total_mib', excelBPSImageLimits.totalMiB],
+      ['max-images', 'max_images', excelBPSImageLimits.images],
+      ['storage-mib', 'storage_mib', excelBPSImageLimits.storageMiB],
+      ['storage-entries', 'storage_entries', excelBPSImageLimits.storageEntries],
+      ['ttl-minutes', 'ttl_minutes', excelBPSImageLimits.ttlMinutes],
+    ] as const;
+    for (const [id, , maximum] of fields) {
+      const input = wrapper.get('#excel-bps-image-' + id);
+      expect(input.attributes('max')).toBe(String(maximum));
+      await input.setValue(String(maximum));
+    }
+    // Check each invalid field independently while all other fields are valid.
+    for (const [id, , maximum] of fields) {
+      const input = wrapper.get('#excel-bps-image-' + id);
+      await input.setValue(String(maximum + 1));
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushPromises();
+      expect(updateSettings).not.toHaveBeenCalled();
+      await input.setValue(String(maximum));
+    }
+    showError.mockClear();
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    for (const [, key, maximum] of fields) {
+      expect(updateSettings.mock.calls[0]?.[0]).toHaveProperty('excel_bps_image_' + key, maximum);
+    }
+    expect(showError).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("saves Excel BPS image relay from the feature switches tab", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const tab = wrapper.findAll('button').find((node) => node.text().includes('admin.settings.tabs.features'));
+    expect(tab).toBeDefined();
+    await tab?.trigger('click');
+    const card = wrapper.get('[data-testid="excel-bps-image-settings"]');
+    expect(card.isVisible()).toBe(true);
+    expect(card.find('#excel-bps-image-base-url').exists()).toBe(false);
+    await card.get('#excel-bps-image-enabled').setValue(true);
+    await card.get('#excel-bps-image-base-url').setValue(' https://images.example/ ');
+    await card.get('#excel-bps-image-body-limit').setValue('32');
+    await card.get('#excel-bps-image-budget').setValue('768');
+    await card.get('#excel-bps-image-max-requests').setValue('512');
+    await card.get('#excel-bps-image-max-image-mib').setValue('30');
+    await card.get('#excel-bps-image-max-images').setValue('100');
+    await card.get('#excel-bps-image-max-total-mib').setValue('64');
+    await card.get('#excel-bps-image-storage-mib').setValue('2048');
+    await card.get('#excel-bps-image-storage-entries').setValue('2048');
+    await card.get('#excel-bps-image-ttl-minutes').setValue('60');
+
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+      excel_bps_image_relay_enabled: true,
+      excel_bps_image_base_url: 'https://images.example',
+      excel_bps_image_body_limit_mib: 32,
+      excel_bps_image_budget_mib: 768,
+      excel_bps_image_max_requests: 512,
+      excel_bps_image_max_image_mib: 30,
+      excel_bps_image_max_images: 100,
+      excel_bps_image_max_total_mib: 64,
+      excel_bps_image_storage_mib: 2048,
+      excel_bps_image_storage_entries: 2048,
+      excel_bps_image_ttl_minutes: 60,
+
+    });
+    expect(showError).not.toHaveBeenCalled();
+    expect(showSuccess).toHaveBeenCalledWith('admin.settings.settingsSaved');
+    wrapper.unmount();
+  });
+
+  it("saves native image uploads without a public origin and reloads the mode", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.get('#excel-bps-image-enabled').setValue(true);
+    await wrapper.get('#excel-bps-image-mode').setValue('native');
+    expect(wrapper.find('#excel-bps-image-base-url').exists()).toBe(false);
+    expect(wrapper.find('#excel-bps-image-max-images').exists()).toBe(true);
+    expect(wrapper.find('#excel-bps-image-storage-mib').exists()).toBe(false);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_image_mode: 'native', excel_bps_image_relay_enabled: true, excel_bps_image_base_url: '' });
+    expect(showError).not.toHaveBeenCalled();
+    wrapper.unmount();
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, excel_bps_image_mode: 'native', excel_bps_image_relay_enabled: true });
+    const loaded = mountView();
+    await flushPromises();
+    expect((loaded.get('#excel-bps-image-mode').element as HTMLSelectElement).value).toBe('native');
+    expect(loaded.find('#excel-bps-image-base-url').exists()).toBe(false);
+    expect(loaded.find('#excel-bps-image-max-images').exists()).toBe(true);
+    await loaded.get('#excel-bps-image-mode').setValue('relay');
+    expect(loaded.find('#excel-bps-image-max-images').exists()).toBe(true);
+    loaded.unmount();
+  });
+
+  it("defaults the image policy off and saves auto compaction", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.get('#excel-bps-image-enabled').setValue(true);
+    await wrapper.get('#excel-bps-image-mode').setValue('native');
+    expect((wrapper.get('#bps-image-limit-policy').element as HTMLSelectElement).value).toBe('off');
+    await wrapper.get('#bps-image-limit-policy').setValue('auto_compact');
+    expect(wrapper.find('#bps-image-compact-reserve').exists()).toBe(false);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_image_limit_policy: 'auto_compact', excel_bps_image_warning_remaining: 8, excel_bps_image_compact_reserve: 3 });
+    expect(showError).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("validates warning margins and reloads the policy", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, excel_bps_image_relay_enabled: true, excel_bps_image_mode: 'native', excel_bps_image_limit_policy: 'warn', excel_bps_image_warning_remaining: 8, excel_bps_image_compact_reserve: 3 });
+    const wrapper = mountView();
+    await flushPromises();
+    expect((wrapper.get('#bps-image-limit-policy').element as HTMLSelectElement).value).toBe('warn');
+    for (const [selector, value, original] of [
+      ['#bps-image-warning-remaining', '20', '8'],
+      ['#bps-image-compact-reserve', '8', '3'],
+      ['#bps-image-compact-reserve', '0', '3'],
+      ['#bps-image-warning-remaining', '8.5', '8'],
+    ]) {
+      await wrapper.get(selector).setValue(value);
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushPromises();
+      expect(updateSettings).not.toHaveBeenCalled();
+      expect(showError).toHaveBeenLastCalledWith('admin.settings.features.excelBpsImages.invalidLimits');
+      await wrapper.get(selector).setValue(original);
+    }
+    await wrapper.get('#bps-image-warning-remaining').setValue('9');
+    await wrapper.get('#bps-image-compact-reserve').setValue('4');
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_image_limit_policy: 'warn', excel_bps_image_warning_remaining: 9, excel_bps_image_compact_reserve: 4 });
+    wrapper.unmount();
+  });
+
+  it("loads saved Excel BPS image settings and preserves the address when disabled", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, excel_bps_image_relay_enabled: true, excel_bps_image_base_url: 'https://saved.example', excel_bps_image_body_limit_mib: 24, excel_bps_image_budget_mib: 896, excel_bps_image_max_requests: 40 });
+    const wrapper = mountView();
+    await flushPromises();
+    expect((wrapper.get('#excel-bps-image-base-url').element as HTMLInputElement).value).toBe('https://saved.example');
+    expect((wrapper.get('#excel-bps-image-body-limit').element as HTMLInputElement).value).toBe('24');
+    expect((wrapper.get('#excel-bps-image-budget').element as HTMLInputElement).value).toBe('896');
+    expect((wrapper.get('#excel-bps-image-max-requests').element as HTMLInputElement).value).toBe('40');
+    await wrapper.get('#excel-bps-image-enabled').setValue(false);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_image_relay_enabled: false, excel_bps_image_base_url: 'https://saved.example', excel_bps_image_body_limit_mib: 24, excel_bps_image_budget_mib: 896, excel_bps_image_max_requests: 40 });
+    wrapper.unmount();
+  });
+
+  it("rejects inconsistent image limits and preserves saved limits when disabling", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, excel_bps_image_relay_enabled: true, excel_bps_image_base_url: 'https://images.example', excel_bps_image_max_images: 100, excel_bps_image_ttl_minutes: 60 });
+    const wrapper = mountView();
+    await flushPromises();
+    expect((wrapper.get('#excel-bps-image-max-images').element as HTMLInputElement).value).toBe('100');
+    for (const [id, value, original] of [
+      ['max-images', '0', '100'], ['max-images', String(excelBPSImageLimits.images + 1), '100'], ['ttl-minutes', String(excelBPSImageLimits.ttlMinutes + 1), '60'],
+      ['max-total-mib', '1', '32'], ['storage-entries', '99', '512'], ['storage-mib', '1', '1024'],
+    ]) {
+      await wrapper.get(`#excel-bps-image-${id}`).setValue(value);
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushPromises();
+      expect(updateSettings).not.toHaveBeenCalled();
+      expect(showError).toHaveBeenLastCalledWith('admin.settings.features.excelBpsImages.invalidLimits');
+      await wrapper.get(`#excel-bps-image-${id}`).setValue(original);
+    }
+    await wrapper.get('#excel-bps-image-enabled').setValue(false);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_image_relay_enabled: false, excel_bps_image_max_images: 100, excel_bps_image_ttl_minutes: 60 });
+    wrapper.unmount();
+  });
+
+  it("rejects missing or unsafe Excel BPS image origins before saving", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.get('#excel-bps-image-enabled').setValue(true);
+    for (const value of ['', 'http://images.example', 'https://images.example/v1', 'https://user:secret@images.example', 'https://images.example?token=secret', 'https://images.example#']) {
+      await wrapper.get('#excel-bps-image-base-url').setValue(value);
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushPromises();
+      expect(updateSettings).not.toHaveBeenCalled();
+      expect(showError).toHaveBeenLastCalledWith('admin.settings.features.excelBpsImages.invalidBaseUrl');
+    }
+    wrapper.unmount();
+  });
+
+  it("rejects out-of-range image relay capacity before saving", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.get('#excel-bps-image-enabled').setValue(true);
+    await wrapper.get('#excel-bps-image-base-url').setValue('https://images.example');
+    for (const [selector, value] of [
+      ['#excel-bps-image-body-limit', String(excelBPSImageLimits.bodyMiB + 1)],
+      ['#excel-bps-image-budget', '511'],
+      ['#excel-bps-image-max-requests', '0'],
+      ['#excel-bps-image-max-requests', String(excelBPSImageLimits.requests + 1)],
+      ['#excel-bps-image-max-requests', '1.5'],
+    ]) {
+      const input = wrapper.get(selector);
+      const original = (input.element as HTMLInputElement).value;
+      await input.setValue(value);
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushPromises();
+      expect(updateSettings).not.toHaveBeenCalled();
+      expect(showError).toHaveBeenLastCalledWith('admin.settings.features.excelBpsImages.invalidCapacity');
+      await input.setValue(original);
+    }
+    await wrapper.get('#excel-bps-image-body-limit').setValue('128');
+    await wrapper.get('#excel-bps-image-budget').setValue('512');
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenLastCalledWith('admin.settings.features.excelBpsImages.invalidCapacity');
     wrapper.unmount();
   });
 
@@ -948,6 +1164,54 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
       .toBe("");
+    wrapper.unmount();
+  });
+
+  it("saves the IP management pool as the harvest proxy and restores the static address when leaving it", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
+      openai_codex_ticket_harvest_proxy_configured: true,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper
+      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="ip_pool"]')
+      .setValue(true);
+    expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
+    expect(wrapper.find('[data-testid="codex-ticket-proxy-ip-pool-hint"]').exists()).toBe(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      openai_codex_ticket_harvest_proxy_url: "ippool://active",
+      openai_codex_ticket_use_saved_static_proxy: false,
+    }));
+
+    await wrapper
+      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="static"]')
+      .setValue(true);
+    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value)
+      .toBe("http://user:***@old.example.com:8080");
+    wrapper.unmount();
+  });
+
+  it("restores the IP management pool mode from saved settings", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_harvest_proxy_url: "ippool://active",
+      openai_codex_ticket_harvest_proxy_configured: true,
+      openai_codex_ticket_static_proxy_url: "http://user:***@saved.example.com:8080",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="ip_pool"]').element.checked)
+      .toBe(true);
+    await wrapper
+      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="static"]')
+      .setValue(true);
+    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value)
+      .toBe("http://user:***@saved.example.com:8080");
     wrapper.unmount();
   });
 

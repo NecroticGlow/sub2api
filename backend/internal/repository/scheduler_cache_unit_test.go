@@ -446,6 +446,47 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 	require.Equal(t, false, got.Extra["auto_pause_7d_disabled"])
 }
 
+// 候选过滤读的是 Redis 元数据投影；自动用卡的开关、阈值和卡状态缺失时，
+// 卡可用的 OpenAI 号会在暂停阈值处被一刀切停调，放行到用卡阈值的逻辑永远不生效。
+func TestSchedulerMetadataPayload_KeepsOpenAIAutoResetCreditFields(t *testing.T) {
+	checkedAt := time.Now().UTC().Format(time.RFC3339)
+	account := service.Account{
+		ID:          40,
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Extra: map[string]any{
+			"codex_7d_used_percent":                          90.0,
+			service.OpenAIAutoResetCreditEnabledExtraKey:     true,
+			service.OpenAIAutoResetCredit5hThresholdExtraKey: 0.95,
+			service.OpenAIAutoResetCredit7dThresholdExtraKey: 0.98,
+			service.OpenAIAutoResetCreditStateExtraKey: map[string]any{
+				"status":          service.OpenAIAutoResetStatusAvailable,
+				"available_count": 3,
+				"checked_at":      checkedAt,
+				"trigger_window":  "7d",
+			},
+		},
+	}
+
+	_, metaPayload, err := marshalSchedulerCacheAccount(account)
+	require.NoError(t, err)
+	var cached service.Account
+	require.NoError(t, json.Unmarshal(metaPayload, &cached))
+
+	config := service.ResolveOpenAIAutoResetCreditConfig(&cached)
+	require.True(t, config.Enabled)
+	require.Equal(t, 0.95, config.Threshold5h)
+	require.Equal(t, 0.98, config.Threshold7d)
+
+	state, ok := cached.Extra[service.OpenAIAutoResetCreditStateExtraKey].(map[string]any)
+	require.True(t, ok, "卡状态必须进入调度投影")
+	require.Equal(t, service.OpenAIAutoResetStatusAvailable, state["status"])
+	require.EqualValues(t, 3, state["available_count"])
+	require.Equal(t, checkedAt, state["checked_at"])
+}
+
 func TestBuildSchedulerMetadataAccount_KeepsQuotaStateForCachedAccounts(t *testing.T) {
 	now := time.Now().UTC()
 	activeStart := now.Add(-time.Hour).Format(time.RFC3339)
@@ -1181,4 +1222,45 @@ func TestBuildSchedulerMetadataAccount_KeepsRPMFieldsForRPMGate(t *testing.T) {
 		require.Equal(t, service.WindowCostStickyOnly, restored.CheckRPMSchedulability(100),
 			"投影裁掉 rpm_strategy 会让粘性豁免账号退回三区判定")
 	})
+}
+
+func TestBuildSchedulerMetadataAccount_KeepsExcelBPSAutoDisable(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		account := service.Account{Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: map[string]any{
+			"openai_excel_bps": true, "openai_excel_bps_auto_disable_on_403": enabled, "openai_excel_bps_mihomo": enabled,
+		}}
+		payload, err := json.Marshal(buildSchedulerMetadataAccount(account))
+		require.NoError(t, err)
+		var restored service.Account
+		require.NoError(t, json.Unmarshal(payload, &restored))
+		require.Equal(t, enabled, restored.IsExcelBPSAutoDisableOn403Enabled())
+		require.Equal(t, enabled, restored.IsExcelBPSMihomoEnabled())
+	}
+}
+
+func TestBuildSchedulerMetadataAccount_KeepsExcelBPSModelSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		scoped     bool
+		models     any
+		astra, sol bool
+	}{
+		{"legacy", false, nil, true, true},
+		{"astra only", true, []string{"gpt-6-astra"}, true, false},
+		{"empty", true, []string{}, false, false},
+		{"null stays scoped", true, nil, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := service.Account{Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: map[string]any{"openai_excel_bps": true}}
+			if tc.scoped {
+				account.Extra["openai_excel_bps_models"] = tc.models
+			}
+			payload, err := json.Marshal(buildSchedulerMetadataAccount(account))
+			require.NoError(t, err)
+			var restored service.Account
+			require.NoError(t, json.Unmarshal(payload, &restored))
+			require.Equal(t, tc.astra, restored.IsExcelBPSEnabledForModel("gpt-6-astra"))
+			require.Equal(t, tc.sol, restored.IsExcelBPSEnabledForModel("gpt-6-sol"))
+		})
+	}
 }

@@ -38,6 +38,7 @@ type CodexSessionImportRequest struct {
 	CredentialExtras        map[string]any `json:"credential_extras"`
 	Extra                   map[string]any `json:"extra"`
 	UpdateExisting          *bool          `json:"update_existing"`
+	SkipExisting            bool           `json:"skip_existing"`
 	SkipDefaultGroupBind    *bool          `json:"skip_default_group_bind"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"`
 }
@@ -270,6 +271,13 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 					Message: "按完全相同的账号名、邮箱及 Team 空间 ID 匹配旧账号，保留原有用量记录",
 				})
 			}
+		}
+		if existing != nil && req.SkipExisting {
+			result.Skipped++
+			result.Items = append(result.Items, CodexSessionImportItem{
+				Index: entry.Index, Name: accountName, Action: "skipped", AccountID: existing.ID,
+			})
+			continue
 		}
 		if existing != nil && updateExisting {
 			if strings.HasPrefix(matchedKey, "account:") && item.UserID != "" &&

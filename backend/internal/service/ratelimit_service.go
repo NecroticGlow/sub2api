@@ -32,6 +32,7 @@ type RateLimitService struct {
 	settingService        *SettingService
 	tokenCacheInvalidator TokenCacheInvalidator
 	runtimeBlocker        AccountRuntimeBlocker
+	openAIIPUnauthorized  openAIIPUnauthorizedStreak
 	// ollamaCloudUsageProbe is the optional Ollama Cloud usage probe scheduler
 	// injected via SetOllamaCloudUsageProbeScheduler. See
 	// ratelimit_service_ollama_429.go for how real-Ollama 429s schedule an async
@@ -334,6 +335,15 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	if !isOpenAIIPUnauthorizedResponse(statusCode, responseBody) {
+		s.resetOpenAIIPUnauthorizedStreak(account)
+	}
+	return s.handleUpstreamErrorAfterStreakReset(ctx, account, statusCode, headers, responseBody, requestedModel...)
+}
+
+// handleUpstreamErrorAfterStreakReset keeps account policy handling shared with
+// the OpenAI gateway, which resets the streak before its early-return policies.
+func (s *RateLimitService) handleUpstreamErrorAfterStreakReset(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
 	ctx = s.observeAccountOps(ctx, account, statusCode, headers, responseBody)
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
@@ -472,6 +482,15 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				s.handleAuthError(ctx, authAccount, msg)
 				shouldDisable = true
 				break
+			}
+			// An isolated IP-policy rejection is not evidence that this OAuth
+			// account should be parked. Require two consecutive responses within
+			// five seconds; credential revocation/missing refresh tokens above
+			// retain their existing handling.
+			if authAccount.Platform == PlatformOpenAI && isOpenAIIPUnauthorizedResponse(statusCode, responseBody) &&
+				!s.openAIIPUnauthorized.observe(authAccount.ID, headers.Get("x-request-id"), time.Now()) {
+				slog.Info("openai_ip_unauthorized_below_threshold", "account_id", authAccount.ID, "window_seconds", 5, "threshold", 2)
+				return false
 			}
 			// 2. 临时不可调度，替代 SetError（保持 status=active 让刷新服务能拾取）
 			// 注意：此处不再写回 account.Credentials/expires_at。
@@ -1176,6 +1195,13 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			return
 		}
 	}
+	s.handle429Cooldown(ctx, account, headers, responseBody)
+}
+
+// handle429Cooldown persists the shared quota snapshot and blocks scheduling.
+// Callers that do not retry the rejected request (Excel BPS) enter here directly
+// instead of deferring the cooldown for the Codex same-account retry window.
+func (s *RateLimitService) handle429Cooldown(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
 	// Spark 影子：限流/熔断状态 100% 由 QueryUsage(/wham/usage body 的 codex_bengalfox)驱动。
 	// /responses 的 429 携带的 x-codex-*/usage_limit_reached 是 global codex 道(plan/spec §8),
 	// 套到影子会把 spark 误耦合到 global 窗口——即便 spark 仍有配额也会被冷却到 global reset,

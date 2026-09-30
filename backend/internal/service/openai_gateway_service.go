@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
@@ -77,6 +78,7 @@ var openaiAllowedHeaders = map[string]bool{
 	"accept-language":         true,
 	"content-type":            true,
 	"conversation_id":         true,
+	"openai-beta":             true,
 	"user-agent":              true,
 	"originator":              true,
 	"session_id":              true,
@@ -449,37 +451,58 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
-	codexHarvestRunMu     sync.RWMutex
-	accountRepo           AccountRepository
-	proxyRepo             ProxyRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	cache                 GatewayCache
-	cfg                   *config.Config
-	codexDetector         CodexClientRestrictionDetector
-	schedulerSnapshot     *SchedulerSnapshotService
-	concurrencyService    *ConcurrencyService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	codexQuotaOverdraft   *CodexQuotaOverdraftCoordinator
-	billingCacheService   *BillingCacheService
-	userGroupRateResolver *userGroupRateResolver
-	httpUpstream          HTTPUpstream
-	pluginManager         *PluginManager
-	deferredService       *DeferredService
-	openAITokenProvider   *OpenAITokenProvider
-	grokTokenProvider     *GrokTokenProvider
-	toolCorrector         *CodexToolCorrector
-	openaiWSResolver      OpenAIWSProtocolResolver
-	resolver              *ModelPricingResolver
-	channelService        *ChannelService
-	balanceNotifyService  *BalanceNotifyService
-	settingService        *SettingService
-	userPlatformQuotaRepo UserPlatformQuotaRepository
-	liveAttestation       liveattestation.Provider
-	liveAttestationCipher SecretEncryptor
+	priorityScheduling      prioritySchedulingState
+	excelBPSRecoveryMu      sync.Mutex
+	excelBPSRecoveryCancel  context.CancelFunc
+	excelBPSRecoveryDone    chan struct{}
+	excelBPSRecoveryStopped bool
+
+	excelBPSWarmMu         sync.Mutex
+	excelBPSWarmCancel     context.CancelFunc
+	excelBPSWarmDone       chan struct{}
+	excelBPSWarmStopped    bool
+	excelBPSImagesMu       sync.Mutex
+	excelBPSImages         *basispoints.ImageRelay
+	excelBPSAttachments    basispoints.AttachmentCache
+	excelBPSIPPoolMu       sync.Mutex
+	excelBPSIPPoolSyncedAt time.Time
+	excelBPSCooldownUntil  sync.Map // key: int64(accountID), value: time.Time
+	harvestIPPoolMu        sync.Mutex
+	harvestIPPoolExits     []harvestIPPoolExit
+	harvestIPPoolSyncedAt  time.Time
+	harvestIPPoolCursor    atomic.Uint64
+	codexHarvestRunMu      sync.RWMutex
+	accountRepo            AccountRepository
+	proxyRepo              ProxyRepository
+	usageLogRepo           UsageLogRepository
+	usageBillingRepo       UsageBillingRepository
+	userRepo               UserRepository
+	userSubRepo            UserSubscriptionRepository
+	cache                  GatewayCache
+	rpmCache               RPMCache
+	cfg                    *config.Config
+	codexDetector          CodexClientRestrictionDetector
+	schedulerSnapshot      *SchedulerSnapshotService
+	concurrencyService     *ConcurrencyService
+	billingService         *BillingService
+	rateLimitService       *RateLimitService
+	billingCacheService    *BillingCacheService
+	userGroupRateResolver  *userGroupRateResolver
+	httpUpstream           HTTPUpstream
+	pluginManager          *PluginManager
+	deferredService        *DeferredService
+	openAITokenProvider    *OpenAITokenProvider
+	grokTokenProvider      *GrokTokenProvider
+	toolCorrector          *CodexToolCorrector
+	openaiWSResolver       OpenAIWSProtocolResolver
+	resolver               *ModelPricingResolver
+	channelService         *ChannelService
+	balanceNotifyService   *BalanceNotifyService
+	settingService         *SettingService
+	userPlatformQuotaRepo  UserPlatformQuotaRepository
+	liveAttestation        liveattestation.Provider
+	liveAttestationCipher  SecretEncryptor
+	codexQuotaOverdraft    *CodexQuotaOverdraftCoordinator
 
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once
@@ -522,6 +545,7 @@ type OpenAIGatewayService struct {
 	openaiCodexTurnStateWrites  atomic.Uint64
 	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，292 长度门票。
 	openaiCodexTickets             sync.Map
+	codex780Routes                 codex780RouteCache
 	openaiCodexTicketStateMu       sync.Mutex
 	openaiCodexTicketCursors       sync.Map // codexHarvestTier -> *atomic.Uint64
 	openaiCodexTicketFlight        singleflight.Group
@@ -538,6 +562,11 @@ type OpenAIGatewayService struct {
 }
 
 type OpenAIGatewayOption func(*OpenAIGatewayService)
+
+// WithOpenAIRPMCache enables strict RPM accounting for OpenAI OAuth accounts.
+func WithOpenAIRPMCache(cache RPMCache) OpenAIGatewayOption {
+	return func(s *OpenAIGatewayService) { s.rpmCache = cache }
+}
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
 func NewOpenAIGatewayService(

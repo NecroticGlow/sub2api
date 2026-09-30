@@ -222,10 +222,12 @@ type AccountWithConcurrency struct {
 	CurrentConcurrency int                          `json:"current_concurrency"`
 	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
 	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
-	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
+	// 以下字段仅在对应账号启用运行时容量控制时返回；OpenAI OAuth 仅使用 RPM 字段
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	RPMPaused         bool     `json:"rpm_paused,omitempty"`
+	RPMResetAt        *int64   `json:"rpm_reset_at,omitempty"`
 }
 
 // AccountListItemWithConcurrency is the compact account-list envelope used
@@ -239,6 +241,8 @@ type AccountListItemWithConcurrency struct {
 	CurrentWindowCost  *float64                     `json:"current_window_cost,omitempty"`
 	ActiveSessions     *int                         `json:"active_sessions,omitempty"`
 	CurrentRPM         *int                         `json:"current_rpm,omitempty"`
+	RPMPaused          bool                         `json:"rpm_paused,omitempty"`
+	RPMResetAt         *int64                       `json:"rpm_reset_at,omitempty"`
 }
 
 type simpleModeGroupReference struct {
@@ -400,7 +404,7 @@ func (h *AccountHandler) isSimpleMode() bool {
 
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
 	item := AccountWithConcurrency{
-		Account:            h.accountResponseFromService(account),
+		Account:            dto.AccountForObserver(ctx, h.accountResponseFromService(account)),
 		simpleMode:         h.isSimpleMode(),
 		CurrentConcurrency: 0,
 	}
@@ -414,8 +418,8 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		}
 	}
 
-	if account.IsAnthropicOAuthOrSetupToken() {
-		if h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
+	if account.SupportsRPMLimit() {
+		if account.IsAnthropicOAuthOrSetupToken() && h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
 			startTime := account.GetCurrentWindowStartTime()
 			if stats, err := h.accountUsageService.GetAccountWindowStats(ctx, account.ID, startTime); err == nil && stats != nil {
 				cost := stats.StandardCost
@@ -423,7 +427,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 			}
 		}
 
-		if h.sessionLimitCache != nil && account.GetMaxSessions() > 0 {
+		if account.IsAnthropicOAuthOrSetupToken() && h.sessionLimitCache != nil && account.GetMaxSessions() > 0 {
 			idleTimeout := time.Duration(account.GetSessionIdleTimeoutMinutes()) * time.Minute
 			idleTimeouts := map[int64]time.Duration{account.ID: idleTimeout}
 			if sessions, err := h.sessionLimitCache.GetActiveSessionCountBatch(ctx, []int64{account.ID}, idleTimeouts); err == nil {
@@ -434,8 +438,17 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		}
 
 		if h.rpmCache != nil && account.GetBaseRPM() > 0 {
-			if rpm, err := h.rpmCache.GetRPM(ctx, account.ID); err == nil {
+			rpmAccountID := account.ID
+			if account.IsOpenAIOAuth() {
+				rpmAccountID = account.RPMAccountID()
+			}
+			if rpm, err := h.rpmCache.GetRPM(ctx, rpmAccountID); err == nil {
 				item.CurrentRPM = &rpm
+				if account.IsOpenAIOAuth() && rpm >= account.GetBaseRPM() {
+					item.RPMPaused = true
+					resetAt := time.Now().Truncate(time.Minute).Add(time.Minute).Unix()
+					item.RPMResetAt = &resetAt
+				}
 			}
 		}
 	}
@@ -765,23 +778,27 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
+	// 识别需要查询窗口费用、会话数和 RPM 的账号；窗口/会话仅属于 Anthropic，RPM 也支持 OpenAI OAuth
 	windowCostAccountIDs := make([]int64, 0)
 	sessionLimitAccountIDs := make([]int64, 0)
 	rpmAccountIDs := make([]int64, 0)
 	sessionIdleTimeouts := make(map[int64]time.Duration) // 各账号的会话空闲超时配置
 	for i := range accounts {
 		acc := &accounts[i]
-		if acc.IsAnthropicOAuthOrSetupToken() {
-			if acc.GetWindowCostLimit() > 0 {
+		if acc.SupportsRPMLimit() {
+			if acc.IsAnthropicOAuthOrSetupToken() && acc.GetWindowCostLimit() > 0 {
 				windowCostAccountIDs = append(windowCostAccountIDs, acc.ID)
 			}
-			if acc.GetMaxSessions() > 0 {
+			if acc.IsAnthropicOAuthOrSetupToken() && acc.GetMaxSessions() > 0 {
 				sessionLimitAccountIDs = append(sessionLimitAccountIDs, acc.ID)
 				sessionIdleTimeouts[acc.ID] = time.Duration(acc.GetSessionIdleTimeoutMinutes()) * time.Minute
 			}
 			if acc.GetBaseRPM() > 0 {
-				rpmAccountIDs = append(rpmAccountIDs, acc.ID)
+				rpmAccountID := acc.ID
+				if acc.IsOpenAIOAuth() {
+					rpmAccountID = acc.RPMAccountID()
+				}
+				rpmAccountIDs = append(rpmAccountIDs, rpmAccountID)
 			}
 		}
 	}
@@ -834,9 +851,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
-		accountResponse := h.accountResponseFromService(acc)
+		accountResponse := dto.AccountForObserver(c.Request.Context(), h.accountResponseFromService(acc))
 		if lite {
-			accountResponse = h.accountListResponseFromService(acc)
+			accountResponse = dto.AccountForObserver(c.Request.Context(), h.accountListResponseFromService(acc))
 			if h.isSimpleMode() {
 				accountResponse.GroupIDs = filterSimpleModeGroupIDs(accountResponse.GroupIDs, simpleModeCompositeServiceGroupIDs(acc))
 			}
@@ -865,8 +882,17 @@ func (h *AccountHandler) List(c *gin.Context) {
 
 		// 添加 RPM 计数（仅当启用时）
 		if rpmCounts != nil {
-			if rpm, ok := rpmCounts[acc.ID]; ok {
+			rpmAccountID := acc.ID
+			if acc.IsOpenAIOAuth() {
+				rpmAccountID = acc.RPMAccountID()
+			}
+			if rpm, ok := rpmCounts[rpmAccountID]; ok {
 				item.CurrentRPM = &rpm
+				if acc.IsOpenAIOAuth() && acc.GetBaseRPM() > 0 && rpm >= acc.GetBaseRPM() {
+					item.RPMPaused = true
+					resetAt := time.Now().Truncate(time.Minute).Add(time.Minute).Unix()
+					item.RPMResetAt = &resetAt
+				}
 			}
 		}
 
@@ -887,6 +913,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 				CurrentWindowCost:  item.CurrentWindowCost,
 				ActiveSessions:     item.ActiveSessions,
 				CurrentRPM:         item.CurrentRPM,
+				RPMPaused:          item.RPMPaused,
+				RPMResetAt:         item.RPMResetAt,
 			}
 		}
 		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true)
@@ -1398,6 +1426,34 @@ func (h *AccountHandler) PelicanTest(c *gin.Context) {
 	if err := h.accountTestService.TestPelicanAccountConnection(c, accountID, req.ModelID, req.Prompt, req.ReasoningEffort); err != nil {
 		return
 	}
+}
+
+type StateProbeRequest struct {
+	ModelID string `json:"model_id"`
+}
+
+// StateProbe runs the two-shot Codex turn-state probe (degraded / healthy).
+// POST /api/v1/admin/accounts/:id/state-probe
+func (h *AccountHandler) StateProbe(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req StateProbeRequest
+	if c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, "Invalid request: "+err.Error())
+			return
+		}
+	}
+	result, err := h.accountTestService.ProbeOpenAICodexState(c.Request.Context(), accountID, req.ModelID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // RecoverState handles unified recovery of recoverable account runtime state.
@@ -2766,7 +2822,7 @@ func (h *AccountHandler) ClearTempUnschedulable(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Temp unschedulable cleared successfully"})
 }
 
-// GetTodayStats handles getting account today statistics
+// GetTodayStats handles getting account today statistics plus lifetime totals.
 // GET /api/v1/admin/accounts/:id/today-stats
 func (h *AccountHandler) GetTodayStats(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -2794,7 +2850,7 @@ type BatchUsageRequest struct {
 	Force      bool    `json:"force"`
 }
 
-// GetBatchTodayStats 批量获取多个账号的今日统计。
+// GetBatchTodayStats 批量获取多个账号的今日统计及累计 Token/费用。
 // POST /api/v1/admin/accounts/today-stats/batch
 func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 	var req BatchTodayStatsRequest
@@ -2938,11 +2994,16 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 		// Return mapped models
 		var models []openai.Model
+		if account.IsOpenAIModelMappingAliases() {
+			models = append(models, openai.DefaultModels...)
+		}
 		for requestedModel := range mapping {
 			var found bool
 			for _, dm := range openai.DefaultModels {
 				if dm.ID == requestedModel {
-					models = append(models, dm)
+					if !account.IsOpenAIModelMappingAliases() {
+						models = append(models, dm)
+					}
 					found = true
 					break
 				}
