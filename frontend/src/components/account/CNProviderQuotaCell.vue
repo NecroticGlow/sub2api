@@ -4,6 +4,7 @@
     data-test="cn-provider-quota"
     class="min-w-[220px] space-y-1"
   >
+    <div v-if="isClinePass" data-test="clinepass-label" class="text-[10px] font-medium text-gray-500">ClinePass</div>
     <!-- Tier rows: 5h + weekly utilization bars (snapshot renders on mount).
          复用账号页 UsageProgressBar：同阈值配色、同倒计时格式。 -->
     <div v-if="data?.success && data.tiers?.length" class="space-y-1">
@@ -65,7 +66,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { CNProviderQuotaProbeResult } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
-import { cnQuotaCellVisible } from './credentialsBuilder'
+import { cnQuotaCellVisible, isClinePassAccount } from './credentialsBuilder'
 import UsageProgressBar from './UsageProgressBar.vue'
 
 const props = defineProps<{
@@ -79,7 +80,8 @@ const readMode = (): string => {
   return typeof mode === 'string' ? mode : ''
 }
 
-const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMode()))
+const isClinePass = computed(() => isClinePassAccount(props.account.platform, props.account.credentials?.base_url, props.account.type))
+const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMode(), props.account.credentials?.base_url, props.account.type))
 
 const loading = ref(false)
 const error = ref<string | null>(null)

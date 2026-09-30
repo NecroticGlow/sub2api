@@ -164,6 +164,7 @@ security:
       - "api.kimi.com"
       - "api.moonshot.ai"
       - "api.moonshot.cn"
+      - "api.cline.bot"
       - "open.bigmodel.cn"
       - "api.minimaxi.com"
       - "opencode.ai"

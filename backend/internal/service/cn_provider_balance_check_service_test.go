@@ -51,11 +51,14 @@ func TestCNProviderBalanceCheckRunOnceProbesCodingPlanQuota(t *testing.T) {
 		Credentials: map[string]any{"account_mode": "coding"}}
 	minimaxCoding := Account{ID: 5, Platform: PlatformMiniMax, Type: AccountTypeAPIKey, Status: StatusActive,
 		Credentials: map[string]any{"account_mode": "coding"}}
+	clinePass := Account{ID: 6, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Status: StatusActive,
+		Credentials: map[string]any{"account_mode": "payg", "base_url": "https://api.cline.bot/api/v1"}}
 
 	repo := &fakeCNCheckRepo{byPlatform: map[string][]Account{
-		PlatformKimi:    {kimiActive, kimiPaused, kimiInactive},
-		PlatformZhipu:   {zhipuCoding},
-		PlatformMiniMax: {minimaxCoding},
+		PlatformKimi:     {kimiActive, kimiPaused, kimiInactive},
+		PlatformZhipu:    {zhipuCoding},
+		PlatformMiniMax:  {minimaxCoding},
+		PlatformDeepseek: {clinePass},
 	}}
 	prober := &fakeCNQuotaProber{}
 	svc := &CNProviderBalanceCheckService{
@@ -66,7 +69,7 @@ func TestCNProviderBalanceCheckRunOnceProbesCodingPlanQuota(t *testing.T) {
 
 	svc.runOnce()
 
-	require.ElementsMatch(t, []int64{1, 2, 4, 5}, prober.probed)
+	require.ElementsMatch(t, []int64{1, 2, 4, 5, 6}, prober.probed)
 }
 
 // runOnceZhipuQuota 在 quotaService 缺失时安全跳过（Start 门控不启动的老部署路径）。

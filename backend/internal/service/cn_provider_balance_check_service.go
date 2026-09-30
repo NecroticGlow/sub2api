@@ -122,7 +122,7 @@ func (s *CNProviderBalanceCheckService) runOnce() {
 			}
 			// coding 账号：探测滚动窗口并落快照（不要求 Schedulable——已被
 			// 阈值停调的账号也需要新鲜快照决定是否续停）。
-			if account.IsCodingPlan() {
+			if account.IsCodingPlan() || account.IsClinePassAccount() {
 				quotaTargets = append(quotaTargets, quotaTarget{id: account.ID, platform: account.Platform})
 				continue
 			}

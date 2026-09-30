@@ -45,6 +45,38 @@ describe('CNProviderQuotaCell', () => {
     queryQuota.mockReset()
   })
 
+  it('renders persistent ClinePass 5h/weekly/monthly windows on a DeepSeek payg account and queries manually', async () => {
+    const clineAccount = {
+      ...account, id: 1135, platform: 'deepseek',
+      credentials: { account_mode: 'payg', base_url: 'https://api.cline.bot/api/v1' },
+      extra: {
+        deepseek_5h_used_percent: 2,
+        deepseek_weekly_used_percent: 51,
+        deepseek_monthly_used_percent: 50,
+        deepseek_usage_updated_at: new Date().toISOString()
+      }
+    } as Account
+    queryQuota.mockResolvedValue({ success: true, tiers: [{ window: '5h', used_percent: 4 }] })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: clineAccount } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="clinepass-label"]').text()).toBe('ClinePass')
+    expect(wrapper.findAllComponents(UsageProgressBar).map(bar => bar.props('utilization'))).toEqual([2, 51, 50])
+    expect(queryQuota).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click')
+    await flushPromises()
+    expect(queryQuota).toHaveBeenCalledWith(1135)
+    expect(wrapper.findAllComponents(UsageProgressBar)[0].props('utilization')).toBe(4)
+  })
+
+  it('does not show ClinePass windows for an unrelated DeepSeek account', async () => {
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: {
+      ...account, platform: 'deepseek', credentials: { account_mode: 'payg', base_url: 'https://api.deepseek.com' }
+    } as Account } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="cn-provider-quota"]').exists()).toBe(false)
+    expect(queryQuota).not.toHaveBeenCalled()
+  })
+
   it('renders tier rows through the shared UsageProgressBar inside the account table cell', async () => {
     queryQuota.mockResolvedValue({
       success: true,

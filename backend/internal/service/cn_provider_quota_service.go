@@ -131,8 +131,8 @@ func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, accou
 
 func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
 	provider := account.GetCodingPlanProvider()
-	if provider != PlatformKimi && provider != PlatformZhipu && provider != PlatformMiniMax && provider != PlatformOpenCodeGo {
-		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "account is not a kimi/zhipu/minimax coding plan or opencode go account")
+	if provider != PlatformKimi && provider != PlatformZhipu && provider != PlatformMiniMax && provider != PlatformOpenCodeGo && provider != PlatformDeepseek {
+		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "account is not a supported coding plan, ClinePass or OpenCode Go account")
 	}
 
 	apiKey := strings.TrimSpace(account.GetCNAPIKey())
@@ -147,6 +147,9 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		zhipuOrg   string
 	)
 	switch provider {
+	case PlatformDeepseek:
+		targetURL = clinePassUsageURL
+		authHeader = "Bearer " + apiKey
 	case PlatformKimi:
 		targetURL = kimiQuotaURL(baseURL)
 		authHeader = "Bearer " + apiKey
@@ -197,6 +200,12 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	}
 	// 探测与真实转发保持同一套账号级请求头覆写，避免探测通过但转发失败。
 	account.ApplyHeaderOverrides(req.Header)
+	if provider == PlatformDeepseek {
+		// The Cline usage endpoint requires Bearer authentication even if the
+		// inference account has a custom Authorization header override.
+		deleteHeaderAllForms(req.Header, "Authorization")
+		req.Header.Set("Authorization", authHeader)
+	}
 
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
 	if err != nil {
@@ -219,6 +228,10 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		return result, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if provider == PlatformDeepseek {
+			result.Error = fmt.Sprintf("ClinePass usage query failed (HTTP %d)", resp.StatusCode)
+			return result, nil
+		}
 		result.Error = fmt.Sprintf("API error (HTTP %d): %s", resp.StatusCode, truncate(strings.TrimSpace(string(bodyBytes)), 240))
 		return result, nil
 	}
@@ -237,6 +250,18 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 
 	var tiers []CNQuotaTier
 	switch provider {
+	case PlatformDeepseek:
+		result.Source = "clinepass"
+		result.PlanLevel = "ClinePass"
+		if success := gjson.GetBytes(bodyBytes, "success"); success.Exists() && !success.Bool() {
+			result.Error = "ClinePass usage query was unsuccessful"
+			return result, nil
+		}
+		tiers = parseClinePassUsageTiers(bodyBytes)
+		if len(tiers) == 0 {
+			result.Error = "ClinePass returned no valid usage windows; check the subscription and API key"
+			return result, nil
+		}
 	case PlatformKimi:
 		tiers = parseKimiUsageTiers(bodyBytes)
 	case PlatformOpenCodeGo:
@@ -286,6 +311,9 @@ func (s *CNProviderQuotaService) loadCodingPlanAccount(ctx context.Context, acco
 func validateCodingPlanAccount(account *Account) error {
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	if account.IsClinePassAccount() {
+		return nil
 	}
 	if account.IsOpenCodeGoPlan() {
 		return nil

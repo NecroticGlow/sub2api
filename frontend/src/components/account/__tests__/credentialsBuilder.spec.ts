@@ -13,6 +13,8 @@ import {
   buildPlanTypeOptions,
   cloneOpenCodeGoProtocolRules,
   cnQuotaCellVisible,
+  cnBalanceCellVisible,
+  isClinePassAccount,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
   isCustomGrokBaseUrl,
@@ -27,6 +29,35 @@ import {
   splitHeaderOverridesObject,
   validateHeaderOverrideRows
 } from '../credentialsBuilder'
+
+describe('ClinePass quota visibility', () => {
+  it('uses subscription windows instead of DeepSeek payg balance on the official Cline host', () => {
+    expect(isClinePassAccount('deepseek', 'https://api.cline.bot/api/v1', 'apikey')).toBe(true)
+    expect(cnQuotaCellVisible('deepseek', 'payg', 'https://api.cline.bot/api/v1', 'apikey')).toBe(true)
+    expect(cnBalanceCellVisible('deepseek', 'payg', 'https://api.cline.bot/api/v1', 'apikey')).toBe(false)
+    expect(cnQuotaCellVisible('deepseek', '', 'https://api.cline.bot', 'apikey')).toBe(true)
+    expect(cnBalanceCellVisible('deepseek', 'payg', 'https://api.deepseek.com', 'apikey')).toBe(true)
+  })
+
+  it.each([
+    'http://api.cline.bot',
+    'https://api.cline.bot:8443',
+    'https://api.cline.bot.attacker.example',
+    'https://attacker.example/api.cline.bot',
+    'https://api.cline.bot@attacker.example',
+    'https://someone@api.cline.bot',
+    'https://ollama.com',
+    'invalid'
+  ])('does not identify an unrelated or unsafe host as ClinePass: %s', (baseURL) => {
+    expect(isClinePassAccount('deepseek', baseURL, 'apikey')).toBe(false)
+    expect(cnQuotaCellVisible('deepseek', 'payg', baseURL, 'apikey')).toBe(false)
+  })
+
+  it('excludes OAuth accounts and other platforms', () => {
+    expect(isClinePassAccount('deepseek', 'https://api.cline.bot', 'oauth')).toBe(false)
+    expect(isClinePassAccount('openai', 'https://api.cline.bot', 'apikey')).toBe(false)
+  })
+})
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {

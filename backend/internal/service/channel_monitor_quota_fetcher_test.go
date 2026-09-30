@@ -93,6 +93,19 @@ func (s *stubMonitorAccountSource) GetByID(ctx context.Context, id int64) (*Acco
 	return s.accounts[id], nil
 }
 
+func TestChannelMonitorQuotaClinePassUsesSubscriptionNotBalance(t *testing.T) {
+	fetcher, usage, quota, balance, accounts := newQuotaFetcherTestSetup(t)
+	account := clinePassTestAccount("https://api.cline.bot/api/v1")
+	accounts.accounts[account.ID] = account
+	quota.result = &CNProviderQuotaProbeResult{Success: true, CredentialValid: true,
+		Provider: PlatformDeepseek, Source: "clinepass", Tiers: []CNQuotaTier{{Window: "5h", UsedPercent: 50}}}
+	snapshot := fetcher.fetchUncached(context.Background(), account.ID, time.Now())
+	require.NotNil(t, snapshot)
+	require.Equal(t, 1, quota.calls)
+	require.Zero(t, balance.calls)
+	require.Zero(t, usage.getCalls())
+}
+
 func newQuotaFetcherTestSetup(t *testing.T) (*ChannelMonitorQuotaFetcher, *stubMonitorUsageSource, *stubMonitorCNQuotaSource, *stubMonitorCNBalanceSource, *stubMonitorAccountSource) {
 	t.Helper()
 	usage := &stubMonitorUsageSource{}

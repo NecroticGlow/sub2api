@@ -35,6 +35,15 @@ describe('CNProviderBalanceCell', () => {
     queryBalance.mockReset()
   })
 
+  it('does not query the DeepSeek balance endpoint for a ClinePass account', async () => {
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: {
+      ...account, platform: 'deepseek', credentials: { account_mode: 'payg', base_url: 'https://api.cline.bot/api/v1' }
+    } as Account } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="cn-provider-balance-probe"]').exists()).toBe(false)
+    expect(queryBalance).not.toHaveBeenCalled()
+  })
+
   it('renders the persisted balance as static text with an explicit query action', async () => {
     const wrapper = mount(CNProviderBalanceCell, { props: { account } })
     await flushPromises()

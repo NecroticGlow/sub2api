@@ -133,6 +133,7 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/clinepass-usage.md
 !docs/openai-ws-sse-acceleration.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md

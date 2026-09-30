@@ -463,12 +463,25 @@ export function defaultCNAdaptiveBaseUrls(
 // CNProviderQuotaCell / CNProviderBalanceCell 与 AccountUsageCell 的占位符判定
 // 共用，避免多处复制条件后一处改另一处漏改。
 
-export function cnQuotaCellVisible(platform: string, accountMode: string): boolean {
+export function isClinePassAccount(platform: string, baseURL: unknown, accountType = 'apikey'): boolean {
+  if (platform !== 'deepseek' || accountType !== 'apikey' || typeof baseURL !== 'string') return false
+  try {
+    const url = new URL(baseURL.trim())
+    return url.protocol === 'https:' && url.hostname.toLowerCase() === 'api.cline.bot'
+      && !url.username && !url.password && (!url.port || url.port === '443')
+  } catch {
+    return false
+  }
+}
+
+export function cnQuotaCellVisible(platform: string, accountMode: string, baseURL: unknown = '', accountType = 'apikey'): boolean {
+  if (isClinePassAccount(platform, baseURL, accountType)) return true
   if (platform === 'opencode_go') return accountMode !== 'zen'
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
 }
 
-export function cnBalanceCellVisible(platform: string, accountMode: string): boolean {
+export function cnBalanceCellVisible(platform: string, accountMode: string, baseURL: unknown = '', accountType = 'apikey'): boolean {
+  if (isClinePassAccount(platform, baseURL, accountType)) return false
   return (platform === 'kimi' || platform === 'deepseek') && accountMode !== 'coding'
 }
 

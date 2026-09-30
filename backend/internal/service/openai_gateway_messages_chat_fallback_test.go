@@ -9,10 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
@@ -237,15 +235,8 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingClosesOpenBlockOnDone(t
 	require.NotNil(t, result.FirstTokenMs)
 }
 
-func TestForwardAsAnthropic_ForceChatCompletionsStreamingAppliesDeepSeekCacheEstimate(t *testing.T) {
+func TestForwardAsAnthropic_ForceChatCompletionsStreamingDoesNotInventDeepSeekCacheUsage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
-	estimator := newDeepSeekCacheEstimator(nil)
-	estimator.config = deepSeekCacheEstimateSettings{
-		Enabled: true, TTLSeconds: 900, BlockBytes: 64, MaxFingerprints: 16,
-		ConfidencePercent: 50, ConfidenceJitterPercent: 0,
-	}
-	estimator.loadedAt = time.Now()
 
 	usageStream := func(id string) *http.Response {
 		body := strings.Join([]string{
@@ -268,9 +259,8 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingAppliesDeepSeekCacheEst
 		usageStream("chatcmpl_cache_hit"),
 	}}
 	svc := &OpenAIGatewayService{
-		cfg:                    rawChatCompletionsTestConfig(),
-		httpUpstream:           upstream,
-		deepSeekCacheEstimator: estimator,
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
 	}
 	account := forceChatMessagesFallbackAccount()
 	account.ID = 990
@@ -295,9 +285,8 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingAppliesDeepSeekCacheEst
 	require.Zero(t, seed.Usage.CacheReadInputTokens)
 
 	hit, output := forward(secondBody)
-	require.Positive(t, hit.Usage.CacheReadInputTokens)
-	require.Less(t, hit.Usage.CacheReadInputTokens, hit.Usage.InputTokens)
-	require.Contains(t, output, `"cache_read_input_tokens":`+strconv.Itoa(hit.Usage.CacheReadInputTokens))
+	require.Zero(t, hit.Usage.CacheReadInputTokens)
+	require.NotContains(t, output, "cached_tokens_estimated")
 }
 
 // Covers multi-chunk tool_call fragments aggregated by index and finalized as

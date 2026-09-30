@@ -77,7 +77,7 @@ const readMode = (): string => {
 }
 
 // 仅 kimi / deepseek payg 账号有公开余额端点（智谱 payg 无）。
-const visible = computed(() => cnBalanceCellVisible(props.account.platform, readMode()))
+const visible = computed(() => cnBalanceCellVisible(props.account.platform, readMode(), props.account.credentials?.base_url, props.account.type))
 
 const loading = ref(false)
 const error = ref<string | null>(null)
