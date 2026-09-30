@@ -81,7 +81,7 @@ const readMode = (): string => {
 }
 
 const isClinePass = computed(() => isClinePassAccount(props.account.platform, props.account.credentials?.base_url, props.account.type))
-const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMode(), props.account.credentials?.base_url, props.account.type))
+const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMode(), props.account.credentials?.base_url, props.account.type, props.account.credentials?.clinepass_usage_enabled))
 
 const loading = ref(false)
 const error = ref<string | null>(null)

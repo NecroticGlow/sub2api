@@ -21,6 +21,20 @@ func (a *Account) IsClinePassAccount() bool {
 		strings.EqualFold(u.Hostname(), "api.cline.bot") && (u.Port() == "" || u.Port() == "443")
 }
 
+// IsClinePassUsageEnabled keeps legacy automatic detection unless the account
+// explicitly opts out. Identity stays separate so disabled Cline credentials
+// can never fall through to DeepSeek's unrelated balance endpoint.
+func (a *Account) IsClinePassUsageEnabled() bool {
+	if !a.IsClinePassAccount() {
+		return false
+	}
+	value, exists := a.Credentials["clinepass_usage_enabled"]
+	if !exists {
+		return true
+	}
+	return value == true || value == "true"
+}
+
 // parseClinePassUsageTiers follows GET /users/me/plan/usage-limits:
 // data.limits[].{type: five_hour|weekly|monthly, percentUsed, resetsAt}.
 // Unknown or malformed windows are skipped rather than shown as zero usage.

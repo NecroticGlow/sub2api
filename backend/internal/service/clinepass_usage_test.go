@@ -57,6 +57,45 @@ const clinePassUsageFixture = `{"success":true,"data":{"limits":[
   {"type":"weekly","percentUsed":51,"resetsAt":"2026-10-04T05:09:08.565240917Z"}
 ]}}`
 
+func TestClinePassUsageAccountSwitch(t *testing.T) {
+	account := clinePassTestAccount("https://api.cline.bot/v1")
+	require.True(t, account.IsClinePassUsageEnabled(), "legacy accounts stay enabled")
+	for _, enabled := range []any{true, "true"} {
+		account.Credentials["clinepass_usage_enabled"] = enabled
+		require.True(t, account.IsClinePassUsageEnabled())
+	}
+	for _, disabled := range []any{false, "false", nil, "invalid", 0, map[string]any{}} {
+		account.Credentials["clinepass_usage_enabled"] = disabled
+		require.True(t, account.IsClinePassAccount(), "disabling does not change account identity")
+		require.False(t, account.IsClinePassUsageEnabled())
+		require.Empty(t, account.GetCodingPlanProvider())
+		requireReason(t, validateCodingPlanAccount(account), "CN_QUOTA_DISABLED")
+	}
+	account.Credentials["clinepass_usage_enabled"] = true
+	account.Credentials["base_url"] = "https://relay.example/v1"
+	require.False(t, account.IsClinePassUsageEnabled(), "a switch cannot bypass the official-host safety guard")
+	var empty *Account
+	require.False(t, empty.IsClinePassUsageEnabled())
+}
+
+func TestClinePassUsageDisabledDoesNotQueryOrChangeSnapshot(t *testing.T) {
+	account := clinePassTestAccount("https://api.cline.bot/v1")
+	account.Credentials["clinepass_usage_enabled"] = false
+	account.Extra = map[string]any{"deepseek_5h_used_percent": 42.0}
+	repo := &cnBalanceProbeRepo{account: account}
+	upstream := &httpUpstreamRecorder{}
+	quota := NewCNProviderQuotaService(repo, nil, upstream, nil)
+	_, err := quota.QueryUsage(context.Background(), account.ID)
+	requireReason(t, err, "CN_QUOTA_DISABLED")
+	_, err = quota.QueryUsageForAccount(context.Background(), account)
+	requireReason(t, err, "CN_QUOTA_DISABLED")
+	_, err = NewCNProviderBalanceService(repo, nil, upstream, nil).QueryBalance(context.Background(), account.ID)
+	requireReason(t, err, "CN_BALANCE_CODING_PLAN")
+	require.Empty(t, upstream.requests)
+	require.Empty(t, repo.extraWrites)
+	require.Equal(t, 42.0, account.Extra["deepseek_5h_used_percent"])
+}
+
 func TestParseClinePassUsageTiers(t *testing.T) {
 	tiers := parseClinePassUsageTiers([]byte(clinePassUsageFixture))
 	require.Equal(t, []CNQuotaTier{

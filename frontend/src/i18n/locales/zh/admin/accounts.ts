@@ -349,6 +349,10 @@ export default {
         opencode_go: 'OpenCode',
       },
       cnProviders: {
+        clinePassUsage: {
+          title: 'ClinePass 用量查询',
+          hint: '仅对使用 https://api.cline.bot 的 DeepSeek API Key 账号生效。开启后自动查询 5 小时、每周、每月用量；关闭后停止手动和定时查询，不影响转发或历史记录。',
+        },
         accountMode: {
           title: '账号类型',
           payg: '按量付费',

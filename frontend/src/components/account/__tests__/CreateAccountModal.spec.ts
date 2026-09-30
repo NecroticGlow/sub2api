@@ -211,6 +211,25 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it.each([true, false])('persists ClinePass usage switch on a newly created DeepSeek account: %s', async (enabled) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'DeepSeek')
+    const toggle = wrapper.get('[data-testid="clinepass-usage-enabled"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    if (!enabled) await toggle.trigger('click')
+    await selectButtonByText(wrapper, 'admin.accounts.cnProviders.apiProtocol.chatCompletions')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('new ClinePass account')
+    const baseInput = wrapper.findAll('input[type="text"]').find(input => input.attributes('placeholder')?.includes('api.deepseek.com'))
+    expect(baseInput).toBeDefined()
+    await baseInput!.setValue('https://api.cline.bot/api/v1')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-clinepass-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'deepseek', type: 'apikey',
+      credentials: expect.objectContaining({ base_url: 'https://api.cline.bot/api/v1', clinepass_usage_enabled: enabled })
+    }))
+  })
   it('creates an account with a separate cost multiplier and the original billing rate', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')

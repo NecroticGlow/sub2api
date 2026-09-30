@@ -154,6 +154,13 @@
           </div>
           <p class="input-hint">{{ t(`admin.accounts.cnProviders.accountMode.${editAccountMode}Desc`) }}</p>
         </div>
+        <div v-if="isCNApiKeyAccount && account.platform === 'deepseek'" class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.cnProviders.clinePassUsage.title') }}</label>
+            <p class="input-hint">{{ t('admin.accounts.cnProviders.clinePassUsage.hint') }}</p>
+          </div>
+          <Toggle v-model="editClinePassUsageEnabled" data-testid="clinepass-usage-enabled" :aria-label="t('admin.accounts.cnProviders.clinePassUsage.title')" />
+        </div>
         <!-- API Protocol Selection (CN providers / OpenCode) -->
         <div v-if="isCNApiKeyAccount">
           <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
@@ -3388,6 +3395,7 @@ import {
   applyPlanType,
   buildPlanTypeOptions,
   cloneOpenCodeGoProtocolRules,
+  clinePassUsageEnabled,
   defaultOpenCodeProtocolRules,
   parseOpenCodeGoProtocolRules,
   readPlanType,
@@ -3649,6 +3657,7 @@ const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go'>(() =
 const editApiProtocol = ref<CnApiProtocol>('adaptive')
 const editOpenCodeGoProtocolRules = ref<OpenCodeGoProtocolRule[]>(cloneOpenCodeGoProtocolRules())
 const editAccountMode = ref<CnAccountMode>('payg')
+const editClinePassUsageEnabled = ref(true)
 const editOpenCodeAccountMode = ref<OpenCodeAccountMode>('go')
 function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
   return props.account?.platform === 'opencode_go' ? editOpenCodeAccountMode.value : editAccountMode.value
@@ -4758,6 +4767,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
+    editClinePassUsageEnabled.value = clinePassUsageEnabled(credentials.clinepass_usage_enabled)
     // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
     // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
     if (isCNProviderPlatform(newAccount.platform) || newAccount.platform === 'opencode_go') {
@@ -5609,6 +5619,7 @@ const handleSubmit = async () => {
       // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。
       if (isCNApiKeyAccount.value) {
         newCredentials.account_mode = currentOpenCodeOrCNMode()
+        if (props.account.platform === 'deepseek') newCredentials.clinepass_usage_enabled = editClinePassUsageEnabled.value
         newCredentials.api_protocol = editApiProtocol.value
         if (editApiProtocol.value === 'adaptive') {
           const defaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, currentOpenCodeOrCNMode())

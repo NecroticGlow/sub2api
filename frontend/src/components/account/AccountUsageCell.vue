@@ -811,7 +811,7 @@ const cnAccountMode = computed(() => {
   const mode = props.account.credentials?.account_mode
   return typeof mode === 'string' ? mode : ''
 })
-const cnQuotaCellVisible = computed(() => cnQuotaCellVisibleFn(props.account.platform, cnAccountMode.value, props.account.credentials?.base_url, props.account.type))
+const cnQuotaCellVisible = computed(() => cnQuotaCellVisibleFn(props.account.platform, cnAccountMode.value, props.account.credentials?.base_url, props.account.type, props.account.credentials?.clinepass_usage_enabled))
 const cnBalanceCellVisible = computed(() => cnBalanceCellVisibleFn(props.account.platform, cnAccountMode.value, props.account.credentials?.base_url, props.account.type))
 
 const isBatchManaged = computed(() => typeof props.requestBatchedUsage === 'function')

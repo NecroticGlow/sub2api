@@ -331,6 +331,29 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it('restores, saves and shares the ClinePass usage switch through account credentials', async () => {
+    const account = { ...buildAccount(), platform: 'deepseek', credentials: {
+      api_key: 'test-clinepass-key', base_url: 'https://api.cline.bot/api/v1', account_mode: 'payg', api_protocol: 'chat_completions',
+      clinepass_usage_enabled: false, unrelated: 'preserve'
+    } }
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="clinepass-usage-enabled"]').attributes('aria-checked')).toBe('false')
+    await wrapper.get('[data-testid="clinepass-usage-enabled"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const saved = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(saved).toMatchObject({ clinepass_usage_enabled: true, base_url: 'https://api.cline.bot/api/v1', unrelated: 'preserve' })
+    await wrapper.setProps({ account: { ...account, credentials: saved } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="clinepass-usage-enabled"]').attributes('aria-checked')).toBe('true')
+  })
+
+  it('keeps legacy ClinePass account usage enabled when the setting is absent', async () => {
+    const wrapper = mountModal({ ...buildAccount(), platform: 'deepseek', credentials: { base_url: 'https://api.cline.bot/v1', api_protocol: 'chat_completions' } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="clinepass-usage-enabled"]').attributes('aria-checked')).toBe('true')
+  })
   it('round-trips OAuth alias scope and lets an operator restore a whitelist', async () => {
     const account = { ...buildAccount(), type: 'oauth', credentials: { model_mapping_mode: 'aliases', model_mapping: { 'gpt-5.4': 'gpt-5.6-sol' } } }
     const wrapper = mountModal(account); await flushPromises()

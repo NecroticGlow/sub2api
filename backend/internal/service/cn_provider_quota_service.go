@@ -313,6 +313,9 @@ func validateCodingPlanAccount(account *Account) error {
 		return infraerrors.New(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
 	}
 	if account.IsClinePassAccount() {
+		if !account.IsClinePassUsageEnabled() {
+			return infraerrors.New(http.StatusBadRequest, "CN_QUOTA_DISABLED", "ClinePass usage query is disabled for this account")
+		}
 		return nil
 	}
 	if account.IsOpenCodeGoPlan() {

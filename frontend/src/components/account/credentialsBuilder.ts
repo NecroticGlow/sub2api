@@ -474,8 +474,12 @@ export function isClinePassAccount(platform: string, baseURL: unknown, accountTy
   }
 }
 
-export function cnQuotaCellVisible(platform: string, accountMode: string, baseURL: unknown = '', accountType = 'apikey'): boolean {
-  if (isClinePassAccount(platform, baseURL, accountType)) return true
+export function clinePassUsageEnabled(value: unknown = undefined): boolean {
+  return value === undefined || value === true || value === 'true'
+}
+
+export function cnQuotaCellVisible(platform: string, accountMode: string, baseURL: unknown = '', accountType = 'apikey', clinePassEnabled: unknown = undefined): boolean {
+  if (isClinePassAccount(platform, baseURL, accountType)) return clinePassUsageEnabled(clinePassEnabled)
   if (platform === 'opencode_go') return accountMode !== 'zen'
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
 }

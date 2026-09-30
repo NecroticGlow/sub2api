@@ -637,6 +637,14 @@
         </div>
       </div>
 
+      <div v-if="form.platform === 'deepseek'" class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.cnProviders.clinePassUsage.title') }}</label>
+          <p class="input-hint">{{ t('admin.accounts.cnProviders.clinePassUsage.hint') }}</p>
+        </div>
+        <Toggle v-model="clinePassUsageEnabled" data-testid="clinepass-usage-enabled" :aria-label="t('admin.accounts.cnProviders.clinePassUsage.title')" />
+      </div>
+
       <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后额度探测走团队版端点） -->
       <div v-if="form.platform === 'zhipu' && accountMode === 'coding'" class="mt-4">
         <div class="flex items-center">
@@ -4201,6 +4209,7 @@ const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
 const accountMode = ref<CnAccountMode>('payg')
+const clinePassUsageEnabled = ref(true)
 const openCodeAccountMode = ref<OpenCodeAccountMode>('zen')
 // API 协议决定转发端点与格式：cc=现有转换链，anthropic=原生直通（Claude Code），
 // responses=deepseek / kimi 原生 Responses 端点（Codex）。与账号类型正交。
@@ -5381,6 +5390,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   accountMode.value = 'payg'
   openCodeAccountMode.value = 'zen'
+  clinePassUsageEnabled.value = true
   apiProtocol.value = 'adaptive'
   openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules('zen'))
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
@@ -5878,6 +5888,7 @@ const handleSubmit = async () => {
   // 的通用路径（直接 doCreateAccount），不经过 createAccountAndFinish。
   if (isCNProviderPlatform(form.platform) || form.platform === 'opencode_go') {
     credentials.account_mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
+    if (form.platform === 'deepseek') credentials.clinepass_usage_enabled = clinePassUsageEnabled.value
     credentials.api_protocol = apiProtocol.value
     if (apiProtocol.value === 'adaptive') {
       const defaults = defaultCNAdaptiveBaseUrls(

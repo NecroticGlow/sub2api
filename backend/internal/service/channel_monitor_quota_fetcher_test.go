@@ -93,6 +93,19 @@ func (s *stubMonitorAccountSource) GetByID(ctx context.Context, id int64) (*Acco
 	return s.accounts[id], nil
 }
 
+func TestChannelMonitorQuotaClinePassDisabledDoesNotQuery(t *testing.T) {
+	fetcher, usage, quota, balance, accounts := newQuotaFetcherTestSetup(t)
+	account := clinePassTestAccount("https://api.cline.bot/v1")
+	account.Credentials["clinepass_usage_enabled"] = false
+	accounts.accounts[account.ID] = account
+	snapshot := fetcher.fetchUncached(context.Background(), account.ID, time.Now())
+	require.False(t, snapshot.Success)
+	require.Contains(t, snapshot.Error, "disabled")
+	require.Zero(t, quota.calls)
+	require.Zero(t, balance.calls)
+	require.Zero(t, usage.getCalls())
+}
+
 func TestChannelMonitorQuotaClinePassUsesSubscriptionNotBalance(t *testing.T) {
 	fetcher, usage, quota, balance, accounts := newQuotaFetcherTestSetup(t)
 	account := clinePassTestAccount("https://api.cline.bot/api/v1")

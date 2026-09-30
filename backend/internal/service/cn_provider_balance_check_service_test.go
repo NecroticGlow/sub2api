@@ -38,6 +38,23 @@ func (r *fakeCNCheckRepo) ListByPlatform(ctx context.Context, platform string) (
 	return r.byPlatform[platform], nil
 }
 
+func TestCNProviderBalanceCheckClinePassDisabledIsSkipped(t *testing.T) {
+	account := clinePassTestAccount("https://api.cline.bot/v1")
+	account.Status, account.Schedulable = StatusActive, true
+	account.Credentials["clinepass_usage_enabled"] = false
+	loadRepo := &recordingCNBalanceLoadRepo{}
+	prober := &fakeCNQuotaProber{}
+	svc := &CNProviderBalanceCheckService{
+		accountRepo:    &fakeCNCheckRepo{byPlatform: map[string][]Account{PlatformDeepseek: {*account}}},
+		balanceService: NewCNProviderBalanceService(loadRepo, nil, nil, &config.Config{}),
+		quotaService:   prober,
+		cfg:            &config.Config{},
+	}
+	svc.runOnce()
+	require.Empty(t, prober.probed)
+	require.Empty(t, loadRepo.getByIDIDs, "disabled accounts must not fall through to balance probes")
+}
+
 func TestCNProviderBalanceCheckRunOnceProbesCodingPlanQuota(t *testing.T) {
 	kimiActive := Account{ID: 1, Platform: PlatformKimi, Type: AccountTypeAPIKey, Status: StatusActive,
 		Credentials: map[string]any{"account_mode": "coding"}}

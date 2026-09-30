@@ -41,6 +41,17 @@ const account = {
 } as Account
 
 describe('CNProviderQuotaCell', () => {
+  it('does not render or auto-query a ClinePass account with usage disabled', async () => {
+    const disabled = {
+      ...account, id: 9999, platform: 'deepseek',
+      credentials: { account_mode: 'payg', base_url: 'https://api.cline.bot', clinepass_usage_enabled: false },
+      extra: { deepseek_5h_used_percent: 40, deepseek_usage_updated_at: '2020-01-01T00:00:00Z' }
+    } as Account
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: disabled } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="cn-provider-quota"]').exists()).toBe(false)
+    expect(queryQuota).not.toHaveBeenCalled()
+  })
   beforeEach(() => {
     queryQuota.mockReset()
   })

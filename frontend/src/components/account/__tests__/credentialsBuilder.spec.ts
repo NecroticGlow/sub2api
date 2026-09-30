@@ -15,6 +15,7 @@ import {
   cnQuotaCellVisible,
   cnBalanceCellVisible,
   isClinePassAccount,
+  clinePassUsageEnabled,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
   isCustomGrokBaseUrl,
@@ -31,6 +32,18 @@ import {
 } from '../credentialsBuilder'
 
 describe('ClinePass quota visibility', () => {
+  it('honors the account switch while preserving legacy defaults and official-host safety', () => {
+    expect(clinePassUsageEnabled()).toBe(true)
+    expect(clinePassUsageEnabled(true)).toBe(true)
+    expect(clinePassUsageEnabled('true')).toBe(true)
+    for (const value of [false, 'false', null, 0, {}, 'invalid']) {
+      expect(clinePassUsageEnabled(value)).toBe(false)
+      expect(cnQuotaCellVisible('deepseek', 'payg', 'https://api.cline.bot', 'apikey', value)).toBe(false)
+    }
+    expect(cnQuotaCellVisible('deepseek', 'payg', 'https://api.cline.bot', 'apikey', true)).toBe(true)
+    expect(cnQuotaCellVisible('deepseek', 'payg', 'https://relay.example', 'apikey', true)).toBe(false)
+    expect(cnBalanceCellVisible('deepseek', 'payg', 'https://api.cline.bot', 'apikey')).toBe(false)
+  })
   it('uses subscription windows instead of DeepSeek payg balance on the official Cline host', () => {
     expect(isClinePassAccount('deepseek', 'https://api.cline.bot/api/v1', 'apikey')).toBe(true)
     expect(cnQuotaCellVisible('deepseek', 'payg', 'https://api.cline.bot/api/v1', 'apikey')).toBe(true)

@@ -114,6 +114,10 @@ export default {
         opencode_go: 'OpenCode',
       },
       cnProviders: {
+        clinePassUsage: {
+          title: 'ClinePass usage query',
+          hint: 'Applies only to DeepSeek API-key accounts using https://api.cline.bot. Enables 5-hour, weekly and monthly usage queries. Disabling stops manual and scheduled queries without changing forwarding or history.',
+        },
         accountMode: {
           title: 'Account Type',
           payg: 'Pay-as-you-go',

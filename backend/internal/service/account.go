@@ -1721,6 +1721,9 @@ func (a *Account) GetCodingPlanProvider() string {
 		return ""
 	}
 	if a.IsClinePassAccount() {
+		if !a.IsClinePassUsageEnabled() {
+			return ""
+		}
 		return PlatformDeepseek
 	}
 	if a.IsOpenCodeGoPlan() {
