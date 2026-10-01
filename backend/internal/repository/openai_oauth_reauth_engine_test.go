@@ -29,7 +29,7 @@ func TestOpenAIOAuthReauthEngineLegacyClaimFiltersBeforeLocking(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	repo := NewOpenAIOAuthReauthRepository(db)
-	mock.ExpectQuery("(?s)WITH expired_callbacks.*engine.*ANY.*FOR UPDATE SKIP LOCKED").WithArgs("failed", "failed", "callback_processing", int64(1800), "queued", "running", "starting", "old-worker", "", `{"local_worker"}`).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery("(?s)WITH expired_callbacks.*engine.*ANY.*FOR UPDATE SKIP LOCKED").WithArgs("failed", "failed", "callback_processing", int64(1800), "queued", "running", "starting", "old-worker", "", `{"local_worker"}`, "").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	claim, err := repo.ClaimNextTask(context.Background(), "old-worker", 30*time.Minute)
 	require.NoError(t, err)
 	require.Nil(t, claim)

@@ -2030,6 +2030,10 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("runtime.role", RuntimeRoleFull)
+	viper.SetDefault("runtime.serverless_id", "")
+	viper.SetDefault("runtime.serverless_endpoint", "")
+	viper.SetDefault("runtime.serverless_region", "")
+	viper.SetDefault("runtime.serverless_secret", "")
 	viper.SetDefault("server.graceful_shutdown_timeout", 5)
 	viper.SetDefault("server.shutdown_drain_delay", 0)
 	viper.SetDefault("run_mode", RunModeStandard)

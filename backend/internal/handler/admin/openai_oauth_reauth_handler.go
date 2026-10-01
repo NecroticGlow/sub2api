@@ -139,6 +139,22 @@ func (h *OpenAIOAuthReauthHandler) Claim(c *gin.Context) {
 	response.Success(c, claim)
 }
 
+func (h *OpenAIOAuthReauthHandler) RuntimeSettings(c *gin.Context) {
+	if !h.requireWorker(c) {
+		return
+	}
+	cfg, err := h.service.GetRuntimeSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	var count *int
+	if cfg.ConcurrencyConfigured {
+		count = &cfg.WorkerConcurrency
+	}
+	response.Success(c, gin.H{"worker_concurrency": count})
+}
+
 func (h *OpenAIOAuthReauthHandler) Progress(c *gin.Context) {
 	if !h.requireWorker(c) {
 		return

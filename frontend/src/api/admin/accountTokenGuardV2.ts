@@ -57,8 +57,22 @@ export interface TokenGuardV2Rules {
 }
 
 export interface TokenGuardV2Status extends TokenGuardV2Rules {
+  runtime_settings?: TokenGuardV2RuntimeSettings
   worker?: { mode: string; state: string; reason?: string }
   accounts: TokenGuardV2Account[]
+}
+
+export interface TokenGuardV2RuntimeSettings {
+  engine: TokenGuardV2Engine | ''
+  worker_concurrency: number
+}
+
+export async function saveTokenGuardV2Runtime(input: TokenGuardV2RuntimeSettings): Promise<TokenGuardV2RuntimeSettings> {
+  return (await apiClient.put('/admin/account-ops/token-guard-v2/runtime', input)).data
+}
+
+export async function updateTokenGuardV2Switches(accountId: number, input: Partial<Pick<TokenGuardV2Account, 'enabled' | 'auto_relogin_enabled'>>): Promise<Pick<TokenGuardV2Account, 'enabled' | 'auto_relogin_enabled'>> {
+  return (await apiClient.patch(`/admin/account-ops/token-guard-v2/accounts/${accountId}/switches`, input)).data
 }
 
 export interface SaveTokenGuardV2Account {
@@ -73,8 +87,8 @@ export interface SaveTokenGuardV2Account {
   otp_url?: string
   clear_password?: boolean
   clear_totp?: boolean
-  enabled: boolean
-  auto_relogin_enabled: boolean
+  enabled?: boolean
+  auto_relogin_enabled?: boolean
 }
 
 export async function listTokenGuardV2Accounts(): Promise<TokenGuardV2Status> {

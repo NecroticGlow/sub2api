@@ -138,6 +138,10 @@ func (r *openAIOAuthReauthRepository) claimNextTask(ctx context.Context, workerI
 }
 
 func (r *openAIOAuthReauthRepository) ClaimNextTaskForEngines(ctx context.Context, workerID string, staleAfter time.Duration, mode string, engines []string) (*service.OpenAIOAuthReauthTaskRecord, error) {
+	return r.ClaimNextTaskForRuntime(ctx, workerID, staleAfter, mode, engines, "")
+}
+
+func (r *openAIOAuthReauthRepository) ClaimNextTaskForRuntime(ctx context.Context, workerID string, staleAfter time.Duration, mode string, engines []string, globalEngine string) (*service.OpenAIOAuthReauthTaskRecord, error) {
 	if staleAfter <= 0 {
 		staleAfter = 30 * time.Minute
 	}
@@ -164,7 +168,9 @@ func (r *openAIOAuthReauthRepository) ClaimNextTaskForEngines(ctx context.Contex
 					SELECT 1 FROM openai_oauth_reauth_configs AS config
 					WHERE config.account_id = openai_oauth_reauth_tasks.account_id AND config.credential_mode = $9
 				))
-				AND COALESCE((SELECT engine FROM openai_oauth_reauth_configs AS config
+				AND COALESCE((SELECT CASE WHEN $11 <> '' THEN
+					CASE WHEN config.credential_mode = 'password_totp' THEN $11 ELSE 'local_worker' END
+					ELSE engine END FROM openai_oauth_reauth_configs AS config
 					WHERE config.account_id = openai_oauth_reauth_tasks.account_id), 'local_worker') = ANY($10::text[])
 			ORDER BY created_at ASC, id ASC
 			LIMIT 1
@@ -194,7 +200,7 @@ func (r *openAIOAuthReauthRepository) ClaimNextTaskForEngines(ctx context.Contex
 		service.OpenAIOAuthReauthStatusQueued,
 		service.OpenAIOAuthReauthStatusRunning,
 		service.OpenAIOAuthReauthStageStarting,
-		workerID, mode, pq.Array(engines),
+		workerID, mode, pq.Array(engines), globalEngine,
 	)
 	record, err := scanOpenAIOAuthReauthTask(row)
 	if errors.Is(err, sql.ErrNoRows) {

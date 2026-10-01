@@ -1,4 +1,13 @@
 export default {
+  legacyEngine: "Keep existing account settings",
+  legacyEngineHint: "No global engine is selected yet. Existing accounts keep their engine; new accounts use the local worker. Selecting an engine applies it to all password/TOTP accounts. Email OTP continues locally.",
+  sessionStudioGlobalHint: "Subsequent password/TOTP re-logins send account email, password and TOTP secret to the Session Studio service configured in Credential Guard. The service uses its own egress, not account proxies. Email OTP stays local. Failures do not switch engines.",
+  workerConcurrency: "Local worker count",
+  workerConcurrencyHint: "Saved immediately; 1–16 processes per worker instance. Updated workers sync about every 5 seconds; shrinking waits for active tasks to finish. Session Studio tasks also use processes. Older workers must be upgraded.",
+  automation: "Automation",
+  switchSaved: "Automation switch updated",
+  runtimeSaved: "Re-login settings saved. Newly claimed tasks use the selected engine; running tasks continue unchanged.",
+
   remoteEngineEgress: 'Service egress (account proxy is not used)',
   reloginEngine: 'Re-login engine',
   localWorkerEngine: 'Local Worker (default)',

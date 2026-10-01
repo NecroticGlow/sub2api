@@ -25,7 +25,7 @@ class ChunkResponse:
         self.closed = True
 
 
-def parallel_probe(config):
+def parallel_probe(config, stop=None):
     root = Path(config.base_url)
     (root / config.worker_id).touch()
     deadline = time.monotonic() + 3
@@ -117,7 +117,7 @@ class ReauthEngineTests(unittest.TestCase):
     def test_three_real_worker_processes_overlap(self):
         with tempfile.TemporaryDirectory() as directory:
             cfg=worker.WorkerConfig(directory,'x'*32,'probe',None,concurrency=3)
-            with patch.object(worker,'_worker_loop',parallel_probe),self.assertRaisesRegex(worker.WorkerError,'process exited'):
+            with patch.object(worker.WorkerAPI,'runtime_concurrency',return_value=3),patch.object(worker,'_worker_loop',parallel_probe),self.assertRaisesRegex(worker.WorkerError,'process exited'):
                 worker.run_worker_pool(cfg)
             self.assertEqual(len(list(Path(directory).glob('done-*'))),3)
     def test_once_does_not_start_a_pool(self):
