@@ -187,8 +187,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		result.BalanceOverdrafted = !sufficient
 	}
 
-	// API Key 在请求进行中被删除时，其自身的额度/限速计数已无意义，跳过即可；
-	// 但用户余额、订阅与账号额度必须照常结算，不能因此回滚整个计费事务。
+	// Key 已不存在时跳过其自身的额度/限速计数，其余结算项不受影响。
 	if cmd.APIKeyQuotaCost > 0 {
 		exhausted, err := incrementUsageBillingAPIKeyQuota(ctx, tx, cmd.APIKeyID, cmd.APIKeyQuotaCost)
 		if err != nil && !errors.Is(err, service.ErrAPIKeyNotFound) {
