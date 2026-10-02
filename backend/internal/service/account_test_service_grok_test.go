@@ -233,6 +233,8 @@ func TestAccountTestService_Grok429WithoutQuotaHeadersUsesFallback(t *testing.T)
 	account := &Account{
 		ID: 15, Name: "grok-oauth-limited-no-headers", Platform: PlatformGrok,
 		Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1,
+		// This test isolates cooldown calculation, not request retry timing.
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"access_token":  "grok-access-token",
 			"refresh_token": "grok-refresh-token",
