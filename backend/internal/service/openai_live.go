@@ -558,6 +558,7 @@ func (s *OpenAIGatewayService) acquireLiveLease(
 		identity.UserID,
 		userMax,
 		identity.APIKeyID,
+		identity.APIKeyConcurrencyLimit,
 		leaseID,
 		replacingRegularSlots,
 	)
