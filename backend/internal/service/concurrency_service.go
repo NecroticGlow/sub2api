@@ -466,7 +466,7 @@ func (s *ConcurrencyService) AcquireUserGroupSlot(ctx context.Context, userID, g
 		return &AcquireResult{Acquired: false}, nil
 	}
 	return &AcquireResult{
-		Acquired: true,
+		Acquired:  true,
 		RequestID: requestID,
 		ReleaseFunc: func() {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -391,9 +391,9 @@ func acquireLiveLeaseForIdentity(
 			return false, ErrAPIKeyReservationLost
 		}
 		request := LiveLeaseTransferRequest{
-			GroupID: liveGroupID(identity.GroupID),
-			GroupMax: identity.GroupConcurrencyLimit,
-			GroupRequestID: userRequestID,
+			GroupID:          liveGroupID(identity.GroupID),
+			GroupMax:         identity.GroupConcurrencyLimit,
+			GroupRequestID:   userRequestID,
 			AccountID:        accountID,
 			AccountMax:       accountMax,
 			AccountRequestID: accountRequestID,
@@ -462,8 +462,8 @@ func migrateLiveLeaseAccount(
 		return false, ErrLiveUnavailable
 	}
 	request := LiveLeaseTransferRequest{
-		GroupID: liveGroupID(identity.GroupID),
-		GroupMax: identity.GroupConcurrencyLimit,
+		GroupID:           liveGroupID(identity.GroupID),
+		GroupMax:          identity.GroupConcurrencyLimit,
 		AccountID:         account.ID,
 		AccountMax:        account.Concurrency,
 		AccountRequestID:  accountRequestID,

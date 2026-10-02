@@ -43,7 +43,7 @@ type LiveCallRequest struct {
 }
 
 type LiveCallIdentity struct {
-	GroupConcurrencyLimit int
+	GroupConcurrencyLimit  int
 	APIKeyConcurrencyLimit int
 	APIKeyID               int64
 	UserID                 int64
@@ -140,9 +140,9 @@ type LiveUserGroupConcurrencyCache interface {
 // empty ID is only valid when the matching Max is 0 (the dimension is
 // unlimited and has no ordinary member to move).
 type LiveLeaseTransferRequest struct {
-	GroupID int64
-	GroupMax int
-	GroupRequestID string
+	GroupID          int64
+	GroupMax         int
+	GroupRequestID   string
 	AccountID        int64
 	AccountMax       int
 	AccountRequestID string
