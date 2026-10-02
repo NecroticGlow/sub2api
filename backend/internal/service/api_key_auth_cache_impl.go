@@ -357,6 +357,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		APIKeyID:         apiKey.ID,
 		UserID:           apiKey.UserID,
 		GroupID:          apiKey.GroupID,
+		FallbackGroupID:  apiKey.FallbackGroupID,
 		Name:             apiKey.Name,
 		Status:           apiKey.Status,
 		IPWhitelist:      apiKey.IPWhitelist,
@@ -457,6 +458,10 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ProfitSafetyBuffer:              apiKey.Group.ProfitSafetyBuffer,
 		}
 	}
+	if apiKey.FallbackGroup != nil {
+		// Use the same complete group serialization for the fallback path.
+		snapshot.FallbackGroup = s.snapshotFromAPIKey(ctx, &APIKey{User: apiKey.User, Group: apiKey.FallbackGroup}).Group
+	}
 	return snapshot
 }
 
@@ -468,6 +473,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		ID:               snapshot.APIKeyID,
 		UserID:           snapshot.UserID,
 		GroupID:          snapshot.GroupID,
+		FallbackGroupID:  snapshot.FallbackGroupID,
 		Key:              key,
 		Name:             snapshot.Name,
 		Status:           snapshot.Status,
@@ -563,5 +569,8 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		}
 	}
 	s.compileAPIKeyIPRules(apiKey)
+	if snapshot.FallbackGroup != nil {
+		apiKey.FallbackGroup = s.snapshotToAPIKey(key, &APIKeyAuthSnapshot{Group: snapshot.FallbackGroup}).Group
+	}
 	return apiKey
 }

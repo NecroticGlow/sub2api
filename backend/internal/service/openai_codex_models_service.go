@@ -1864,7 +1864,7 @@ func (s *OpenAIGatewayService) fetchCachedOpenAIModels(ctx context.Context, requ
 		// A background singleflight has no request-capacity owner. Limited
 		// callers share completed cache entries, but own and join their refresh
 		// independently so cancellation cannot strand work or cancel a peer.
-		refreshCtx, cancel := context.WithTimeout(ctx, codexModelsManifestRequestTimeout)
+		refreshCtx, cancel := context.WithTimeout(ctx, openAIModelsRequestTimeout(request))
 		defer cancel()
 		refreshed, err := s.fetchAndCacheOpenAIModels(refreshCtx, cacheKey, fetch)
 		if err != nil {
@@ -1896,7 +1896,7 @@ func (s *OpenAIGatewayService) fetchCachedOpenAIModels(ctx context.Context, requ
 
 func (s *OpenAIGatewayService) refreshCachedOpenAIModels(cacheKey string, request openAIModelsRequest, fetch func(ctx context.Context, ifNoneMatch string) (*OpenAIModelsResponse, error)) <-chan singleflight.Result {
 	return s.openAIModelsCache.refresh.DoChan(cacheKey, func() (any, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), codexModelsManifestRequestTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), openAIModelsRequestTimeout(request))
 		defer cancel()
 		return s.fetchAndCacheOpenAIModels(ctx, cacheKey, fetch)
 	})
@@ -1934,8 +1934,15 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstreamForRequest(reques
 	}
 }
 
+func openAIModelsRequestTimeout(request openAIModelsRequest) time.Duration {
+	if request.useAPIKeyUpstream {
+		return account429RetryTotalTimeout(codexModelsManifestRequestTimeout, request.credentialAccount)
+	}
+	return codexModelsManifestRequestTimeout
+}
+
 func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, request openAIModelsRequest, ifNoneMatch string) (*OpenAIModelsResponse, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, codexModelsManifestRequestTimeout)
+	reqCtx, cancel := context.WithTimeout(ctx, openAIModelsRequestTimeout(request))
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, request.url, nil)
 	if err != nil {
@@ -1952,7 +1959,11 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 			return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_UPSTREAM_NOT_CONFIGURED", "Codex models upstream HTTP client is not configured")
 		}
 		req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
-		resp, err = s.httpUpstream.Do(req, request.proxyURL, request.accountID, request.accountConcurrency)
+		retryAccount := Account{ID: request.accountID, Concurrency: request.accountConcurrency}
+		if request.credentialAccount != nil {
+			retryAccount.RateLimit429RetryCount = request.credentialAccount.RateLimit429RetryCount
+		}
+		resp, err = doAccountHTTPUpstream(s.httpUpstream, req, request.proxyURL, &retryAccount)
 	} else {
 		handled := false
 		if s.pluginManager != nil {
