@@ -48,6 +48,7 @@ type APIKey struct {
 	Group               *Group
 	FallbackGroup       *Group
 	CurrentConcurrency  int
+	ConcurrencyLimit    int // 0 = no additional limit
 
 	// Quota fields
 	Quota     float64    // Quota limit in USD (0 = unlimited)

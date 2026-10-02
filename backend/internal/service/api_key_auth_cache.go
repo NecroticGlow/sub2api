@@ -16,6 +16,7 @@ type APIKeyAuthSnapshot struct {
 	User            APIKeyAuthUserSnapshot   `json:"user"`
 	Group           *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
 	FallbackGroup   *APIKeyAuthGroupSnapshot `json:"fallback_group,omitempty"`
+	ConcurrencyLimit int                      `json:"concurrency_limit"`
 
 	// Quota fields for API Key independent quota feature
 	Quota     float64 `json:"quota"`      // Quota limit in USD (0 = unlimited)

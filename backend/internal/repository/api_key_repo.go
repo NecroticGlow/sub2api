@@ -45,6 +45,7 @@ func (r *apiKeyRepository) activeQuery() *dbent.APIKeyQuery {
 func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) error {
 	builder := r.client.APIKey.Create().
 		SetUserID(key.UserID).
+		SetConcurrencyLimit(key.ConcurrencyLimit).
 		SetKey(key.Key).
 		SetName(key.Name).
 		SetStatus(key.Status).
@@ -146,6 +147,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldQuotaUsed,
 			apikey.FieldExpiresAt,
 			apikey.FieldRateLimit5h,
+			apikey.FieldConcurrencyLimit,
 			apikey.FieldRateLimit1d,
 			apikey.FieldRateLimit7d,
 		).
@@ -272,6 +274,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetUpdatedAt(now)
+	if fields.ConcurrencyLimit {
+		builder.SetConcurrencyLimit(key.ConcurrencyLimit)
+	}
 	if fields.Name {
 		builder.SetName(key.Name)
 	}
