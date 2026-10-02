@@ -12,7 +12,7 @@ describe('API key concurrency payloads', () => {
     vi.mocked(apiClient.post).mockResolvedValue({ data: key })
     vi.mocked(apiClient.put).mockResolvedValue({ data: key })
 
-    expect(await create('test-key', 42, undefined, undefined, undefined, undefined, undefined, undefined, limit)).toEqual(key)
+    expect(await create('test-key', 42, undefined, undefined, undefined, undefined, undefined, undefined, undefined, limit)).toEqual(key)
     expect(apiClient.post).toHaveBeenCalledWith('/keys', {
       name: 'test-key', group_id: 42, concurrency_limit: limit,
     })

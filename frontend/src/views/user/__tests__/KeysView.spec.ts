@@ -609,7 +609,7 @@ describe('user KeysView column settings', () => {
     await wrapper.get('#key-concurrency-limit').setValue(input)
     await wrapper.get('#key-form').trigger('submit')
     await flushPromises()
-    expect(createKey).toHaveBeenCalledWith('new-key', 42, undefined, [], [], 0, undefined,
+    expect(createKey).toHaveBeenCalledWith('new-key', 42, null, undefined, [], [], 0, undefined,
       { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 }, Number(input))
     await getButtonByText(wrapper, 'Create API Key').trigger('click')
     expect((wrapper.get('#key-concurrency-limit').element as HTMLInputElement).value).toBe('0')
@@ -691,7 +691,7 @@ describe('user KeysView column settings', () => {
     await wrapper.getComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 42)
     await wrapper.get('#key-form').trigger('submit')
     await flushPromises()
-    expect(createKey).toHaveBeenCalledWith('new-key', 42, undefined, [], [], 0, undefined,
+    expect(createKey).toHaveBeenCalledWith('new-key', 42, null, undefined, [], [], 0, undefined,
       { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 }, 2)
   })
 
