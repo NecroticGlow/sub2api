@@ -1687,7 +1687,7 @@ export default {
         promptLabel: 'Test message',
         promptHint: 'The same prompt is sent unchanged to every parallel run.',
         model: 'Model',
-        modelHint: 'Defaults to gpt-6-astra; adjust it for the account when needed.',
+        modelHint: 'Defaults to {model}; adjust it for the account when needed.',
         reasoning: 'Reasoning effort',
         reasoningLow: 'Low',
         reasoningMedium: 'Medium',

@@ -1772,7 +1772,7 @@ export default {
         promptLabel: '测试消息',
         promptHint: '同一题目会原样发给每个并行任务。',
         model: '模型',
-        modelHint: '默认使用 gpt-6-astra，可按账号实际支持情况修改。',
+        modelHint: '默认使用 {model}，可按账号实际支持情况修改。',
         reasoning: '思考强度',
         reasoningLow: '低',
         reasoningMedium: '中',

@@ -2,9 +2,13 @@
 
 关联 [Issue #256](https://github.com/ranxi2001/sub2api/issues/256)。账号编辑页的 Prism 开关复用现有 OpenAI OAuth 凭据，通过回环适配服务访问 Prism 网页。管理员账号测试与 HTTP `/v1/responses` 共用后端凭据获取及适配器请求函数。
 
-当前只支持 `gpt-5.6-sol`、`medium` 和普通文本输入。`tools`、`additional_tools`、图片、工具结果、`previous_response_id`、background、structured output、compact 和原生 WebSocket 不支持。此版本不能替代带工具的 Codex 会话；P2 工具闭环、Codex CLI 端到端验收仍待实现。
+文本请求接受 `gpt-6.1-sol`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-6-luna` 四个精确模型 ID，以及 `low`、`medium`、`high`、`xhigh` 思考强度（省略时为 `medium`）。能否调用仍取决于该 OAuth 账号在 Prism 页面中实际可选的模型和强度；不把静态支持列表当作账号权益证明。`tools`、`additional_tools`、图片、工具结果、`previous_response_id`、background、structured output、compact 和原生 WebSocket 不支持。此版本不能替代带工具的 Codex 会话；P2 工具闭环、Codex CLI 端到端验收仍待实现。
+
+每个请求先通过官方页面选择模型和思考强度，再核对 start 元数据中的实际值。缓存命中也重新检查，响应与终态回执保留本次模型和强度；并发请求不修改全局默认值，也不将新模型静默替换为 `gpt-5.6-sol`。账号页面没有对应选项时，发送前返回 `model_unavailable` 或 `reasoning_unavailable`（HTTP 422）；未知模型 ID 返回 `unsupported_model`。Beta 开关属于 Prism 账号设置，适配器不会自动修改它；开启 Beta 或在配置接口看到模型名都不能替代真实调用验收。
 
 ## 协议边界
+
+页面初始化时可能出现官方配置 SDK 已 Ready，但 React 仍停留在 loading、只展示默认 `5.6 Sol` 的状态。适配器等待 SDK 就绪后，用 `getContext().user` 原样调用官方 `updateUserAsync` 刷新该页配置，再操作模型菜单；不会改写用户属性、套餐、Beta 标记或模型配置。准备阶段等待有上限，目录未就绪时返回 `model_catalog_unavailable`（503），不会提交模型请求。
 
 - 用户无需修改 Codex 或添加配置。网关复用已有的会话解析：读取标准会话/线程请求头及 `client_metadata`，线程标识优先，绑定已认证 API Key 和上游账号后生成摘要。`X-Prism-Session-ID` 仅用于网关到适配器的回环通信，外部同名头不参与缓存选取。
 - 同一会话命中缓存后保留私有浏览器上下文和项目，先打开新的 chat tab，再提交调用方的完整输入；项目文件仍属于该会话。缺少可靠会话标识的请求、管理员账号测试始终新建空白项目，避免同一 API Key 下的无关对话共享文件。客户端不需要提供 `project_id`，项目创建及 sandbox 管理仍由官方页面完成。
@@ -45,13 +49,45 @@ PRISM_ADAPTER_SESSION_TTL_SECONDS=300
 
 `/health` 只证明 HTTP 进程可用，不证明 OAuth 登录、浏览器 sandbox 或模型可调用。服务模板限制 CPU 为一个核心、内存为 900 MiB、禁止 swap；实际资源需求仍需观测。
 
+## 并发执行器（服务端试用开关）
+
+默认 `PRISM_ADAPTER_MODE=browser` 保持原来的单回合 UI 执行器。要试用单账号并发，在服务器环境文件中设置：
+
+```dotenv
+PRISM_ADAPTER_MODE=multiplex
+PRISM_ADAPTER_MAX_INFLIGHT=20
+PRISM_ADAPTER_ACCOUNT_MAX_INFLIGHT=20
+PRISM_ADAPTER_MAX_QUEUED=30
+PRISM_ADAPTER_BOOTSTRAP_CONCURRENCY=1
+```
+
+用户的 Codex、模型名和请求不需要修改。并发总数和单账号上限均不超过 30，单账号上限不能大于总上限；队列允许 0-60 个请求，等待超过 15 秒返回 429，尚未提交模型请求。三路管理员糖果测试使用独立请求，不需要客户端会话头。同一有标识的对话仍顺序执行，其他对话可以并行。
+
+新执行器使用一个浏览器、一个账号上下文，默认只保留一个短期项目准备页面（`PRISM_ADAPTER_BOOTSTRAP_CONCURRENCY` 可设 1-2）。项目先通过官方页面的 fetch 封装调用 `/api/projects` 创建，客户端生成的 UUID 必须由上游原样确认；然后直接进入该项目页面，由官方编辑器创建聊天并发出唯一一次 start。避免依赖首页 New 菜单及额外整页跳转；取得可信 request ID 后，在发送前捕获该页面的首个 status 请求体，关闭准备页面，由常驻官方页面的 `window.fetch` 验证封装接管轮询。start/status 都保留官方验证流程，不复制 start 的验证头到 status；原生 fetch 的同源轻量页在真实上游会被 403 拒绝，不能替代官方页面。只有登记过的精确 status 请求体会被放行，不合成 start、复用验证头或重新提交未知结果。项目缓存只保留会话对应的项目 ID，不为每个并发请求保留浏览器页面。网络门控只用 Chromium Fetch 拦截模型 API，保留静态资源的正常 HTTP 缓存；不使用会关闭整页缓存的 Playwright route()。
+
+当前最多同时驻留一个账号上下文；另一个账号在它繁忙时会被拒绝，账号池多上下文调度不属于本轮范围。凭据更新必须等旧上下文在飞请求结束才能替换，期间返回 429，不强行关闭旧请求。空闲回收沿用 `PRISM_ADAPTER_SESSION_TTL_SECONDS`，存活满 900 秒且无活动请求也会回收；到期不会中断在飞任务。
+
+待决文件改为 `pending/<account_id>/<scope_hash>.json`。每个请求有自己的 request ID 和 turn_state；不确定结果只阻塞相同会话。匿名管理员测试每份结果使用独立作用域，不自动重试。原版本留下的 `pending/<account_id>` 文件仍会阻塞该账号，不能绕过。回滚到旧执行器时，旧程序看到该目录也会拒绝账号，必须先核实并发版本的未完成记录；不能直接删除目录解锁。
+
+systemd 的 `MemoryMax=900M`、禁 swap 和单核限制保持不变。新执行器在 Linux cgroup 使用量达到 750 MiB 时拒绝新的项目准备，并回收已空闲上下文；已提交请求继续尝试取得终态。这个阈值是保护措施，不是达到生产容量的证明。推荐使用与固定 Playwright 版本匹配、预构建的 Chromium headless shell，仍启用浏览器 sandbox。
+
+本地完整路径验证（真实 Chromium，模拟上游，无 OAuth/真实推理）：
+
+```sh
+python3 -m unittest discover -s prism-adapter -p 'test_*.py' -v
+python3 prism-adapter/smoke_multiplex.py --chrome /absolute/path/to/chrome-headless-shell --concurrency 20
+python3 prism-adapter/smoke_multiplex.py --chrome /absolute/path/to/chrome-headless-shell --concurrency 30
+```
+
+此脚本通过真实 HTTP 入口、项目准备、start/status 移交和 journal，验证并发任务各自只提交一次、项目和状态不串线，默认页面峰值不超过 2（准备并发设 2 时不超过 3）。模型结果由本地模拟服务生成，不可用来声称真实 Prism 20/30 并发或“不降智”已验收。真实试用应先验证 1/3 并发，再逐步升到 20/30，同时记录上游终态、正确答案、耗时和整个 systemd cgroup 的内存峰值；不得在生产服务器构建。
+
 ## 验收
 
 1. 在账号编辑中打开 Prism 开关并保存。API Key 账号和 shadow 账号不显示开关。
 2. 对该 OAuth 账号通过管理员测试入口请求 `gpt-5.6-sol`。必须观察 `test_start → content → test_complete(success=true)`，不能只看 HTTP 200。
 3. 检查回执的 `start_count=1`、实际模型和终态；使用数学题时核对最终答案。项目必须是空白项目，不能用已有答案的项目评估推理能力。
 4. 保持 Codex 原有请求不变，用同一会话连续提交两个不同文本请求，检查第二次回执的 `session_cache_hit=true`。换线程、换 API Key、换账号时不能命中旧会话。无标识请求和管理员测试始终使用新项目。
-5. Astra 等其他模型返回 422；适配器不可用时不能退回原生 Codex 上游。工具请求也应明确拒绝。
+5. 分别验证四个模型及所需强度，核对响应、回执和实际发出的 start 一致。Astra 等未适配模型返回 422；账号缺少选项时也明确拒绝，不降级模型。适配器不可用时不能退回原生 Codex 上游，工具请求也应明确拒绝。
 
 本地离线检查：
 
@@ -67,6 +103,6 @@ go test ./internal/service -run 'TestPrismBrowser|TestAccountUsesPrism' -count=1
 python3 prism-adapter/smoke_browser.py --chrome /absolute/path/to/chromium
 ```
 
-该脚本验证三次 start、同会话一次缓存命中、两个独立项目以及新聊天不重复提交历史。它验证浏览器机制，不能替代真实账号糖果测试或证明模型能力。
+该脚本验证三次不同模型/强度的 start、同会话一次缓存命中、两个独立项目以及新聊天不重复提交历史。`smoke_multiplex.py` 按四模型与四档强度混合发送请求，同时核对实际 start、响应和回执参数。这些脚本验证浏览器机制，不能替代真实账号糖果测试或证明模型能力。
 
 项目会保留在账号的 Prism 工作区内，本版不自动批量删除项目。大规模使用前需要项目回收、账号代理、动态模型目录、计费策略和 P2 工具闭环的独立实现及验收。默认保持总开关关闭；真实用户流量应等待这些边界完善。

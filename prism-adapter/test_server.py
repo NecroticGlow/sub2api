@@ -19,6 +19,37 @@ spec.loader.exec_module(adapter)
 
 
 class AdapterTests(unittest.TestCase):
+    def test_four_models_and_efforts_are_preserved_without_aliases(self):
+        for model in adapter.MODELS:
+            for effort in adapter.EFFORTS:
+                with self.subTest(model=model, effort=effort):
+                    self.assertEqual(adapter.parse_prompt({"model":model,"reasoning":{"effort":effort},"input":"hi"}),
+                                     ("[user]\nhi", False))
+                    response = adapter.response_payload("fixture", "answer", model, effort)
+                    self.assertEqual((response["model"], response["reasoning"]["effort"]), (model, effort))
+                    gate = adapter.StartGate(model, effort)
+                    gate.armed = True
+                    self.assertTrue(gate.accept({"metadata":{"model":model,"reasoning_effort":effort}}))
+                    self.assertFalse(gate.accept({"metadata":{"model":model,"reasoning_effort":effort}}))
+        for value in (None, [], {}, 42, "6.1-sol", "gpt-6-astra"):
+            with self.subTest(invalid_model=value), self.assertRaises(adapter.AdapterError) as raised:
+                adapter.parse_prompt({"model":value,"input":"hi"})
+            self.assertEqual(raised.exception.code, "unsupported_model")
+
+    def test_valid_other_model_or_effort_cannot_replace_requested_options(self):
+        for model in adapter.MODELS:
+            for other in adapter.MODELS:
+                if model == other:
+                    continue
+                gate = adapter.StartGate(model, "xhigh")
+                gate.armed = True
+                self.assertFalse(gate.accept({"metadata":{"model":other,"reasoning_effort":"xhigh"}}))
+                self.assertFalse(gate.sent)
+            gate = adapter.StartGate(model, "xhigh")
+            gate.armed = True
+            self.assertFalse(gate.accept({"metadata":{"model":model,"reasoning_effort":"medium"}}))
+            self.assertFalse(gate.sent)
+
     def test_text_request_keeps_model_and_stream(self):
         prompt, stream = adapter.parse_prompt({
             "model": "gpt-5.6-sol", "stream": True,
@@ -30,7 +61,7 @@ class AdapterTests(unittest.TestCase):
 
     def test_unsupported_features_fail_closed(self):
         for change in ({"model": "gpt-6-astra"}, {"tools": [{"type": "function", "name": "x"}]},
-                       {"previous_response_id": "resp_1"}, {"reasoning": {"effort": "high"}}):
+                       {"previous_response_id": "resp_1"}, {"reasoning": {"effort": "unsupported"}}):
             request = {"model": "gpt-5.6-sol", "input": "hi", **change}
             with self.assertRaises(adapter.AdapterError):
                 adapter.parse_prompt(request)
@@ -54,8 +85,8 @@ class AdapterTests(unittest.TestCase):
 
     def test_http_boundary_uses_real_terminal_without_usage(self):
         class FakeBrowser:
-            def run(self, account_id, token, prompt, session_id=None):
-                self.assert_values = (account_id, token, prompt, session_id)
+            def run(self, account_id, token, prompt, session_id=None, model=adapter.MODEL, effort="medium"):
+                self.assert_values = (account_id, token, prompt, session_id, model, effort)
                 return "prism-123", "21"
 
         fake = FakeBrowser()
@@ -66,13 +97,14 @@ class AdapterTests(unittest.TestCase):
         worker.start()
         try:
             url = f"http://127.0.0.1:{server.server_port}/v1/responses"
-            data = json.dumps({"model": "gpt-5.6-sol", "input": "candy"}).encode()
+            data = json.dumps({"model": "gpt-6.1-sol", "reasoning":{"effort":"xhigh"}, "input": "candy"}).encode()
             headers = {"Authorization": "Bearer test-key", "X-Prism-Account-ID": "300",
                        "X-Prism-OAuth-Token": "oauth-token", "X-Prism-Session-ID": "a" * 64,
                        "Content-Type": "application/json"}
             with urlopen(Request(url, data=data, headers=headers), timeout=5) as response:
                 body = json.load(response)
-            self.assertEqual(fake.assert_values, ("300", "oauth-token", "[user]\ncandy", "a" * 64))
+            self.assertEqual(fake.assert_values, ("300", "oauth-token", "[user]\ncandy", "a" * 64, "gpt-6.1-sol", "xhigh"))
+            self.assertEqual((body["model"], body["reasoning"]["effort"]), ("gpt-6.1-sol", "xhigh"))
             self.assertEqual(body["output"][0]["content"][0]["text"], "21")
             self.assertIsNone(body["usage"])
             with self.assertRaises(HTTPError) as denied:
@@ -165,6 +197,9 @@ class FakeControl:
     def wait_for(self, **_kwargs):
         pass
 
+    def inner_text(self):
+        return "5.6 Sol\nMedium"
+
     def fill(self, _text):
         pass
 
@@ -196,6 +231,9 @@ class FakePage:
 
     def wait_for_function(self, _expression, **_kwargs):
         self.url = adapter.BASE + "/?u=" + PROJECT
+
+    def evaluate(self, _expression):
+        return True
 
     def get_by_role(self, *_args, **_kwargs):
         return FakeControl(self, _kwargs.get("name"))
