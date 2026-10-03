@@ -58,6 +58,8 @@ Vision Exp 当前按 V4.1 Flash 档，别名/第三方 slug 映射以测试为�
 1. 阅读本清单与 `AGENTS.md`，记录当前 HEAD、目标上游 tag 和工作区改动。
 2. 合并目标 tag，保留完整上游更新和以上定制；逐块处理冲突，禁止整树替换。
 3. 对照清单核查差异，新增、修改、退休功能时同时更新本文与回归测试。
+   知识题必须验证带 QualityPolicy 的规则创建/更新及分组模板保存，不能仅测
+   无判题配置的题型；对应回归为 `account_quality_knowledge_test.go`。
 4. 验证 frontend unit/build/i18n、Go unit/build/嵌入资源；数据库相关改动使用
    独立临时 PostgreSQL/Redis，不连接生产数据库做集成测试。
 5. 429、错误策略、冷却和 failover 测试应显式指定测试预算；专门的重试测试

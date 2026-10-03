@@ -31,7 +31,7 @@ func validateQualityPolicy(plan *ScheduledTestPlan) error {
 	if plan.AutoRecover {
 		return fmt.Errorf("quality plans use auto_restore, not connectivity auto_recover")
 	}
-	if plan.PelicanConfig.QuestionKind != "candy" && plan.PelicanConfig.QuestionKind != OpenAICodexStateProbeQuestionKind {
+	if plan.PelicanConfig.QuestionKind != "candy" && !isKnowledgeQuestion(plan.PelicanConfig.QuestionKind) && plan.PelicanConfig.QuestionKind != OpenAICodexStateProbeQuestionKind {
 		return fmt.Errorf("quality plans require a text answer question")
 	}
 	// 探针题型自带满血/降智判定，不需要参考答案与判题模型。
