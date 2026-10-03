@@ -192,13 +192,15 @@ func TestAccountTestService_Grok429PersistsRateLimitReset(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	account := &Account{
-		ID:          14,
-		Name:        "grok-oauth-limited",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
+		ID:   14,
+		Name: "grok-oauth-limited",
+		// Isolate cooldown persistence from request retry timing.
+		RateLimit429RetryCount: retryCountPointer(0),
+		Platform:               PlatformGrok,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusActive,
+		Schedulable:            true,
+		Concurrency:            1,
 		Credentials: map[string]any{
 			"access_token":  "grok-access-token",
 			"refresh_token": "grok-refresh-token",

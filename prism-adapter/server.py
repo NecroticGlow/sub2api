@@ -17,11 +17,15 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import sync_playwright
 
 from model_selection import MODELS, EFFORTS, select_options
+from tool_bridge import ToolBridge, has_tools, strict_json
+from tool_state import ToolState, digest
+from response_events import completed_events
 
 
 BASE = "https://prism.openai.com"
@@ -37,10 +41,11 @@ USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/153 Safa
 
 
 class AdapterError(Exception):
-    def __init__(self, status, code, message):
+    def __init__(self, status, code, message, *, not_submitted=False):
         super().__init__(message)
         self.status = status
         self.code = code
+        self.not_submitted = not_submitted
 
 
 def parse_prompt(payload):
@@ -406,7 +411,7 @@ class BrowserTurn:
                 manager, self.manager = self.manager, None
                 manager.__exit__(None, None, None)
 
-    def run(self, account_id, token, prompt, session_id=None, model=MODEL, effort="medium"):
+    def run(self, account_id, token, prompt, session_id=None, model=MODEL, effort="medium", reuse_project=True):
         self.state.ensure_idle(account_id)
         self.prune()
         # Rotate credentials by discarding every cached context for that account.
@@ -415,8 +420,8 @@ class BrowserTurn:
         for old in list(self.sessions):
             if old[0] == account_id and old[2] != identity:
                 self.discard(old)
-        key = (account_id, session_id, identity)
-        session = self.sessions.get(key) if session_id else None
+        key = (account_id, session_id if reuse_project else None, identity)
+        session = self.sessions.get(key) if session_id and reuse_project else None
         cache_hit = session is not None
         request = None
         succeeded = False
@@ -445,11 +450,14 @@ class BrowserTurn:
             succeeded = True
             session.used = time.monotonic()
             return result
+        except Exception as error:
+            error.not_submitted = request is None or not request.gate.sent
+            raise
         finally:
             if session is not None:
                 session.active = None
             try:
-                if not succeeded or not session_id:
+                if not succeeded or not session_id or not reuse_project:
                     self.discard(key)
             finally:
                 # Discarding the cache never clears an ambiguous submission.
@@ -526,13 +534,13 @@ class BrowserWorker:
             raise AdapterError(429, "prism_busy", "Prism browser is busy; request was not submitted")
         try:
             if not self.ready.wait(timeout=5):
-                raise AdapterError(503, "prism_unavailable", "Prism browser worker did not start")
+                raise AdapterError(503, "prism_unavailable", "Prism browser worker did not start", not_submitted=True)
             if self.startup_error is not None:
-                raise AdapterError(503, "prism_unavailable", "Prism browser worker failed to start") from self.startup_error
+                raise AdapterError(503, "prism_unavailable", "Prism browser worker failed to start", not_submitted=True) from self.startup_error
             future = Future()
             with self.lifecycle:
                 if self.stopping.is_set() or not self.thread.is_alive():
-                    raise AdapterError(503, "prism_unavailable", "Prism browser worker is unavailable")
+                    raise AdapterError(503, "prism_unavailable", "Prism browser worker is unavailable", not_submitted=True)
                 self.jobs.put_nowait((args, future))
             return future.result()
         finally:
@@ -568,6 +576,7 @@ class Handler(BaseHTTPRequestHandler):
     api_key = None
     lock = threading.Lock()
     serialize_requests = True
+    tool_state = None
 
     def setup(self):
         super().setup()
@@ -617,23 +626,62 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             if length < 1 or length > MAX_REQUEST_BYTES:
                 raise AdapterError(413, "request_too_large", "request body is empty or too large")
-            payload = json.loads(self.rfile.read(length))
-            prompt, stream = parse_prompt(payload)
+            payload = strict_json(self.rfile.read(length))
+            bridge = None
+            scope = None
+            if has_tools(payload):
+                if self.tool_state is None:
+                    raise AdapterError(422, 'tools_disabled', 'Prism client tool bridge is disabled')
+                callers = self.headers.get_all('X-Prism-Caller-ID', [])
+                if len(callers) != 1 or not SESSION_ID.fullmatch(callers[0]):
+                    raise AdapterError(400, 'invalid_caller', 'Tool requests require a gateway-derived caller identity')
+                scope = digest([account_id, callers[0], session_id])
+                bridge = ToolBridge(payload, SimpleNamespace(AdapterError=AdapterError, parse_prompt=parse_prompt))
+                prompt, stream = bridge.prompt, bridge.stream
+            else:
+                prompt, stream = parse_prompt(payload)
             model, effort = payload["model"], (payload.get("reasoning") or {}).get("effort", "medium")
             if self.serialize_requests and not self.lock.acquire(blocking=False):
                 raise AdapterError(429, "prism_busy", "Prism browser is busy; request was not submitted")
             try:
-                request_id, answer = self.browser_turn.run(account_id, token, prompt, session_id, model, effort)
+                if bridge is not None:
+                    self.tool_state.reserve(scope, bridge.calls, bridge.results, bridge.lease, bridge.needs_fresh)
+                try:
+                    args = (account_id, token, prompt, session_id, model, effort)
+                    if bridge is not None:
+                        # Client results already contain expanded history. A
+                        # native chat/project is not their continuation state.
+                        args += (False,)
+                    request_id, answer = self.browser_turn.run(*args)
+                except Exception as error:
+                    if bridge is not None and (getattr(error,'not_submitted',False) or
+                            getattr(error,'code',None) in ('prism_busy','resource_pressure','credential_rotation')):
+                        self.tool_state.not_sent(scope, bridge.lease)
+                    raise
             finally:
                 if self.serialize_requests:
                     self.lock.release()
             response = response_payload(request_id, answer, model, effort)
+            if bridge is not None:
+                try:
+                    output, calls = bridge.output(answer, request_id)
+                except AdapterError:
+                    # The upstream terminal is known, but no unvalidated call
+                    # is released. These results were already fed to the model.
+                    self.tool_state.complete(scope, bridge.lease, response['id'], [])
+                    raise
+                self.tool_state.complete(scope, bridge.lease, response['id'], calls)
+                response['output'] = output
+                if bridge.unavailable:
+                    response['metadata'] = {'prism_unavailable_tools': ','.join(sorted(bridge.unavailable))}
             if stream:
                 created = dict(response, status="in_progress", output=[])
                 events = [
                     ("response.created", {"type": "response.created", "sequence_number": 0, "response": created}),
                     ("response.completed", {"type": "response.completed", "sequence_number": 1, "response": response}),
                 ]
+                if bridge is not None:
+                    events = completed_events(response)
                 body = "".join("event: " + name + "\ndata: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n" for name, data in events).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -669,6 +717,11 @@ def main():
         raise SystemExit("adapter key, Chromium binary, and Chromium sandbox are required")
     Handler.api_key = key
     Handler.state = State(os.environ.get("PRISM_ADAPTER_STATE_DIR", "/var/lib/sub2api-prism"))
+    tools = os.environ.get('PRISM_ADAPTER_CLIENT_TOOLS_ENABLED', 'false')
+    if tools not in ('true','false'):
+        raise SystemExit('PRISM_ADAPTER_CLIENT_TOOLS_ENABLED must be true or false')
+    if tools == 'true':
+        Handler.tool_state = ToolState(Handler.state.directory, AdapterError)
     max_sessions = int(os.environ.get("PRISM_ADAPTER_MAX_SESSIONS", "1"))
     idle_seconds = int(os.environ.get("PRISM_ADAPTER_SESSION_TTL_SECONDS", "300"))
     if not 1 <= max_sessions <= 2 or not 30 <= idle_seconds <= 900:

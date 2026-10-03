@@ -37,6 +37,7 @@ describe('MonitorQuotaView', () => {
             { window: '5h', used_percent: 42.4 },
             { window: '7d', label: 'pro', used_percent: 80 },
             { window: 'weekly', label: 'unknown-token', used_percent: 95 },
+            { window: 'monthly', used_percent: 100 },
           ],
         }),
       },
@@ -44,7 +45,7 @@ describe('MonitorQuotaView', () => {
 
     const rows = wrapper.findAll('[data-testid="monitor-quota-tier"]')
     // tier 行只在 success 且有数据时渲染
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(4)
     const text = wrapper.text()
     // 已知 window token 走 i18n
     expect(text).toContain('monitorCommon.quota.windows.5h')
@@ -59,8 +60,11 @@ describe('MonitorQuotaView', () => {
     expect(text).toContain('95%')
 
     const html = wrapper.html()
-    // 阈值配色（三处共用的 UsageProgressBar 统一）：≥90 红 / ≥75 黄 / 其余绿
-    // 42.4 → 绿、80 → 黄、95 → 红
+    // Follow the shared UsageProgressBar thresholds: >=100 red, >=80 amber.
+    expect(rows[0].html()).toContain('bg-green-500')
+    expect(rows[1].html()).toContain('bg-amber-500')
+    expect(rows[2].html()).toContain('bg-amber-500')
+    expect(rows[3].html()).toContain('bg-red-500')
     expect(html).toContain('bg-green-500')
     expect(html).toContain('bg-amber-500')
     expect(html).toContain('bg-red-500')

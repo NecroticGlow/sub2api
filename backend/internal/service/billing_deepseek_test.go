@@ -98,9 +98,10 @@ func TestDeepSeekOfficialPricingPreservesPeakMultiplier(t *testing.T) {
 	require.InEpsilon(t, 3.08e-6, pricing.InputPricePerToken*DeepSeekPeakMultiplier(peak), 1e-12)
 }
 
-// ClinePass 全系模型（含非 DeepSeek 厂商）都必须能解析出各厂商官方口径的兜底价，
-// 防止 ClinePass 分组的任一模型按 $0 计费或被 fail-closed 拒绝。
-func TestClinePassModelsAllHaveFallbackPricing(t *testing.T) {
+// Only models with an existing upstream/local price are required to have a
+// fallback. Inactive MiMo/Qwen models intentionally have no invented tariff;
+// their pricing can come from the upstream pricing service when enabled.
+func TestClinePassConfiguredModelsHaveFallbackPricing(t *testing.T) {
 	svc := newTestBillingService()
 
 	models := []string{
@@ -111,12 +112,7 @@ func TestClinePassModelsAllHaveFallbackPricing(t *testing.T) {
 		"cline-pass/kimi-k3",
 		"cline-pass/kimi-k2.7-code",
 		"cline-pass/kimi-k2.6",
-		"cline-pass/mimo-v2.5",
-		"cline-pass/mimo-v2.5-pro",
 		"cline-pass/minimax-m3",
-		"cline-pass/qwen3.8-max",
-		"cline-pass/qwen3.7-max",
-		"cline-pass/qwen3.7-plus",
 	}
 
 	for _, model := range models {

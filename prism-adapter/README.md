@@ -2,7 +2,7 @@
 
 关联 [Issue #256](https://github.com/ranxi2001/sub2api/issues/256)。账号编辑页的 Prism 开关复用现有 OpenAI OAuth 凭据，通过回环适配服务访问 Prism 网页。管理员账号测试与 HTTP `/v1/responses` 共用后端凭据获取及适配器请求函数。
 
-文本请求接受 `gpt-6.1-sol`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-6-luna` 四个精确模型 ID，以及 `low`、`medium`、`high`、`xhigh` 思考强度（省略时为 `medium`）。能否调用仍取决于该 OAuth 账号在 Prism 页面中实际可选的模型和强度；不把静态支持列表当作账号权益证明。`tools`、`additional_tools`、图片、工具结果、`previous_response_id`、background、structured output、compact 和原生 WebSocket 不支持。此版本不能替代带工具的 Codex 会话；P2 工具闭环、Codex CLI 端到端验收仍待实现。
+文本请求接受 `gpt-6.1-sol`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-6-luna` 四个精确模型 ID，以及 `low`、`medium`、`high`、`xhigh` 思考强度（省略时为 `medium`）。能否调用仍取决于该 OAuth 账号在 Prism 页面中实际可选的模型和强度；不把静态支持列表当作账号权益证明。默认保持文本模式。`gpt-6.1-sol` 可通过下述服务端试用开关启用客户端工具桥；图片、`previous_response_id`、background、structured output、compact 和原生 WebSocket 仍不支持。
 
 每个请求先通过官方页面选择模型和思考强度，再核对 start 元数据中的实际值。缓存命中也重新检查，响应与终态回执保留本次模型和强度；并发请求不修改全局默认值，也不将新模型静默替换为 `gpt-5.6-sol`。账号页面没有对应选项时，发送前返回 `model_unavailable` 或 `reasoning_unavailable`（HTTP 422）；未知模型 ID 返回 `unsupported_model`。Beta 开关属于 Prism 账号设置，适配器不会自动修改它；开启 Beta 或在配置接口看到模型名都不能替代真实调用验收。
 
@@ -22,7 +22,32 @@
 - 单个浏览器回合串行执行，忙时返回 429，不排无限队列。每个账号有独立待决锁；全局服务也只允许一个浏览器回合，避免生产资源争用。重复、冲突或非法的标准会话标识在网关拒绝，不转发到适配器。
 - 调度器不会把 WebSocket 会话分给开启 Prism 的账号（与 Excel BPS 模型相同），HTTP 请求照常进入适配器。适配器的鉴权或路径错误（401/403/404/405）对客户端统一返回 502，不会被误当成客户端 API Key 失效。
 
-## 运行条件
+## 6.1 Sol 客户端工具桥（试用）
+
+同时升级 Go 网关和本目录适配器，安装固定版本的预构建依赖后，在适配器的受限环境文件设置 `PRISM_ADAPTER_CLIENT_TOOLS_ENABLED=true`。默认 false；其他三个模型暂只保留文本路径。无需更改用户的 Codex 工具定义、provider 或请求头。
+
+- 支持 Responses `function`、`custom`、嵌套 namespace，顶层 `tools` / `additional_tools` 及 input 内的 `additional_tools`。
+- 支持 `tool_choice=auto/none/required`、指定 function/custom，以及 `parallel_tool_calls`。最多 96 个工具、每次最多 8 个调用、历史最多 64 个调用；`parallel_tool_calls=false` 时最多一个。
+- 网关不执行 shell、JavaScript、补丁、MCP 或文件操作。Prism 通过受控文本协议请求客户端工具，适配器只接受带本轮标记的完整 JSON；未知工具、裸 shell、代码围栏、重复调用或不合法参数不会被猜测、包装或发送给客户端。这不是 Prism 原生工具通道。
+- Function arguments 校验 JSON Schema Draft 2020-12 / Draft 7；拒绝外部 schema 引用。Custom input 保留原始字符串，支持 text、regex 和 Lark 格式；Lark 仅允许 bundled common imports。校验在独立子进程中运行，限制时间、CPU、输入大小，Linux 限制地址空间 192 MiB；不运行工具代码。
+- 回传 `function_call` / `custom_tool_call`、原工具名/namespace 和唯一 `call_id`。客户端执行后，用完整 Responses 历史提交对应的 `*_call_output`；当前不支持只有结果、没有原 call 的增量历史，也不把 `previous_response_id` 当作已恢复的会话。
+- 客户端工具回合每次创建独立空白 Prism 项目，避免复用原生聊天后第三轮编辑器无法就绪；续接依据是完整客户端历史和调用记录。原会话的准入锁与 pending 作用域仍保留，不把未知结局改成匿名新请求来绕过保护。普通文本继续使用原项目缓存策略。
+- `X-Prism-Caller-ID` 由 Go 网关按已认证 API Key 和账号生成，外部同名头不参与取值。调用记录绑定 caller、账号和标准会话摘要；换账号/Key/会话、修改已发出的参数、未知 ID、缺失或重复结果均拒绝。
+- SQLite `tools/v1.sqlite3`（0600，父目录 0700）只存调用摘要、作用域摘要、响应/调用 ID、结果摘要和占用状态，不存工具参数、结果正文或凭据。每个结果先占用再提交，明确未发送时可释放；结果未知时保留占用，重启后也不重放。已知上游终态但格式不合法时消耗该结果并报错，不发出工具调用。记录上限 50000，达到上限需运维处理，不自动清除未知状态。
+- Hosted web/search、MCP、computer、image 等工具不由本桥执行。有可用客户端工具时，未支持的 hosted 类型在提示和响应 metadata `prism_unavailable_tools` 中明确列出；只有 hosted 工具或强制选择它们时拒绝请求。
+- SSE 在真实终态验证后输出 item added / arguments 或 input done / item done / completed；不伪造逐 token delta。Go 网关核对工具目录及事件与终态的一致性。当前响应仍按终态缓冲，主动终止远端生成、自动恢复未知回合和长连接实时心跳不属于本次实现。
+- `usage` 仍为 null，保持原来的未计费试用边界。可接受 `include=["reasoning.encrypted_content"]` 和 summary=auto 的可选请求，但不会编造 Prism 未提供的 encrypted reasoning；已包含密文的输入历史明确拒绝。
+
+离线验证（没有 OAuth、没有真实模型请求）：
+
+```sh
+python -m unittest discover -s prism-adapter -p 'test_*.py'
+python prism-adapter/smoke_client_tools.py --chrome /absolute/path/to/chrome-headless-shell
+```
+
+浏览器 smoke 使用合成工具完成 function → 客户端结果 → custom → 客户端结果 → 最终文本的三次上游提交。真实上游验收需另外记录模型原名、effort、唯一 start、调用和回灌关联及最终结果，不把 mock 当作真实 Codex 客户端测试。
+
+## 运行环境
 
 在构建机生成带前端的 Sub2API 二进制。生产机只安装已有产物及运行时，不执行 Go、Vite 或其他源码构建。
 
@@ -87,7 +112,7 @@ python3 prism-adapter/smoke_multiplex.py --chrome /absolute/path/to/chrome-headl
 2. 对该 OAuth 账号通过管理员测试入口请求 `gpt-5.6-sol`。必须观察 `test_start → content → test_complete(success=true)`，不能只看 HTTP 200。
 3. 检查回执的 `start_count=1`、实际模型和终态；使用数学题时核对最终答案。项目必须是空白项目，不能用已有答案的项目评估推理能力。
 4. 保持 Codex 原有请求不变，用同一会话连续提交两个不同文本请求，检查第二次回执的 `session_cache_hit=true`。换线程、换 API Key、换账号时不能命中旧会话。无标识请求和管理员测试始终使用新项目。
-5. 分别验证四个模型及所需强度，核对响应、回执和实际发出的 start 一致。Astra 等未适配模型返回 422；账号缺少选项时也明确拒绝，不降级模型。适配器不可用时不能退回原生 Codex 上游，工具请求也应明确拒绝。
+5. 分别验证四个模型及所需强度，核对响应、回执和实际发出的 start 一致。Astra 等未适配模型返回 422；账号缺少选项时也明确拒绝，不降级模型。适配器不可用时不能退回原生 Codex 上游；未开启工具桥时工具请求明确拒绝。
 
 本地离线检查：
 
@@ -105,4 +130,4 @@ python3 prism-adapter/smoke_browser.py --chrome /absolute/path/to/chromium
 
 该脚本验证三次不同模型/强度的 start、同会话一次缓存命中、两个独立项目以及新聊天不重复提交历史。`smoke_multiplex.py` 按四模型与四档强度混合发送请求，同时核对实际 start、响应和回执参数。这些脚本验证浏览器机制，不能替代真实账号糖果测试或证明模型能力。
 
-项目会保留在账号的 Prism 工作区内，本版不自动批量删除项目。大规模使用前需要项目回收、账号代理、动态模型目录、计费策略和 P2 工具闭环的独立实现及验收。默认保持总开关关闭；真实用户流量应等待这些边界完善。
+项目会保留在账号的 Prism 工作区内，本版不自动批量删除项目。大规模使用前仍需项目回收、账号代理、动态模型目录、计费策略、真实 Codex 客户端和长时间工具会话的独立验收。默认保持总开关关闭；真实用户流量应等待这些边界完善。

@@ -185,10 +185,10 @@ class AsyncBrowserWorker:
 
     def run(self, *args):
         if not self.ready.wait(5):
-            raise self.api.AdapterError(503, "prism_unavailable", "Prism executor did not start")
+            raise self.api.AdapterError(503, "prism_unavailable", "Prism executor did not start", not_submitted=True)
         with self.lifecycle:
             if self.stopping or self.failed or not self.thread.is_alive():
-                raise self.api.AdapterError(503, "prism_unavailable", "Prism executor is unavailable")
+                raise self.api.AdapterError(503, "prism_unavailable", "Prism executor is unavailable", not_submitted=True)
             future = asyncio.run_coroutine_threadsafe(self._run(args), self.loop)
         try:
             return future.result(timeout=self.request_timeout + 10)

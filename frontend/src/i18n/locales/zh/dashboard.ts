@@ -205,7 +205,12 @@ export default {
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
+        systemOne: 'System One',
         opencode: 'OpenCode'
+      },
+      typesafe: {
+        description: '通过 TypeSafe 原生 System One 端点调用 Jev。',
+        note: 'System One 不支持流式请求，也不兼容 Chat Completions、Responses、Claude Code 或 Codex 客户端。'
       },
       antigravity: {
         description: '为 Antigravity 分组配置 API 访问。请根据您使用的客户端选择对应的配置方式。',
@@ -302,6 +307,10 @@ export default {
       'CC-Switch 未安装或协议处理程序未注册。请先安装 CC-Switch 或手动复制 API 密钥。',
     ccsImport: {
       title: '导入到 CC Switch',
+      retryModels: '重试',
+      modelsNetworkError: '网络错误或请求超时',
+      modelsEmpty: '模型列表为空或格式不兼容',
+      modelsLoadFailed: '加载模型列表失败（{detail}）。请确认密钥和网关地址可用，也可手动输入模型。',
       app: '客户端',
       name: '供应商名称',
       namePlaceholder: '输入供应商名称',

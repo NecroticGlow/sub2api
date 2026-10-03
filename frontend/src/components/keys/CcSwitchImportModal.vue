@@ -39,6 +39,12 @@
         </label>
         <Select v-model="mainModel" :options="modelOptions" searchable creatable :loading="loadingModels"
           :placeholder="t('keys.ccsImport.modelPlaceholder')" />
+        <div v-if="modelsError" class="mt-2 text-xs text-red-500" role="alert" data-testid="ccs-models-error">
+          {{ modelsError }}
+          <button type="button" class="ml-2 underline" :disabled="loadingModels" data-testid="ccs-models-retry" @click="fetchModels">
+            {{ t('keys.ccsImport.retryModels') }}
+          </button>
+        </div>
       </div>
 
       <template v-if="app === 'claude'">
@@ -64,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -74,6 +80,7 @@ import {
   CC_SWITCH_PROVIDER_API_BASE_URL,
   buildCcSwitchImportDeeplink,
   ccSwitchModelsUrls,
+  parseCcSwitchModelIds,
   defaultCcSwitchAppForPlatform,
   defaultCcSwitchModelForPlatform,
   type CcSwitchApp
@@ -92,6 +99,9 @@ const sonnetModel = ref('')
 const opusModel = ref('')
 const models = ref<string[]>([])
 const loadingModels = ref(false)
+const modelsError = ref('')
+let modelsRequestId = 0
+let modelsController: AbortController | null = null
 const platform = computed(() => props.apiKey?.group?.platform || 'anthropic')
 const gatewayBaseUrl = computed(() =>
   (props.publicSettings?.api_base_url || window.location.origin).replace(/\/+$/, '')
@@ -121,6 +131,7 @@ function resetForm() {
   sonnetModel.value = ''
   opusModel.value = ''
   models.value = []
+  modelsError.value = ''
 }
 
 function pickTieredDefaults() {
@@ -130,36 +141,75 @@ function pickTieredDefaults() {
   if (!opusModel.value) opusModel.value = find('opus')
 }
 
+function cancelModelsRequest() {
+  modelsRequestId++
+  modelsController?.abort()
+  modelsController = null
+  loadingModels.value = false
+}
+
 async function fetchModels() {
+  cancelModelsRequest()
   const row = props.apiKey
   if (!row) return
+  const requestId = modelsRequestId
+  const initialModel = mainModel.value
+  let detail = t('keys.ccsImport.modelsNetworkError')
   loadingModels.value = true
+  modelsError.value = ''
   try {
-    for (const url of ccSwitchModelsUrls(gatewayBaseUrl.value, window.location.origin)) {
+    for (const url of ccSwitchModelsUrls(gatewayBaseUrl.value, window.location.origin, platform.value)) {
+      if (requestId !== modelsRequestId) return
+      const controller = new AbortController()
+      modelsController = controller
+      const timeout = window.setTimeout(() => controller.abort(), 8000)
       try {
-        const response = await fetch(url, { headers: { Authorization: `Bearer ${row.key}` } })
-        if (!response.ok) continue
-        const data = ((await response.json()) as { data?: unknown }).data
-        if (!Array.isArray(data)) continue
-        models.value = Array.from(new Set(data
-          .map(item => (item as { id?: unknown }).id)
-          .filter((id): id is string => typeof id === 'string' && id.length > 0)))
-        if (models.value.length) break
-      } catch { /* try configured endpoint */ }
+        const response = await fetch(url, { headers: { Authorization: `Bearer ${row.key}` }, signal: controller.signal })
+        if (requestId !== modelsRequestId) return
+        if (!response.ok) {
+          detail = `HTTP ${response.status}`
+          continue
+        }
+        const available = parseCcSwitchModelIds(await response.json())
+        if (requestId !== modelsRequestId) return
+        if (!available.length) {
+          detail = t('keys.ccsImport.modelsEmpty')
+          continue
+        }
+        models.value = available
+        // Do not overwrite a model manually entered while discovery was pending.
+        if (mainModel.value === initialModel && !available.includes(initialModel)) mainModel.value = available[0]
+        pickTieredDefaults()
+        return
+      } catch {
+        if (requestId !== modelsRequestId) return
+      } finally {
+        window.clearTimeout(timeout)
+        if (modelsController === controller) modelsController = null
+      }
     }
-    if (!mainModel.value && models.value.length) mainModel.value = models.value[0]
-    pickTieredDefaults()
+    if (requestId === modelsRequestId) modelsError.value = t('keys.ccsImport.modelsLoadFailed', { detail })
   } finally {
-    loadingModels.value = false
+    if (requestId === modelsRequestId) loadingModels.value = false
   }
 }
 
-watch(() => props.show, show => {
-  if (show) {
+watch([
+  () => props.show,
+  () => props.apiKey?.id,
+  () => props.apiKey?.key,
+  () => props.apiKey?.group?.id,
+  platform,
+  gatewayBaseUrl
+], ([show]) => {
+  cancelModelsRequest()
+  if (show && props.apiKey) {
     resetForm()
     void fetchModels()
   }
-})
+}, { immediate: true })
+
+onUnmounted(cancelModelsRequest)
 
 function buildUsageScript(): string {
   return `({

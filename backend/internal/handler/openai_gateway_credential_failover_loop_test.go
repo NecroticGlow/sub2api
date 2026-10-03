@@ -883,6 +883,12 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 	if mode == "all_revoked" {
 		accounts[1].Credentials["expires_at"] = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
 	}
+	// These fixtures exercise cross-account failover, not same-account retries.
+	// Retry behavior has its own tests; avoid sleeping on the synthetic Retry-After.
+	noSameAccountRetries := 0
+	for i := range accounts {
+		accounts[i].RateLimit429RetryCount = &noSameAccountRetries
+	}
 	repo := &grokCredentialHandlerRepo{accounts: accounts, missingOnGet: map[int64]bool{}}
 	if mode == "missing_row" {
 		repo.missingOnGet[801] = true

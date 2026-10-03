@@ -315,7 +315,7 @@ class MultiplexBrowser:
             actor.refs += 1
             return actor
 
-    async def run(self, account_id, token, prompt, session_id=None, model=None, effort='medium'):
+    async def run(self, account_id, token, prompt, session_id=None, model=None, effort='medium', reuse_project=True):
         model = self.api.MODEL if model is None else model
         async with self.admission.enter(account_id, session_id):
             journal = TurnJournal(self.state, self.api, account_id, session_id)
@@ -324,7 +324,7 @@ class MultiplexBrowser:
             try:
                 journal.begin()
                 actor = await self.account(account_id, token)
-                start = BrowserStart(self, actor, journal, session_id, model, effort)
+                start = BrowserStart(self, actor, journal, session_id if reuse_project else None, model, effort)
                 async with self.bootstrap:
                     current_memory = cgroup_memory_bytes()
                     if current_memory is not None and current_memory >= 750 * 1024 * 1024:
@@ -360,13 +360,16 @@ class MultiplexBrowser:
                 journal.finish()
                 if isinstance(result, self.api.AdapterError):
                     raise result
-                if session_id:
+                if session_id and reuse_project:
                     actor.projects[session_id] = (start.project, time.monotonic())
                     actor.projects.move_to_end(session_id)
                     while len(actor.projects) > 128:
                         actor.projects.popitem(last=False)
                 succeeded = True
                 return start.request_id, result
+            except Exception as error:
+                error.not_submitted = start is None or not start.sent
+                raise
             finally:
                 try:
                     if start is not None:

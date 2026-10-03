@@ -101,9 +101,42 @@ export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput):
   return `ccswitch://v1/import?${new URLSearchParams(entries).toString()}`
 }
 
-export function ccSwitchModelsUrls(baseUrl: string, currentOrigin: string): string[] {
-  const urls = [withV1Endpoint(currentOrigin) + '/models']
-  const configured = withV1Endpoint(baseUrl) + '/models'
-  if (!urls.includes(configured)) urls.push(configured)
-  return urls
+export function ccSwitchModelsUrls(baseUrl: string, currentOrigin: string, platform?: GroupPlatform | null): string[] {
+  const urls = new Set<string>()
+  for (const candidate of [currentOrigin, baseUrl, CC_SWITCH_PROVIDER_API_BASE_URL]) {
+    try {
+      const url = new URL(candidate.trim())
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') continue
+      url.search = ''
+      url.hash = ''
+      let endpoint = url.toString().replace(/\/+$/, '')
+      if (platform === 'antigravity') {
+        endpoint = endpoint.replace(/\/v1$/, '')
+        if (!endpoint.endsWith('/antigravity')) endpoint += '/antigravity'
+      }
+      urls.add(withV1Endpoint(endpoint) + '/models')
+    } catch { /* Ignore malformed settings and continue with a usable endpoint. */ }
+  }
+  return [...urls]
+}
+
+/** Accept both the OpenAI list and the Codex model catalogue without inventing IDs. */
+export function parseCcSwitchModelIds(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') return []
+  const body = payload as { data?: unknown; models?: unknown }
+  const items = Array.isArray(body.data) ? body.data : body.models
+  if (!Array.isArray(items)) return []
+  const models = new Set<string>()
+  for (const item of items) {
+    let id: unknown
+    if (typeof item === 'string') {
+      id = item
+    } else if (item && typeof item === 'object') {
+      const model = item as { id?: unknown; slug?: unknown; name?: unknown }
+      id = model.id ?? model.slug ?? model.name
+      if (id === model.name && typeof id === 'string') id = id.replace(/^models\//, '')
+    }
+    if (typeof id === 'string' && id.trim()) models.add(id.trim())
+  }
+  return [...models]
 }

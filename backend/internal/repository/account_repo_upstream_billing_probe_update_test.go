@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"regexp"
 	"testing"
@@ -474,10 +475,28 @@ func TestBulkUpdateRollsBackWhenOutboxFails(t *testing.T) {
 
 func updatedAccountRows(id int64, extra string) *sqlmock.Rows {
 	now := time.Now()
-	return sqlmock.NewRows(dbaccount.Columns).AddRow(
-		id, now, now, nil, "test", nil, service.PlatformOpenAI, service.AccountTypeAPIKey,
-		[]byte(`{"api_key":"sk-test"}`), []byte(extra), nil, nil, 1, nil, 1, 1.0, 1.0,
-		service.StatusActive, nil, nil, nil, false, true, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, service.QuotaDimensionGlobal,
-	)
+	values := map[string]driver.Value{
+		dbaccount.FieldID:                     id,
+		dbaccount.FieldCreatedAt:              now,
+		dbaccount.FieldUpdatedAt:              now,
+		dbaccount.FieldName:                   "test",
+		dbaccount.FieldPlatform:               service.PlatformOpenAI,
+		dbaccount.FieldType:                   service.AccountTypeAPIKey,
+		dbaccount.FieldCredentials:            []byte(`{"api_key":"sk-test"}`),
+		dbaccount.FieldExtra:                  []byte(extra),
+		dbaccount.FieldConcurrency:            int64(1),
+		dbaccount.FieldRateLimit429RetryCount: int64(5),
+		dbaccount.FieldPriority:               int64(1),
+		dbaccount.FieldRateMultiplier:         float64(1),
+		dbaccount.FieldGroupRateMultiplier:    float64(1),
+		dbaccount.FieldStatus:                 service.StatusActive,
+		dbaccount.FieldAutoPauseOnExpired:     false,
+		dbaccount.FieldSchedulable:            true,
+		dbaccount.FieldQuotaDimension:         service.QuotaDimensionGlobal,
+	}
+	row := make([]driver.Value, len(dbaccount.Columns))
+	for i, column := range dbaccount.Columns {
+		row[i] = values[column]
+	}
+	return sqlmock.NewRows(dbaccount.Columns).AddRow(row...)
 }

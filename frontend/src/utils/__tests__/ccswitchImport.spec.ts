@@ -4,7 +4,9 @@ import {
   CC_SWITCH_USAGE_SCRIPT,
   GROK_CC_SWITCH_MODEL,
   OPENAI_CC_SWITCH_CODEX_MODEL,
-  buildCcSwitchImportDeeplink
+  buildCcSwitchImportDeeplink,
+  ccSwitchModelsUrls,
+  parseCcSwitchModelIds
 } from '@/utils/ccswitchImport'
 import type { GroupPlatform } from '@/types'
 
@@ -14,6 +16,34 @@ function paramsFromDeeplink(deeplink: string): URLSearchParams {
 }
 
 describe('ccswitchImport utils', () => {
+  it('deduplicates model endpoints and falls back to the fixed import gateway', () => {
+    expect(ccSwitchModelsUrls('https://wanwuplus.com/v1/', 'https://current-site.example.com')).toEqual([
+      'https://current-site.example.com/v1/models', 'https://wanwuplus.com/v1/models'
+    ])
+    expect(ccSwitchModelsUrls('not-a-url', 'https://current-site.example.com')).toHaveLength(2)
+  })
+
+  it('uses the Antigravity discovery route without duplicating path segments', () => {
+    expect(ccSwitchModelsUrls('https://gateway.example.com/antigravity/v1/', 'https://current-site.example.com', 'antigravity')).toEqual([
+      'https://current-site.example.com/antigravity/v1/models',
+      'https://gateway.example.com/antigravity/v1/models',
+      'https://wanwuplus.com/antigravity/v1/models'
+    ])
+  })
+
+  it('parses OpenAI lists defensively and preserves namespaced model IDs', () => {
+    expect(parseCcSwitchModelIds({ data: [null, {}, { id: ' gpt-6.1-sol ' }, { id: 'gpt-6.1-sol' }, { id: 'vendor/model' }, { id: '' }] })).toEqual(['gpt-6.1-sol', 'vendor/model'])
+  })
+
+  it('accepts Codex catalogues and Gemini model names', () => {
+    expect(parseCcSwitchModelIds({ models: [{ slug: 'gpt-6-astra' }, { name: 'models/gemini-3-pro' }] })).toEqual(['gpt-6-astra', 'gemini-3-pro'])
+    expect(parseCcSwitchModelIds({ models: ['gpt-6-astra', 'gpt-6-astra'] })).toEqual(['gpt-6-astra'])
+  })
+
+  it.each([null, {}, { data: {} }, { models: null }])('does not invent models for an invalid response: %j', payload => {
+    expect(parseCcSwitchModelIds(payload)).toEqual([])
+  })
+
   it.each(['https://wanwuplus.com', 'https://wanwuplus.com/', 'https://wanwuplus.com/v1', 'https://wanwuplus.com/v1/'])('uses exactly one /v1 for the balance query from %s', baseUrl => {
     const script = CC_SWITCH_USAGE_SCRIPT.replaceAll('{{baseUrl}}', baseUrl).replaceAll('{{apiKey}}', 'test-key')
     const config = Function(`return ${script}`)()
