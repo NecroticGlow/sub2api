@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
 	"github.com/tidwall/gjson"
 )
@@ -309,6 +310,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 }
 
 func extractMonitorResponseText(adapter providerAdapter, respBytes []byte) string {
+	respBytes = apicompat.UnwrapChatCompletionsResponse(respBytes)
 	if adapter.extractText != nil {
 		return adapter.extractText(respBytes)
 	}

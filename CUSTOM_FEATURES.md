@@ -16,6 +16,7 @@
 | 真实缓存计费 | 使用上游实际返回的缓存用量，不伪造命中；Responses、Chat、Messages 转换不能丢失 usage。 | Gateway usage 转换与结算测试 |
 | DeepSeek Clinepass 用量 | 仅匹配 DeepSeek API-key 账号、HTTPS `api.cline.bot` 主机；用 Bearer Key 查询 `/api/v1/users/me/plan/usage-limits`，显示 5h/周/月窗口，不把其他站点的 Key 发到 Cline。 | `backend/internal/service/clinepass_usage.go`、`clinepass_usage_test.go`、CN usage service |
 | Clinepass 账号开关 | `credentials.clinepass_usage_enabled` 可逐账号关闭；匹配账号未设置时保持自动查询兼容。新增账号也有创建/编辑入口。关闭后不能误查询 DeepSeek 官方余额接口。 | Create/Edit account modal、Clinepass usage tests |
+| Clinepass 非流式正文 | 成功的 `{success:true,data:{choices,...}}` 响应统一解包为标准 Chat Completions；普通 API、Responses/Messages 转换、账号测试及渠道监控均能读取正文；保留真实 usage、缓存、思考和工具字段，不把错误包装或思考内容当作答案。流式不改变。 | `pkg/apicompat/chatcompletions_envelope*.go`、`service/chatcompletions_envelope_test.go` |
 | CCS/CC Switch 导入 | 导入的 API 端点固定为 `https://wanwuplus.com`；官网地址跟随当前网站。支持 Claude/Codex/OpenCode 等现有导入配置，不把官网地址也写死。 | `frontend/src/utils/ccswitchImport.ts`、对应 utils tests |
 | CCS 模型加载 | 弹窗初始已打开也须加载；使用所选 Key，切换 Key 时取消旧请求；兼容 OpenAI `data[].id`、Codex `models[].slug` 等格式；同源/配置地址/固定站点候选、超时、错误提示与重试；保留用户手填模型。 | `frontend/src/components/keys/CcSwitchImportModal.vue`、对应 modal tests |
 | Codex 唯一设备 | 默认账号唯一设备模式；稳定派生指纹，保留显式关闭及其他模式，不在升级时退回多设备随机身份。 | `backend/internal/service/openai_codex_fingerprint.go`、fingerprint tests；账号编辑入口 |
