@@ -1918,11 +1918,12 @@ func TestForwardGrokMedia429ReconcilesRateLimitBeforeCustomErrorBypass(t *testin
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	account := &Account{
-		ID:          64,
-		Name:        "grok",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
+		ID:                     64,
+		RateLimit429RetryCount: retryCountPointer(0),
+		Name:                   "grok",
+		Platform:               PlatformGrok,
+		Type:                   AccountTypeAPIKey,
+		Concurrency:            1,
 		Credentials: map[string]any{
 			"api_key":                    "api-key",
 			"base_url":                   "https://xai.test/v1",
@@ -1985,13 +1986,15 @@ func TestGrokMedia429FailoverPreservesRetryAfter(t *testing.T) {
 
 func healthyGrokOAuthGatewayTestAccount(id int64, token string) *Account {
 	return &Account{
-		ID:          id,
-		Name:        "grok",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
+		ID: id,
+		// Gateway policy fixtures exercise failover, not same-account retries.
+		RateLimit429RetryCount: retryCountPointer(0),
+		Name:                   "grok",
+		Platform:               PlatformGrok,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusActive,
+		Schedulable:            true,
+		Concurrency:            1,
 		Credentials: map[string]any{
 			"access_token":  token,
 			"refresh_token": "refresh-token",

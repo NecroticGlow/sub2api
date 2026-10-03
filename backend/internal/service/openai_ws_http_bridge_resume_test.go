@@ -65,6 +65,7 @@ func TestProxyOpenAIWSHTTPBridgeTurnLaterTurn429FailsOverBeforeClientWrite(t *te
 		Status:      StatusActive,
 		Schedulable: true,
 		ID:          129, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1}
+	account.RateLimit429RetryCount = retryCountPointer(0)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)

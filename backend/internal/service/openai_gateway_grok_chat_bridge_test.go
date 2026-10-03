@@ -695,13 +695,15 @@ func TestForwardGrokRawChatErrorRecordsActualEndpoint(t *testing.T) {
 
 func grokChatBridgeTestAccount(id int64) *Account {
 	return &Account{
-		ID:          id,
-		Name:        "grok-cache-bridge",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
+		ID:   id,
+		Name: "grok-cache-bridge",
+		// Bridge/cooldown fixtures do not exercise the account retry budget.
+		RateLimit429RetryCount: retryCountPointer(0),
+		Platform:               PlatformGrok,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusActive,
+		Schedulable:            true,
+		Concurrency:            1,
 		Credentials: map[string]any{
 			"access_token":  "access-token",
 			"refresh_token": "refresh-token",
