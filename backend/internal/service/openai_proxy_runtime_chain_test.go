@@ -25,6 +25,7 @@ import (
 
 func runtimeChainFixture(quarantined bool) (*OpenAIGatewayService, *Account, *Proxy) {
 	s, account := quarantineFallbackFixture()
+	account.RateLimit429RetryCount = retryCountPointer(0)
 	if !quarantined {
 		s.getOpenAIProxyStreamCircuit().recordSuccess(account.Proxy.ID)
 	}

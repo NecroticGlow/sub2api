@@ -26,6 +26,7 @@
 | 自定义首页 | 保留 Wanwu 首页、品牌和模型广场定制，不被上游首页覆盖。 | `frontend/src/components/home/WanwuHome.vue`、对应 tests、首页/模型广场入口 |
 | OpenCode Go 用量 | 保留官方窗口查询、主动刷新/自动刷新、同 Key 组共享、活动防抖、超窗刷新、7d/1m 显示和 lite DTO 字段；账号更新不得清掉托管用量状态。 | OpenCode Go service、repository/DTO、AccountUsageCell 与对应 tests |
 | 账号 429 重试 | 账号配置的同账号重试预算（当前默认 5 次）作用于 HTTP/WS，预算按请求/账号共享；用尽后切换账号，不因包装响应丢失重试标记。禁止为了让旧测试通过而修改生产默认策略。 | `backend/internal/service/upstream_429_retry.go`、retry tests、Grok failover tests |
+| WS 握手超时 | 连接池每次握手遵守配置的 dial timeout，同时保留父请求更早的截止时间；不能因复用池的外层上下文而变成无界等待。 | `backend/internal/service/openai_ws_pool.go`、`TestOpenAIWSConnPool_DialConnUsesPerAttemptTimeout` |
 | Key 删除后的结算 | 进行中的请求仍结算用户余额/订阅；删除 Key 的自身配额及限速计数跳过，幂等保护保留。 | `backend/internal/repository/usage_billing_repo.go`、deleted-key unit/integration tests |
 | WS Key 复核 | 首轮选号后、后续轮次到达上游前，从数据库复核 Key；删除、禁用、替换、数据库异常须按策略拒绝，不依赖旧鉴权缓存。 | v2.9.7 Responses WebSocket revalidation tests、APIKeyService uncached lookup tests |
 | Key 并发与缓存字段 | 保留单 Key 并发限制、Live 分组准入、fallback/cache 参数；Ent schema、生成文件、repo 映射、DTO、缓存契约一致。 | API key schema/repository、并发与 Live gateway tests |

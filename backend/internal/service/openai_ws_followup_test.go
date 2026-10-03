@@ -79,6 +79,7 @@ func TestOpenAIWSProxyPeerCloseCodesDrainCleanly(t *testing.T) {
 				defer func() { _ = writer.Close() }()
 				svc.httpUpstream = &contextAwareBridgeUpstream{httpUpstreamRecorder: httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: make(http.Header), Body: body}}, writer: writer}
 				account := passthroughLifecycleAccount()
+				account.RateLimit429RetryCount = retryCountPointer(0)
 				account.Extra["openai_apikey_responses_websockets_v2_mode"] = mode
 				results := make(chan *OpenAIForwardResult, 2)
 				turnErrors := make(chan error, 2)

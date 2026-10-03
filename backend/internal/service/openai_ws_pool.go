@@ -2141,6 +2141,9 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	if p == nil || p.clientDialer == nil {
 		return nil, errors.New("openai ws client dialer is nil")
 	}
+	// Bound this handshake independently of the pool acquisition/retry lifetime.
+	ctx, cancel := context.WithTimeout(ctx, p.dialTimeout())
+	defer cancel()
 	headers := cloneHeader(req.Headers)
 	var err error
 	if req.HeadersFactory != nil {

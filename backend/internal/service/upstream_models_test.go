@@ -582,6 +582,7 @@ func TestSyncUpstreamModelCatalogDoesNotUseConfiguredModelsForRealUpstreamFailur
 
 			_, err := svc.SyncUpstreamModelCatalog(context.Background(), &Account{
 				ID: 98, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				RateLimit429RetryCount: retryCountPointer(0),
 				Credentials: map[string]any{
 					"api_key":       "key",
 					"base_url":      "https://provider.example/v1",
