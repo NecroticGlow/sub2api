@@ -30,7 +30,7 @@ func ValidatePelicanManualRecord(record *PelicanManualRecord) error {
 	if _, err := time.Parse(time.RFC3339Nano, record.CreatedAt); err != nil {
 		return errors.New("invalid record timestamp")
 	}
-	if record.QuestionKind != "" && record.QuestionKind != "candy" && record.QuestionKind != "pelican" && record.QuestionKind != "knowledge" {
+	if record.QuestionKind != "" && record.QuestionKind != "candy" && record.QuestionKind != "pelican" && !isKnowledgeQuestion(record.QuestionKind) {
 		return errors.New("invalid question kind")
 	}
 	for _, run := range record.Runs {

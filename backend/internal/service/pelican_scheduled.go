@@ -154,7 +154,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 			logger.LegacyPrintf("service.scheduled_test_runner", "pelican plan=%d save failed: %v", plan.ID, err)
 		}
 	}
-	if succeeded && plan.AutoRecover && plan.PelicanConfig.Quality == nil && !isBuiltinCandyPlan(plan.PelicanConfig) && plan.PelicanConfig.QuestionKind != "knowledge" && !isOpenAICodexStateProbePlan(plan.PelicanConfig) {
+	if succeeded && plan.AutoRecover && plan.PelicanConfig.Quality == nil && !isBuiltinCandyPlan(plan.PelicanConfig) && !isKnowledgeQuestion(plan.PelicanConfig.QuestionKind) && !isOpenAICodexStateProbePlan(plan.PelicanConfig) {
 		s.tryRecoverAccount(saveCtx, plan.AccountID, plan.ID)
 	}
 	if err := s.planRepo.FinishPelican(saveCtx, plan.ID, until, time.Now()); err != nil {
@@ -243,6 +243,10 @@ func isBuiltinCandyPlan(cfg *PelicanTestConfig) bool {
 	return cfg != nil && strings.TrimSpace(cfg.Prompt) == strings.TrimSpace(CandyPrompt)
 }
 
+func isKnowledgeQuestion(kind string) bool {
+	return kind == "knowledge" || kind == "japan_pm"
+}
+
 // Missing kind preserves HTML validation for saved plans from older versions.
 func intelligenceTestPrompt(cfg *PelicanTestConfig) string {
 	if cfg.Quality != nil {
@@ -252,8 +256,8 @@ func intelligenceTestPrompt(cfg *PelicanTestConfig) string {
 	if cfg.QuestionKind == "candy" || isBuiltinCandyPlan(cfg) {
 		contract = "只输出最终整数，不要解释。"
 	}
-	if cfg.QuestionKind == "knowledge" {
-		contract = "Answer in text using existing knowledge only. Do not browse or use tools. Uncertain answers require manual review; completion alone is not a quality verdict."
+	if isKnowledgeQuestion(cfg.QuestionKind) {
+		contract = "仅依据已有知识，不联网、不调用工具、不猜测。直接输出答案；不确定时按题目要求输出“uncertain”，不添加前言、免责声明、解释或后续建议。"
 	}
 	return cfg.Prompt + "\n\n" + contract
 }
@@ -271,7 +275,7 @@ func intelligenceTestOutputError(cfg *PelicanTestConfig, output string) string {
 	if isBuiltinCandyPlan(cfg) && !CandyAnswerCorrect(output) {
 		return "answer_mismatch: expected 21"
 	}
-	if cfg.QuestionKind != "candy" && cfg.QuestionKind != "knowledge" && !isBuiltinCandyPlan(cfg) && !pelicanHTMLPattern.MatchString(output) {
+	if cfg.QuestionKind != "candy" && !isKnowledgeQuestion(cfg.QuestionKind) && !isBuiltinCandyPlan(cfg) && !pelicanHTMLPattern.MatchString(output) {
 		return "Model did not return HTML or SVG"
 	}
 	return ""

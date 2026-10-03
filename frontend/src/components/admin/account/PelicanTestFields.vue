@@ -29,7 +29,7 @@ const { t } = useI18n()
 const isProbe = computed(() => props.modelValue.question_kind === STATE_PROBE_QUESTION)
 const reasoningOptions = computed(() => ['low', 'medium', 'high'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.reasoning${value[0].toUpperCase()}${value.slice(1)}`) })))
 const questionOptions = computed(() => [
-  ...['candy', 'pelican', 'knowledge'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })),
+  ...['candy', 'pelican', 'knowledge', 'japan_pm'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })),
   { value: STATE_PROBE_QUESTION, label: t('admin.accounts.pelicanTest.stateProbeQuestion') }
 ])
 function selectQuestion(value: string | number | boolean | null) {
@@ -38,7 +38,7 @@ function selectQuestion(value: string | number | boolean | null) {
     emit('update:modelValue', { ...props.modelValue, question_kind: STATE_PROBE_QUESTION, prompt: '', parallel_count: 1, reasoning_effort: props.modelValue.reasoning_effort || 'medium' })
     return
   }
-  if (value !== 'candy' && value !== 'pelican' && value !== 'knowledge') return
+  if (value !== 'candy' && value !== 'pelican' && value !== 'knowledge' && value !== 'japan_pm') return
   emit('update:modelValue', { ...props.modelValue, question_kind: value, prompt: questionPrompt(value) })
 }
 function update(key: keyof PelicanTestConfig, value: string | number | boolean | null) {

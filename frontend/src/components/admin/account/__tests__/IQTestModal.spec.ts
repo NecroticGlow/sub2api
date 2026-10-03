@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import IQTestModal from '../IQTestModal.vue'
+import { JAPAN_PM_PROMPT, JAPAN_PM_REFERENCE, KNOWLEDGE_PROMPT, KNOWLEDGE_REFERENCE } from '@/utils/intelligenceTest'
 import { pelicanHistoryAPI as history } from '@/api/admin/pelicanHistory'
 vi.mock('@/api/admin/pelicanHistory', () => ({ pelicanHistoryAPI: { list: vi.fn(), save: vi.fn() } }))
 beforeEach(() => {
@@ -184,19 +185,25 @@ describe('Intelligence question selection', () => {
     expect(global.fetch).not.toHaveBeenCalled()
     wrapper.unmount()
   })
-  it('sends the original offline knowledge question and displays text without HTML', async () => {
+  it.each([
+    ['knowledge', KNOWLEDGE_PROMPT, KNOWLEDGE_REFERENCE],
+    ['japan_pm', JAPAN_PM_PROMPT, JAPAN_PM_REFERENCE]
+  ])('sends the Chinese %s question without leaking its reference and persists text history', async (kind, prompt, reference) => {
     global.fetch = vi.fn(async () => streamResponse([{ type: 'content', text: 'NVIDIA GPU: uncertain' }, { type: 'test_complete', success: true }])) as any
     const wrapper = mountModal()
-    ;(wrapper.vm as any).selectQuestion('knowledge')
+    ;(wrapper.vm as any).selectQuestion(kind)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="question-reference"]').text()).toContain(reference)
     await (wrapper.vm as any).startTest()
     const body = JSON.parse((global.fetch as any).mock.calls[0][1].body)
-    expect(body.prompt).toContain('Do not browse the web or speculate.')
-    expect(body.prompt).toContain('Do not guess or fill in missing information.')
+    expect(body.prompt).toContain(prompt)
+    expect(body.prompt).toContain('不联网、不调用工具、不猜测')
+    expect(body.prompt).not.toContain(reference)
     expect(body.prompt).not.toContain('只输出最终整数')
     expect(body.tools).toBeUndefined()
     expect(wrapper.find('iframe').exists()).toBe(false)
     expect((wrapper.vm as any).runs[0].status).toBe('success')
-    expect(history.save).toHaveBeenCalledWith(42, expect.objectContaining({ questionKind: 'knowledge' }))
+    expect(history.save).toHaveBeenCalledWith(42, expect.objectContaining({ questionKind: kind }))
     wrapper.unmount()
   })
   it('reports history save failure without hiding the current output', async () => {

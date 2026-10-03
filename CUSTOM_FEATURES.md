@@ -21,7 +21,7 @@
 | Codex 唯一设备 | 默认账号唯一设备模式；稳定派生指纹，保留显式关闭及其他模式，不在升级时退回多设备随机身份。 | `backend/internal/service/openai_codex_fingerprint.go`、fingerprint tests；账号编辑入口 |
 | Codex 额度透支 | 保留全局和账号级开关、业务流量探测、恢复周期和残留限流清理；不能用上游二进制覆盖定制。启用与限制详见旧专项文档，但当前代码/配置优先。 | `openai_codex_quota_overdraft*.go`、对应 tests、`account_test_codex_overdraft.go` |
 | 账号导入继承记录 | 账号名和邮箱完全相同，Team 还要求空间 ID 相同，RT 轮换时复用旧身份/记录；不能按相似名字合并不同账号。 | `backend/internal/handler/admin/account_codex_import.go`、对应 import tests |
-| 降智/质量测试 | 以 ranxi 完整实现为基础，保留糖果、鹈鹕、定时质量操作及新增的不联网知识题。知识题使用用户给出的 iPhone/系统信息提示词；不把生成完成等同质量通过。 | `frontend/src/utils/intelligenceTest.ts`、`IQTestModal.vue`、Pelican service/schedule/quality tests |
+| 降智/质量测试 | 以 ranxi 完整实现为基础，保留糖果、鹈鹕、定时质量操作及不联网知识题。账号智商测试与质量规则均可选择中文数码知识题和日本首相题；替换旧英文提示词，要求不联网/不用工具/不猜测/不加免责声明，未知项仅写 uncertain。参考答案由管理员指定（iPhone 17 series、2025-09-09 公布、2025-09-19 开售、RTX 5090、Android 16、macOS Tahoe 26、Windows 11 25H2；日本首相为高市早苗），不是实时最新事实查询。切换题目须同步参考答案，不把生成完成等同质量通过；知识题仅走账号渠道，不走 BPS 糖果专用渠道。 | `frontend/src/utils/intelligenceTest.ts`、`IQTestModal.vue`、`AccountQualityView.vue`、Pelican service/schedule/quality tests |
 | 测试历史共享 | 手工测试历史服务端持久化至账号 extra 的 `pelican_manual_history`，最多 8 条；其他管理员可见，不仅存浏览器；保留当前实现的 usage/费用展示。手工显示历史不是权威账单。 | `backend/internal/service/pelican_manual_history.go`、history tests、`pelican_test_usage.go`、IQTestModal |
 | 自定义首页 | 保留 Wanwu 首页、品牌和模型广场定制，不被上游首页覆盖。 | `frontend/src/components/home/WanwuHome.vue`、对应 tests、首页/模型广场入口 |
 | OpenCode Go 用量 | 保留官方窗口查询、主动刷新/自动刷新、同 Key 组共享、活动防抖、超窗刷新、7d/1m 显示和 lite DTO 字段；账号更新不得清掉托管用量状态。 | OpenCode Go service、repository/DTO、AccountUsageCell 与对应 tests |

@@ -2617,7 +2617,7 @@ export interface QualityPolicy {
 
 export interface PelicanTestConfig {
   quality?: QualityPolicy
-  question_kind?: 'candy' | 'pelican' | 'knowledge' | 'state_probe'
+  question_kind?: 'candy' | 'pelican' | 'knowledge' | 'japan_pm' | 'state_probe'
   test_channel?: 'account' | 'bps'
   prompt: string
   reasoning_effort: string

@@ -115,7 +115,7 @@ func nextPlanRun(plan *ScheduledTestPlan, now time.Time) (time.Time, error) {
 		if err := validateQualityPolicy(plan); err != nil {
 			return time.Time{}, err
 		}
-		if cfg.QuestionKind != "" && cfg.QuestionKind != "pelican" && cfg.QuestionKind != "knowledge" && cfg.QuestionKind != "candy" && cfg.QuestionKind != OpenAICodexStateProbeQuestionKind {
+		if cfg.QuestionKind != "" && cfg.QuestionKind != "pelican" && !isKnowledgeQuestion(cfg.QuestionKind) && cfg.QuestionKind != "candy" && cfg.QuestionKind != OpenAICodexStateProbeQuestionKind {
 			return time.Time{}, fmt.Errorf("invalid question kind")
 		}
 		// 同一账号同一时刻只允许一次探针，并行只会互相挤掉，直接禁止。

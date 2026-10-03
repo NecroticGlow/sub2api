@@ -92,9 +92,9 @@
           :account-page="accountPage" :account-pages="accountPages" :accounts-total="accountsTotal" :bulk="bulkEditing" :scope-locked="!!editingTemplate" :disabled-reason="accountDisabledReason"
           @search="searchAccounts" @select-page="selectCurrentPage" @select-all="selectMatchingAccounts" @clear="clearAccountSelection" />
         <div v-if="editsField('test')" class="space-y-2">
-          <label class="block space-y-1"><span>{{ t('qualityOps.questionKind') }}</span><select v-model="form.pelican_config.question_kind" class="input" data-testid="quality-question-kind" @change="selectQuestionKind"><option value="candy">{{ t('qualityOps.questionCandy') }}</option><option :value="STATE_PROBE_QUESTION">{{ t('qualityOps.questionStateProbe') }}</option></select></label>
+          <label class="block space-y-1"><span>{{ t('qualityOps.questionKind') }}</span><select v-model="form.pelican_config.question_kind" class="input" data-testid="quality-question-kind" @change="selectQuestionKind"><option value="candy">{{ t('qualityOps.questionCandy') }}</option><option value="knowledge">{{ t('qualityOps.questionKnowledge') }}</option><option value="japan_pm">{{ t('qualityOps.questionJapanPM') }}</option><option :value="STATE_PROBE_QUESTION">{{ t('qualityOps.questionStateProbe') }}</option></select></label>
           <p v-if="isProbe" class="text-sm text-gray-500" data-testid="quality-probe-hint">{{ t('qualityOps.probeHint') }}</p>
-          <label v-else class="block space-y-1"><span>{{ t('qualityOps.testChannel') }}</span><select v-model="form.pelican_config.test_channel" class="input" data-testid="quality-test-channel" @change="selectTestChannel"><option value="account">{{ t('qualityOps.accountChannel') }}</option><option value="bps">{{ t('qualityOps.bpsChannel') }}</option></select></label>
+          <label v-else class="block space-y-1"><span>{{ t('qualityOps.testChannel') }}</span><select v-model="form.pelican_config.test_channel" class="input" data-testid="quality-test-channel" @change="selectTestChannel"><option value="account">{{ t('qualityOps.accountChannel') }}</option><option v-if="form.pelican_config.question_kind === 'candy'" value="bps">{{ t('qualityOps.bpsChannel') }}</option></select></label>
           <p v-if="form.pelican_config.test_channel === 'bps'" class="text-sm text-gray-500" data-testid="quality-bps-observation-hint">{{ t('qualityOps.bpsObservationHint') }}</p>
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
@@ -212,7 +212,7 @@ import { createQualityTemplate, deleteQualityTemplate, runQualityPlan, updateQua
 import scheduledTests from '@/api/admin/scheduledTests'
 import * as accountsAPI from '@/api/admin/accounts'
 import * as groupsAPI from '@/api/admin/groups'
-import { CANDY_PROMPT, STATE_PROBE_QUESTION, stateProbeVerdict, type StateProbeVerdict } from '@/utils/intelligenceTest'
+import { CANDY_PROMPT, questionPrompt, questionReferenceAnswer, STATE_PROBE_QUESTION, stateProbeVerdict, type IntelligenceQuestion, type StateProbeVerdict } from '@/utils/intelligenceTest'
 import { buildQualityRulePatch, defaultQualityBPS, qualityBPSError, qualityBPSForm, qualityBPSPayload, qualityRuleFields, type QualityRuleField } from '@/utils/qualityRulePatch'
 import { DEFAULT_STATE_PROBE_CRON } from '@/utils/intelligenceTest'
 import QualityProbeSchedule from '@/components/admin/operations/QualityProbeSchedule.vue'
@@ -412,7 +412,7 @@ function resultTone(result: ScheduledTestResult) {
 }
 function defaults() {
   return { model_id: 'gpt-6-astra', cron_expression: '*/30 * * * *', enabled: true, max_results: 100, auto_recover: false,
-    pelican_config: { question_kind: 'candy' as 'candy' | typeof STATE_PROBE_QUESTION, test_channel: 'account' as 'account' | 'bps', prompt: CANDY_PROMPT, reasoning_effort: 'high', parallel_count: 1,
+    pelican_config: { question_kind: 'candy' as IntelligenceQuestion | typeof STATE_PROBE_QUESTION, test_channel: 'account' as 'account' | 'bps', prompt: CANDY_PROMPT, reasoning_effort: 'high', parallel_count: 1,
       quality: { expected_answer: '21', action: 'remove_groups' as QualityPolicy['action'], remove_group_ids: [] as number[], auto_restore: false, judge: { group_id: 0, model_id: '', prompt: t('qualityOps.defaultJudgePrompt') }, bps: defaultQualityBPS() } } }
 }
 const form = ref(defaults())
@@ -531,7 +531,7 @@ watch(() => form.value.pelican_config.quality.action, (next, prev) => {
   if (next === 'observe_only') form.value.pelican_config.quality.auto_restore = false
   selectedAccounts.value = selectedAccounts.value.filter(id => !existingAccountIds.value.has(id))
 }, { flush: 'sync' })
-function useCandy() { form.value.pelican_config.prompt = CANDY_PROMPT; form.value.pelican_config.quality.expected_answer = '21' }
+function useCandy() { form.value.pelican_config.question_kind = 'candy'; form.value.pelican_config.prompt = CANDY_PROMPT; form.value.pelican_config.quality.expected_answer = '21' }
 function selectQuestionKind() {
   accountSelectionRequest++; selectingAccounts.value = false
   const config = form.value.pelican_config
@@ -544,12 +544,25 @@ function selectQuestionKind() {
   }
   // Switching auto-BPS rules to candy means observing BPS, not controlling it.
   const hadBPSAction = config.quality.action === 'enable_bps' || (bulkEditing.value && !bulkFields.value.includes('action') && plans.value.some(plan => bulkRuleIds.value.includes(plan.id) && plan.pelican_config?.quality?.action === 'enable_bps'))
+  if (config.question_kind === 'knowledge' || config.question_kind === 'japan_pm') {
+    config.test_channel = 'account'
+    if (hadBPSAction) {
+      config.quality.action = 'observe_only'
+      config.quality.auto_restore = false
+      if (bulkEditing.value) bulkFields.value = [...new Set<QualityRuleField>([...bulkFields.value, 'action', 'restore'])]
+    }
+    config.quality.judge ||= defaults().pelican_config.quality.judge
+    config.prompt = questionPrompt(config.question_kind)
+    config.quality.expected_answer = questionReferenceAnswer(config.question_kind)
+    return
+  }
   if (hadBPSAction) { config.test_channel = 'bps'; selectTestChannel() }
   config.quality.judge ||= defaults().pelican_config.quality.judge
-  if (!config.prompt.trim()) useCandy()
+  useCandy()
 }
 function selectTestChannel() {
   if (form.value.pelican_config.test_channel !== 'bps') return
+  useCandy()
   form.value.pelican_config.quality.action = 'observe_only'
   form.value.pelican_config.quality.auto_restore = false
   if (bulkEditing.value) bulkFields.value = [...new Set<QualityRuleField>([...bulkFields.value, 'action', 'restore'])]

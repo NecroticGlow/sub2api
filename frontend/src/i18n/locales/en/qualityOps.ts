@@ -69,6 +69,8 @@ export default {
   "bpsObservationHint": "Candy questions test the BPS channel only. If BPS is off or this model is not routed to BPS, the round is unavailable; it never falls back to the native channel. Selecting this channel makes this rule observation-only: it does not toggle BPS, change groups or scheduling, or restore previous settings. Other policies control BPS. Configure the question, reference answer and grading model.",
   "questionKind": "Test method",
   "questionCandy": "Candy question (model answer + grading model)",
+  "questionKnowledge": "Offline technology knowledge (model answer + grading model)",
+  "questionJapanPM": "Offline Japan prime minister (model answer + grading model)",
   "questionStateProbe": "State probe (full capability or degraded in seconds, no grading model)",
   "probeHint": "No question is sent. Each round runs one ticket probe: full capability passes, degraded counts as a wrong answer and triggers the action below, and inconclusive runs (network, rate limits, account errors) never change the account. OpenAI subscription (OAuth) accounts only; one probe per round.",
   "probeFailureAction": "Action when degraded",

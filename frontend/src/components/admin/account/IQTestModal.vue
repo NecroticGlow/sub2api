@@ -125,7 +125,11 @@
         <label class="input-label mb-1.5 block">{{ t('admin.accounts.pelicanTest.question') }}</label>
         <Select data-testid="question-select" :model-value="questionKind" :options="questionOptions" :disabled="running" @update:model-value="selectQuestion" />
         <p v-if="questionKind === 'candy'" class="mt-2 text-xs text-gray-500">{{ t('admin.accounts.pelicanTest.candyHint') }}</p>
-        <p v-if="questionKind === 'knowledge'" class="mt-2 text-xs text-gray-500">{{ t('admin.accounts.pelicanTest.knowledgeHint') }}</p>
+        <p v-if="questionKind === 'knowledge' || questionKind === 'japan_pm'" class="mt-2 text-xs text-gray-500">{{ t('admin.accounts.pelicanTest.knowledgeHint') }}</p>
+        <details v-if="questionKind === 'knowledge' || questionKind === 'japan_pm'" class="mt-2 text-xs text-gray-500" data-testid="question-reference">
+          <summary class="cursor-pointer">{{ t('admin.accounts.pelicanTest.referenceAnswer') }}</summary>
+          <p class="mt-1 whitespace-pre-wrap">{{ questionReferenceAnswer(questionKind) }}</p>
+        </details>
       </div>
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <TextArea
@@ -283,7 +287,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { questionPrompt, questionContract, isTextAnswerKind, stateProbeVerdict, STATE_PROBE_QUESTION, type IntelligenceQuestion } from '@/utils/intelligenceTest'
+import { questionPrompt, questionContract, questionReferenceAnswer, isTextAnswerKind, stateProbeVerdict, STATE_PROBE_QUESTION, type IntelligenceQuestion } from '@/utils/intelligenceTest'
 import { useI18n } from 'vue-i18n'
 import { extractPelicanHtml as extractHtml } from '@/utils/pelicanHtml'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -334,9 +338,9 @@ const probeResults = ref<OpenAICodexStateProbeResult[]>([])
 const probeError = ref('')
 
 const deliveryContract = computed(() => questionContract(questionKind.value))
-const questionOptions = computed(() => ['candy', 'pelican', 'knowledge'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })))
+const questionOptions = computed(() => ['candy', 'pelican', 'knowledge', 'japan_pm'].map(value => ({ value, label: t(`admin.accounts.pelicanTest.${value}Question`) })))
 function selectQuestion(value: string | number | boolean | null) {
-  if (running.value || (value !== 'candy' && value !== 'pelican' && value !== 'knowledge')) return
+  if (running.value || (value !== 'candy' && value !== 'pelican' && value !== 'knowledge' && value !== 'japan_pm')) return
   questionKind.value = value
   prompt.value = questionPrompt(value)
 }

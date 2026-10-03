@@ -9,6 +9,7 @@ import { useAccountQualityStore } from '@/stores/accountQuality'
 import { useAuthStore } from '@/stores/auth'
 import type { ScheduledTestPlan } from '@/types'
 import { defaultQualityBPS } from '@/utils/qualityRulePatch'
+import { JAPAN_PM_PROMPT, JAPAN_PM_REFERENCE, KNOWLEDGE_PROMPT, KNOWLEDGE_REFERENCE } from '@/utils/intelligenceTest'
 vi.mock('@/components/admin/operations/SmartOpsNav.vue', () => ({ default: { template: '<nav />' } }))
 vi.mock('@/stores/auth', async () => {
   const { reactive } = await import('vue')
@@ -699,6 +700,25 @@ describe('quality operations', () => {
     }
     expect(JSON.stringify(selected)).toBe(before)
     expect(wrapper.find('#quality-rule-form').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['knowledge', KNOWLEDGE_PROMPT, KNOWLEDGE_REFERENCE],
+    ['japan_pm', JAPAN_PM_PROMPT, JAPAN_PM_REFERENCE]
+  ])('loads the %s preset with its matching reference on the account channel', async (kind, prompt, reference) => {
+    const wrapper = mountView(); await flushPromises(); const vm = wrapper.vm as any
+    vm.newPlan(); await flushPromises()
+    await wrapper.get('[data-testid="quality-test-channel"]').setValue('bps')
+    await wrapper.get('[data-testid="quality-question-kind"]').setValue(kind)
+    expect(vm.form.pelican_config).toMatchObject({ question_kind: kind, test_channel: 'account', prompt,
+      quality: { expected_answer: reference } })
+    expect(wrapper.get<HTMLTextAreaElement>('#quality-prompt').element.value).toBe(prompt)
+    expect(wrapper.find('[data-testid="quality-test-channel"] option[value="bps"]').exists()).toBe(false)
+    expect(vm.payload().pelican_config.quality.expected_answer).toBe(reference)
+    await wrapper.get('[data-testid="quality-question-kind"]').setValue('candy')
+    expect(vm.form.pelican_config.quality.expected_answer).toBe('21')
+    expect(vm.form.pelican_config.prompt).toContain('圆形 7 9 8')
     wrapper.unmount()
   })
 

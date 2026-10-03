@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -60,9 +61,23 @@ func TestPelicanManualHistoryReadWriteWithoutUpstream(t *testing.T) {
 }
 
 func TestIntelligenceKnowledgeUsesPlainTextContract(t *testing.T) {
-	cfg := &PelicanTestConfig{QuestionKind: "knowledge", Prompt: "Do not browse the web or speculate."}
-	require.Contains(t, intelligenceTestPrompt(cfg), "Do not browse or use tools")
-	require.NotContains(t, intelligenceTestPrompt(cfg), PelicanDeliveryContract)
-	require.Empty(t, intelligenceTestOutputError(cfg, "NVIDIA: uncertain"))
-	require.NotEmpty(t, intelligenceTestOutputError(cfg, " "))
+	for _, kind := range []string{"knowledge", "japan_pm"} {
+		t.Run(kind, func(t *testing.T) {
+			cfg := &PelicanTestConfig{QuestionKind: kind, Prompt: "仅依据已有知识回答。"}
+			require.Contains(t, intelligenceTestPrompt(cfg), "不联网、不调用工具、不猜测")
+			require.NotContains(t, intelligenceTestPrompt(cfg), PelicanDeliveryContract)
+			require.Empty(t, intelligenceTestOutputError(cfg, "uncertain"))
+			require.NotEmpty(t, intelligenceTestOutputError(cfg, " "))
+			record := manualHistoryFixture()
+			record.QuestionKind = kind
+			require.NoError(t, ValidatePelicanManualRecord(record))
+			plan := pelicanPlan()
+			plan.PelicanConfig.QuestionKind = kind
+			_, err := nextPlanRun(plan, time.Now())
+			require.NoError(t, err)
+			plan.PelicanConfig.TestChannel = "bps"
+			_, err = nextPlanRun(plan, time.Now())
+			require.Error(t, err, "knowledge questions cannot use candy-only BPS channel")
+		})
+	}
 }

@@ -69,6 +69,8 @@ export default {
   "bpsObservationHint": "糖果题只检测 BPS 通道，BPS 未开启或该模型未配置走 BPS 时记录为不可检测，不回退原生通道。选择此通道会将本规则改为只记录结果，不启停 BPS、不移分组、不改调度，也不自动恢复旧设置；启停由其他策略负责。请配置题目、参考答案和判题模型。",
   "questionKind": "检测方式",
   "questionCandy": "糖果题（模型答题 + 判题模型打分）",
+  "questionKnowledge": "不联网数码知识题（模型答题 + 判题模型打分）",
+  "questionJapanPM": "不联网日本首相题（模型答题 + 判题模型打分）",
   "questionStateProbe": "状态探针（几秒判满血 / 降智，不需要判题模型）",
   "probeHint": "不发题目：每轮跑一发门票探针，满血算通过、降智算答错并执行下面的处理，无法判断（网络、限流、账号异常等）不动账号。只适用于 OpenAI 订阅（OAuth）账号；每轮固定跑 1 次。",
   "probeFailureAction": "判定降智后的处理",
