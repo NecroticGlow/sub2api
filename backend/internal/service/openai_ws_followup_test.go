@@ -148,6 +148,7 @@ func TestOpenAIWSFailoverGateRejectsDepartedClient(t *testing.T) {
 				account := passthroughLifecycleAccount()
 				account.Extra["openai_apikey_responses_websockets_v2_mode"] = mode
 				readers := make(chan *openAIWSIngressReader, 1)
+				account.RateLimit429RetryCount = retryCountPointer(0)
 				done := make(chan error, 1)
 				attempts := atomic.Int32{}
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
