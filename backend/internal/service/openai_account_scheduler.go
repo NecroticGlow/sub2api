@@ -2829,7 +2829,7 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 	}
 	// Prism runs one HTTP turn per request; the WS entry would only close the
 	// session after selection, so keep WS clients on the other accounts.
-	if accountHasPrismBrowser(account) {
+	if len(requestedModels) > 0 && account.IsPrismBrowserEnabledForModel(requestedModels[0]) {
 		return false
 	}
 	if requiredTransport == OpenAIUpstreamTransportResponsesWebsocketV2Ingress {

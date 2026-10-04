@@ -55,14 +55,17 @@ def parse_prompt(payload):
         raise AdapterError(422, "unsupported_request", "Prism adapter does not yet support tools or server-side conversation state")
     if any(payload.get(key) is not None for key in ("max_output_tokens", "temperature", "top_p")) or payload.get("background") or payload.get("store"):
         raise AdapterError(422, "unsupported_request", "Generation limits, sampling, background and storage options are not supported")
-    if payload.get("tool_choice", "none") not in ("none", "auto") or payload.get("include") or payload.get("service_tier"):
+    # Codex requests optional reasoning fields even on text-only turns. Prism
+    # does not supply encrypted reasoning; accepting the request invents none.
+    if (payload.get("tool_choice", "none") not in ("none", "auto")
+            or payload.get("include") not in (None, [], ['reasoning.encrypted_content']) or payload.get("service_tier")):
         raise AdapterError(422, "unsupported_request", "Requested response options are not supported")
     text_options = payload.get("text") or {}
     if not isinstance(text_options, dict) or text_options.get("format", {"type": "text"}) != {"type": "text"}:
         raise AdapterError(422, "unsupported_request", "Only plain text output is supported")
     reasoning = payload.get("reasoning") or {}
     if (not isinstance(reasoning, dict) or not isinstance(reasoning.get("effort", "medium"), str)
-            or reasoning.get("effort", "medium") not in EFFORTS or reasoning.get("summary") not in (None, "none")):
+            or reasoning.get("effort", "medium") not in EFFORTS or reasoning.get("summary") not in (None, "none", "auto")):
         raise AdapterError(422, "unsupported_reasoning", "Unsupported Prism reasoning effort")
     if not isinstance(payload.get("stream", False), bool):
         raise AdapterError(400, "invalid_request", "stream must be a boolean")
@@ -708,6 +711,23 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(502, {"error": {"type": "prism_unavailable", "message": "Prism browser request failed; inspect pending state before retrying"}})
 
 
+def configure_client_tools(state):
+    enabled = os.environ.get('PRISM_ADAPTER_CLIENT_TOOLS_ENABLED', 'true')
+    if enabled not in ('true', 'false'):
+        raise SystemExit('PRISM_ADAPTER_CLIENT_TOOLS_ENABLED must be true or false')
+    if enabled == 'false':
+        return None
+    # Fail startup on an incomplete adapter upgrade, before accepting traffic.
+    try:
+        from jsonschema import Draft202012Validator
+        from lark import Lark
+        Draft202012Validator.check_schema({'type': 'object'})
+        Lark('start: "ok"').parse('ok')
+    except ImportError:
+        raise SystemExit('Install prism-adapter/requirements.txt before enabling client tools') from None
+    return ToolState(state.directory, AdapterError)
+
+
 def main():
     if os.geteuid() == 0:
         raise SystemExit("Prism adapter must run as a non-root user")
@@ -717,11 +737,7 @@ def main():
         raise SystemExit("adapter key, Chromium binary, and Chromium sandbox are required")
     Handler.api_key = key
     Handler.state = State(os.environ.get("PRISM_ADAPTER_STATE_DIR", "/var/lib/sub2api-prism"))
-    tools = os.environ.get('PRISM_ADAPTER_CLIENT_TOOLS_ENABLED', 'false')
-    if tools not in ('true','false'):
-        raise SystemExit('PRISM_ADAPTER_CLIENT_TOOLS_ENABLED must be true or false')
-    if tools == 'true':
-        Handler.tool_state = ToolState(Handler.state.directory, AdapterError)
+    Handler.tool_state = configure_client_tools(Handler.state)
     max_sessions = int(os.environ.get("PRISM_ADAPTER_MAX_SESSIONS", "1"))
     idle_seconds = int(os.environ.get("PRISM_ADAPTER_SESSION_TTL_SECONDS", "300"))
     if not 1 <= max_sessions <= 2 or not 30 <= idle_seconds <= 900:

@@ -18,9 +18,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const prismBrowserMaxResponseBytes = 2 << 20
+
+const prismBrowserAttemptsKey = "prism_browser_attempts"
+
+// MarkPrismBrowserAttempt separates adapter admission/outcomes from the native
+// account concurrency ramp. Keep all attempts so failover cannot lose the mark.
+func MarkPrismBrowserAttempt(c *gin.Context, accountID int64) {
+	value, _ := c.Get(prismBrowserAttemptsKey)
+	ids, _ := value.(map[int64]bool)
+	if ids == nil {
+		ids = make(map[int64]bool)
+	}
+	ids[accountID] = true
+	c.Set(prismBrowserAttemptsKey, ids)
+}
+
+func IsPrismBrowserAttempt(c *gin.Context, accountID int64) bool {
+	value, _ := c.Get(prismBrowserAttemptsKey)
+	ids, _ := value.(map[int64]bool)
+	return ids[accountID]
+}
 
 func prismBrowserTerminal(body []byte, model string, stream bool) (string, error) {
 	terminal := body
@@ -213,42 +234,88 @@ func prismBrowserAdapterErrorMessage(status int, body []byte) string {
 	}
 }
 
+// Only log protocol codes we own. Never copy arbitrary adapter messages or
+// reflected input into gateway logs when diagnosing fast 422 refusals.
+func prismBrowserForwardError(status int, body []byte) error {
+	code := gjson.GetBytes(body, "error.type").String()
+	switch code {
+	case "tools_disabled", "unsupported_model", "unsupported_request", "unsupported_reasoning",
+		"unsupported_input", "unsupported_tool_model", "unsupported_tool", "invalid_tools",
+		"invalid_tool_choice", "invalid_tool_payload", "unsupported_reasoning_history",
+		"model_unavailable", "reasoning_unavailable", "pending_turn", "prism_busy":
+		return fmt.Errorf("prism adapter returned HTTP %d (%s)", status, code)
+	default:
+		return fmt.Errorf("prism adapter returned HTTP %d", status)
+	}
+}
+
 func (s *OpenAIGatewayService) forwardPrismBrowser(ctx context.Context, c *gin.Context, account *Account, body []byte, started time.Time) (*OpenAIForwardResult, error) {
+	MarkPrismBrowserAttempt(c, account.ID)
+	// This path buffers and writes a complete JSON or SSE response, including
+	// errors. The handler must never append another response.failed envelope.
+	defer func() {
+		if c.Writer.Written() {
+			MarkResponseCommitted(c)
+		}
+	}()
+	writeError := func(status int, raw []byte) {
+		committed := StopOpenAICompactSSEKeepaliveCommitted(c)
+		if committed || c.Writer.Written() {
+			code := gjson.GetBytes(raw, "error.type").String()
+			message := gjson.GetBytes(raw, "error.message").String()
+			writeOpenAICompactSSEFailureMessage(c, status, code, message)
+			return
+		}
+		c.Data(status, "application/json", raw)
+	}
+	fail := func(status int, code, message string) {
+		raw, _ := json.Marshal(gin.H{"error": gin.H{"type": code, "message": message}})
+		writeError(status, raw)
+	}
 	if isOpenAIResponsesCompactPath(c) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "Prism adapter does not support responses/compact"}})
+		fail(http.StatusBadRequest, "invalid_request_error", "Prism adapter does not support responses/compact")
 		return nil, errors.New("prism adapter does not support responses/compact")
 	}
 	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	stream := gjson.GetBytes(body, "stream").Bool()
 	if model == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "model is required"}})
+		fail(http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, errors.New("prism adapter model is required")
+	}
+	upstreamModel := account.GetMappedModel(model)
+	if upstreamModel != model {
+		mapped, mapErr := sjson.SetBytes(body, "model", upstreamModel)
+		if mapErr != nil {
+			fail(http.StatusBadRequest, "invalid_request_error", "invalid Prism request")
+			return nil, mapErr
+		}
+		body = mapped
 	}
 	sessionID, err := prismBrowserSessionID(c, account.ID, body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		fail(http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
 	responseBody, upstreamHeaders, status, err := s.callPrismBrowserForCaller(ctx, account, body, sessionID, prismBrowserCallerID(c, account.ID))
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "prism_unavailable", "message": "Prism adapter unavailable; request was not replayed"}})
+		fail(http.StatusBadGateway, "prism_unavailable", "Prism adapter unavailable; request was not replayed")
 		return nil, err
 	}
 	if status != http.StatusOK {
 		if prismBrowserAdapterMisconfigured(status) {
-			c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "prism_unavailable", "message": "Prism adapter rejected the gateway; check the adapter key and endpoint"}})
+			fail(http.StatusBadGateway, "prism_unavailable", "Prism adapter rejected the gateway; check the adapter key and endpoint")
 			return nil, fmt.Errorf("prism adapter returned HTTP %d", status)
 		}
-		c.Data(status, "application/json", responseBody)
-		return nil, fmt.Errorf("prism adapter returned HTTP %d", status)
+		writeError(status, responseBody)
+		return nil, prismBrowserForwardError(status, responseBody)
 	}
-	responseID, err := prismBrowserTerminal(responseBody, model, stream)
+	responseID, err := prismBrowserTerminal(responseBody, upstreamModel, stream)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "invalid_prism_response", "message": "Prism adapter returned no valid terminal response"}})
+		fail(http.StatusBadGateway, "invalid_prism_response", "Prism adapter returned no valid terminal response")
 		return nil, err
 	}
 	if err := prismBrowserValidateToolCatalog(body, responseBody, stream); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "invalid_prism_response", "message": "Prism adapter returned an undeclared client tool"}})
+		fail(http.StatusBadGateway, "invalid_prism_response", "Prism adapter returned an undeclared client tool")
 		return nil, err
 	}
 	contentType := "application/json"
@@ -263,7 +330,7 @@ func (s *OpenAIGatewayService) forwardPrismBrowser(ctx context.Context, c *gin.C
 		ResponseID:       responseID,
 		UpstreamHeaders:  upstreamHeaders,
 		Model:            model,
-		UpstreamModel:    model,
+		UpstreamModel:    upstreamModel,
 		Stream:           stream,
 		Duration:         time.Since(started),
 		UsageUnavailable: true,

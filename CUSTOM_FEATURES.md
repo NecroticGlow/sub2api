@@ -1,6 +1,6 @@
 # 自定义功能清单与升级保护
 
-最后核对：2026-10-03。此次合并基线：`ranxi2001/sub2api` 的 `v2.9.7`。
+最后核对：2026-10-04。此次合并基线：`ranxi2001/sub2api` 的 `v2.9.8`。
 维护仓库：`NecroticGlow/sub2api`，发布分支：`main`。
 
 这是后续 AI 和维护者同步源码前必须阅读的清单。代码和测试是实际行为的
@@ -53,6 +53,21 @@ Vision Exp 当前按 V4.1 Flash 档，别名/第三方 slug 映射以测试为�
 - MiMo V2.5/Pro、Qwen3.8-Max、Qwen3.7-Max/Plus 暂不使用，**不新增自定义
   兜底价格**。上游有价格时沿用现有上游定价链路；无价格时保留正常缺价处理，
   不硬编码猜测值、不按零计费。保留模型支持不代表承诺所有模型都内置价格。
+
+## v2.9.8 同步注意
+
+- 完整合并上游的 Astra 网关借用/调度、区域出口路由、Prism 模型范围与工具
+  修复、OpenAI API-key 出站身份统一和可配置就绪超时；保留上表定制。
+- Astra/区域出口属于上游能力，不代表已在生产启用；本次仅同步源码，不部署、
+  不更改线上账号或路由配置，不执行真实账号测试。
+- 后续部署需要应用上游新增的 `244_astra_gateway_history.sql` 和
+  `249_astra_scheduling_states.sql`，并先在隔离数据库验证迁移。
+- 2026-10-04 验证：前端 141 项针对性测试及 i18n、类型检查、生产构建通过；
+  Docker 中 config/upstreamroute/tlsfingerprint/apicompat/server/mihomo 测试，
+  repository/admin/handler 的相关定制与新功能测试通过。服务层测试编译触发
+  低磁盘空间保护而停止，最终 Go 构建及新增迁移尚未验证，后续部署前必须补做。
+  Prism Python 的模型/请求契约 9 项通过，完整套件受 Windows 的
+  `O_DIRECTORY` 和缺少 Lark 依赖限制，需在依赖齐全的 Linux 环境复验。
 
 ## 同步与发布检查表
 

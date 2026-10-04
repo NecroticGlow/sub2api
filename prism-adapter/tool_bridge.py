@@ -106,12 +106,6 @@ class ToolBridge:
         validate_batch(self.commands, self.error)
         base = copy.deepcopy(payload)
         base.update(input=translated, tools=[], additional_tools=[], tool_choice='none')
-        # An encrypted reasoning item is not available from this upstream.
-        # Accept the client's optional request for it without inventing one.
-        if base.get('include') == ['reasoning.encrypted_content']:
-            base['include'] = []
-        if isinstance(base.get('reasoning'), dict) and base['reasoning'].get('summary') == 'auto':
-            base['reasoning']['summary'] = 'none'
         # The ordinary parser still owns model/options/message validation.
         self.prompt, self.stream = api.parse_prompt(base)
         catalog = [tool['catalog'] for tool in self.tools.values()]

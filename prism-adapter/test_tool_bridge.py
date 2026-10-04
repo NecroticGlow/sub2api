@@ -223,7 +223,7 @@ class ToolHTTPTests(unittest.TestCase):
             server=ThreadingHTTPServer(('127.0.0.1',0),handler)
             threading.Thread(target=server.serve_forever,daemon=True).start()
             try:
-                payload=request(stream=True)
+                payload=request(stream=True, include=['reasoning.encrypted_content'], reasoning={'effort':'medium','summary':'auto'})
                 headers={'Authorization':'Bearer fixture-key','X-Prism-Account-ID':'300',
                     'X-Prism-OAuth-Token':'synthetic','X-Prism-Session-ID':'a'*64,'X-Prism-Caller-ID':'b'*64,'Content-Type':'application/json'}
                 def send(headers_=headers):
