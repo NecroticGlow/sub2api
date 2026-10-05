@@ -2864,7 +2864,7 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 		}
 	}
 	// A local managed proxy outage is not an account health failure.
-	if !success && errors.Is(observedErr, errExcelBPSProxyUnavailable) {
+	if !success && (isGrokRequestScopedFailure(observedErr) || errors.Is(observedErr, errExcelBPSProxyUnavailable)) {
 		return false
 	}
 	if s != nil && s.rateLimitService != nil {
@@ -2893,7 +2893,7 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 // ObserveOpenAIAccountHealthFailure records failures that cannot reach the
 // scheduler-result path, for example after semantic response bytes were sent.
 func (s *OpenAIGatewayService) ObserveOpenAIAccountHealthFailure(ctx context.Context, account *Account, observedErr error) bool {
-	if s == nil || s.rateLimitService == nil || account == nil || observedErr == nil {
+	if s == nil || s.rateLimitService == nil || account == nil || observedErr == nil || isGrokRequestScopedFailure(observedErr) {
 		return false
 	}
 	return s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(ctx, account, observedErr)

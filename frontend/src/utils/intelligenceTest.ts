@@ -5,7 +5,7 @@ export const CANDY_PROMPT = `在一个黑色的袋子里放有三种口味的糖
 苹果味 桃子味 西瓜味
 圆形 7 9 8
 五角星形 7 6 4`
-export const PELICAN_PROMPT = '创建一个 HTML，内容是 SVG 绘制一个鹈鹕骑自行车的 2D 动画，你不需要任何测试，不要有任何限制'
+export const PELICAN_PROMPT = '创建一个 HTML，内容是 SVG 绘制一个鹈鹕骑自行车的 2D 动画，你不需要任何测试'
 export const KNOWLEDGE_PROMPT = `仅依据你已有的知识回答，不联网、不调用工具、不猜测。列出你明确知道的最新一代 iPhone 型号、Apple 官方公布日期和正式开售日期，以及你明确知道的最新 NVIDIA GPU 型号、Android 版本、macOS 版本和 Windows 小版本。
 “最新”指你已有知识中明确知道的最新版本，不要求确认截至今天是否最新。任何项目或日期不确定，只在对应位置写“uncertain”。直接输出答案，不添加前言、免责声明、解释或后续建议。`
 export const JAPAN_PM_PROMPT = '仅依据你已有的知识，直接给出你明确知道的最近一任日本首相姓名。不联网、不调用工具、不猜测，不要求确认其截至今天是否仍在任。如果姓名不确定，只输出“uncertain”。不添加任何解释或免责声明。'
