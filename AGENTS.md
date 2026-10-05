@@ -11,6 +11,11 @@ maintainer. Do not infer current requirements from older commits alone.
 - Run regression tests for affected customizations as well as upstream changes.
   Report failures honestly; never fabricate prices or disable billing to pass tests.
 - Build and test Go in server Docker. Do not install a local Go environment.
+- On the 8 GiB production host, serialize Go builds/tests in a container with
+  an explicit hard memory limit (at most 4 GiB), CPU limit and `go -p 1`.
+  Never run multiple unbounded compilers on the production host. Keep production
+  headroom; a killed test compiler is not a passing test. Reuse caches to avoid
+  repeated cold builds, but do not skip a failed regression to ship a release.
 - Verification must not call real model accounts or spend quota. Use synthetic
   mocks and isolated test databases; never use production DB credentials for tests.
 - Production deployment requires user authorization, a recoverable code/database

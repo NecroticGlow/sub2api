@@ -64,12 +64,22 @@ func TestGrokRealtimeContentHandshakeIsTerminal(t *testing.T) {
 
 func TestGrokForbiddenPolicyPreservesAccount429RetryExhaustion(t *testing.T) {
 	account := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth, Extra: map[string]any{"grok_skip_forbidden_pause": true}}
-	resp := &http.Response{Body: &account429RetryResponseBody{retries: 5}}
-	err := finalizeAccount429Failover(resp, (&UpstreamFailoverError{
-		StatusCode: http.StatusForbidden,
-		ResponseBody: []byte(`{"code":"permission-denied","error":"Access to the chat endpoint is denied"}`),
-	}).WithGrokForbiddenPolicy(account))
-	require.True(t, err.Account429RetryExhausted)
-	require.Equal(t, GrokUnknownForbiddenReason, err.Reason)
-	require.False(t, err.ShouldReportAccountScheduleFailure())
+	t.Run("429 exhaustion", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusTooManyRequests, Body: &account429RetryResponseBody{retries: 5}}
+		err := finalizeAccount429Failover(resp, (&UpstreamFailoverError{
+			StatusCode: http.StatusTooManyRequests,
+		}).WithGrokForbiddenPolicy(account))
+		require.True(t, err.Account429RetryExhausted)
+		require.Empty(t, err.Reason)
+	})
+	t.Run("403 request isolation", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusForbidden}
+		err := finalizeAccount429Failover(resp, (&UpstreamFailoverError{
+			StatusCode:   http.StatusForbidden,
+			ResponseBody: []byte(`{"code":"permission-denied","error":"Access to the chat endpoint is denied"}`),
+		}).WithGrokForbiddenPolicy(account))
+		require.False(t, err.Account429RetryExhausted)
+		require.Equal(t, GrokUnknownForbiddenReason, err.Reason)
+		require.False(t, err.ShouldReportAccountScheduleFailure())
+	})
 }
