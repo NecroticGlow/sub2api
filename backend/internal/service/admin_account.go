@@ -450,6 +450,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		rateLimit429RetryCount = *input.RateLimit429RetryCount
 	}
 	account := &Account{
+		InitialQualityPlan:     input.InitialQualityPlan,
 		Name:                   input.Name,
 		Notes:                  normalizeAccountNotes(input.Notes),
 		Platform:               input.Platform,

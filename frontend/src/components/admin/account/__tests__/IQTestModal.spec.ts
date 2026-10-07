@@ -11,11 +11,20 @@ beforeEach(() => {
   })
 })
 
-const { probeOpenAICodexState } = vi.hoisted(() => ({ probeOpenAICodexState: vi.fn() }))
+const { probeOpenAICodexState, getAvailableModels, getModelReasoning } = vi.hoisted(() => ({
+  probeOpenAICodexState: vi.fn(), getAvailableModels: vi.fn(), getModelReasoning: vi.fn()
+}))
+
+beforeEach(() => {
+  getAvailableModels.mockReset().mockResolvedValue([])
+  getModelReasoning.mockReset().mockResolvedValue({
+    supported_reasoning_levels: ['low', 'medium', 'high'], default_reasoning_level: 'medium'
+  })
+})
 
 vi.mock('@/api/admin/accounts', async () => {
   const actual = await vi.importActual<typeof import('@/api/admin/accounts')>('@/api/admin/accounts')
-  return { ...actual, probeOpenAICodexState }
+  return { ...actual, probeOpenAICodexState, getAvailableModels, getModelReasoning }
 })
 
 vi.mock('vue-i18n', async () => {
@@ -70,6 +79,34 @@ function mountModal(account: Record<string, unknown> = {}) {
 }
 
 describe('IQTestModal', () => {
+  it('loads account model capabilities while retaining Chinese questions and shared history', async () => {
+    getAvailableModels.mockResolvedValue([{ id: 'account-model', display_name: 'Account model' }])
+    getModelReasoning.mockResolvedValue({
+      supported_reasoning_levels: ['none', 'high', 'xhigh'], default_reasoning_level: 'xhigh'
+    })
+    const wrapper = mountModal()
+    await flushPromises()
+    expect(getAvailableModels).toHaveBeenCalledWith(42)
+    expect(getModelReasoning).toHaveBeenLastCalledWith(42, 'account-model')
+    expect((wrapper.vm as any).modelOptions).toEqual([{ value: 'account-model', label: 'Account model' }])
+    expect((wrapper.vm as any).reasoningEffort).toBe('xhigh')
+    ;(wrapper.vm as any).selectQuestion('knowledge')
+    expect((wrapper.vm as any).prompt).toBe(KNOWLEDGE_PROMPT)
+    ;(wrapper.vm as any).selectQuestion('japan_pm')
+    expect((wrapper.vm as any).prompt).toBe(JAPAN_PM_PROMPT)
+    expect(history.list).toHaveBeenCalledWith(42)
+    wrapper.unmount()
+  })
+
+  it('does not advertise reasoning options for a model with no known reasoning capability', async () => {
+    getModelReasoning.mockResolvedValue({ supported_reasoning_levels: [], default_reasoning_level: '' })
+    const wrapper = mountModal()
+    await flushPromises()
+    expect((wrapper.vm as any).reasoningLevels).toEqual(['none'])
+    expect((wrapper.vm as any).reasoningEffort).toBe('none')
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     localStorage.clear()
     localStorage.setItem('auth_token', 'test-token')
