@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
@@ -10,7 +11,9 @@ import (
 // ModelAvailabilityDiagnosis describes whether the requested model can be
 // served by any persistently eligible account in the group (active with its
 // schedulable setting enabled), ignoring transient state such as rate limits,
-// overload, temporary unschedulability, and runtime blocks. Handlers use this
+// overload, temporary unschedulability, and runtime blocks. An unexpired
+// cooldown recording an explicit model capability rejection is an exception.
+// Handlers use this
 // on the "no available accounts" error path to distinguish 404
 // model_not_found from 503 service_unavailable.
 type ModelAvailabilityDiagnosis struct {
@@ -19,8 +22,44 @@ type ModelAvailabilityDiagnosis struct {
 	// the platform plus mixed-scheduled Antigravity accounts).
 	HasAccountsInPool bool
 	// HasModelSupport is true if at least one account's model mapping admits
-	// the requested model.
+	// the requested model without an active upstream capability rejection.
 	HasModelSupport bool
+	// HasRetiredSubscriptionModel records a ChatGPT upstream blocked by model
+	// retirement, so an unsupported request can include migration guidance.
+	HasRetiredSubscriptionModel bool
+
+	// Complete is false when the authority could not be queried. Counts must
+	// never be interpreted as an empty group in that case.
+	Complete                 bool
+	ConfiguredAccounts       int
+	ModelSupportedAccounts   int
+	ModelRateLimitedAccounts int
+	EarliestRateLimitResetAt *time.Time
+}
+
+// AllModelAccountsRateLimited only reports a proven persisted rate-limit
+// bottleneck, not inference from the scheduler's reduced candidate pool.
+func (d ModelAvailabilityDiagnosis) AllModelAccountsRateLimited() bool {
+	return d.Complete && d.ModelSupportedAccounts > 0 &&
+		d.ModelRateLimitedAccounts == d.ModelSupportedAccounts && d.EarliestRateLimitResetAt != nil
+}
+
+func (d *ModelAvailabilityDiagnosis) recordAccount(account *Account, supported bool, now time.Time) {
+	d.HasAccountsInPool = true
+	d.ConfiguredAccounts++
+	if !supported {
+		return
+	}
+	d.HasModelSupport = true
+	d.ModelSupportedAccounts++
+	if account.RateLimitResetAt == nil || !account.RateLimitResetAt.After(now) {
+		return
+	}
+	d.ModelRateLimitedAccounts++
+	if d.EarliestRateLimitResetAt == nil || account.RateLimitResetAt.Before(*d.EarliestRateLimitResetAt) {
+		resetAt := *account.RateLimitResetAt
+		d.EarliestRateLimitResetAt = &resetAt
+	}
 }
 
 // ModelAvailabilityDiagnoser is implemented by gateway services that can
@@ -96,16 +135,14 @@ func (s *GatewayService) DiagnoseModelAvailabilityForPlatform(
 		return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
 	}
 
-	diag := ModelAvailabilityDiagnosis{}
+	diag := ModelAvailabilityDiagnosis{Complete: true}
+	now := time.Now()
 	for i := range accounts {
 		if useMixed && accounts[i].Platform == PlatformAntigravity && !accounts[i].IsMixedSchedulingEnabled() {
 			continue
 		}
-		diag.HasAccountsInPool = true
-		if s.isModelSupportedByAccountInGroup(ctx, &accounts[i], groupID, requestedModel) {
-			diag.HasModelSupport = true
-			return diag
-		}
+		diag.recordAccount(&accounts[i], s.isModelSupportedByAccountInGroup(ctx, &accounts[i], groupID, requestedModel) &&
+			!accounts[i].modelCapabilityRejectedForRequest(ctx, requestedModel), now)
 	}
 	return diag
 }

@@ -36,7 +36,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.0'
+          go version | grep -q 'go1.27.2'
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -76,11 +76,11 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.0'
+          go version | grep -q 'go1.27.2'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13
+          version: v2.14.0
           args: --timeout=30m
           working-directory: backend
 
@@ -96,6 +96,7 @@ jobs:
       - run: bash -n .github/release-tools/release-images.sh
       - run: bash -n deploy/upgrade-k3s.sh
       - run: python -m unittest discover -s deploy/tests -p 'test_upgrade_k3s.py'
+      - run: python -m unittest discover -s deploy/tests -p 'test_migrate_reauth_managed.py'
 
   prism-adapter:
     runs-on: ubuntu-latest

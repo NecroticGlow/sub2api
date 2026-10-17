@@ -261,8 +261,18 @@ func (s *AccountRepoSuite) TestUpdateCredentials_SyncsSnapshotAndDurableOutbox()
 func (s *AccountRepoSuite) TestDelete() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "to-delete"})
 
+	// The account is uncommitted in the suite transaction; keep Cookie fixtures
+	// and assertions on the same connection so the foreign key can see it.
+	_, saveErr := s.repo.sql.ExecContext(s.ctx, "INSERT INTO openai_session_cookies (account_id, cookie_ciphertext) VALUES ($1, $2)", account.ID, "encrypted-fixture")
+	s.Require().NoError(saveErr)
+	var count int
+	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, "SELECT count(*) FROM openai_session_cookies WHERE account_id = $1", []any{account.ID}, &count))
+	s.Require().Equal(1, count, "Cookie fixture must exist before deletion")
+
 	err := s.repo.Delete(s.ctx, account.ID)
 	s.Require().NoError(err, "Delete")
+	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, "SELECT count(*) FROM openai_session_cookies WHERE account_id = $1", []any{account.ID}, &count))
+	s.Require().Zero(count)
 
 	_, err = s.repo.GetByID(s.ctx, account.ID)
 	s.Require().Error(err, "expected error after delete")

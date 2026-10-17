@@ -45,12 +45,11 @@
           {{ t('admin.accounts.pelicanTest.probe.unsupported') }}
         </div>
         <div class="max-w-sm">
-          <Select
+          <TestModelSelect
+            id="probe-model"
             v-model="modelId"
             :label="t('admin.accounts.pelicanTest.probe.model')"
             :options="modelOptions"
-            searchable
-            creatable
             :disabled="running"
             :hint="t('admin.accounts.pelicanTest.probe.modelHint')"
           />
@@ -143,12 +142,11 @@
           :hint="t('admin.accounts.pelicanTest.promptHint')"
         />
         <div class="space-y-3">
-          <Select
+          <TestModelSelect
+            id="question-model"
             v-model="modelId"
             :label="t('admin.accounts.pelicanTest.model')"
             :options="modelOptions"
-            searchable
-            creatable
             :disabled="running"
             :hint="t('admin.accounts.pelicanTest.modelHint', { model: defaultModel })"
           />
@@ -308,6 +306,7 @@ import { getAvailableModels, getModelReasoning, probeOpenAICodexState, type Open
 import type { Account, AccountListItem, PelicanTestConfig, ScheduledTestResult } from '@/types'
 import ScheduledTestsPanel from './ScheduledTestsPanel.vue'
 import PelicanRecordsDashboard from './PelicanRecordsDashboard.vue'
+import TestModelSelect from './TestModelSelect.vue'
 
 const { t } = useI18n()
 
@@ -329,7 +328,18 @@ const modelId = ref(defaultModel.value)
 const reasoningEffort = ref('medium')
 const reasoningLevels = ref<string[]>(['low', 'medium', 'high'])
 const availableModels = ref<Array<{ id: string; display_name?: string }>>([])
-const modelOptions = computed(() => availableModels.value.map((model) => ({ value: model.id, label: model.display_name || model.id })))
+const modelOptions = computed(() => {
+  const models = new Map(availableModels.value.map((model) => [model.id, model.display_name?.trim()]))
+  // A diagnostic test must also allow explicitly configured public model names,
+  // even when the upstream discovery catalog does not advertise their targets.
+  const mapping = props.account?.credentials?.model_mapping
+  if (mapping && typeof mapping === 'object' && !Array.isArray(mapping)) {
+    for (const id of Object.keys(mapping)) {
+      if (id.trim() && !id.includes('*') && !models.has(id)) models.set(id, undefined)
+    }
+  }
+  return Array.from(models, ([id, name]) => ({ value: id, label: name && name !== id ? `${id} (${name})` : id }))
+})
 const parallelCount = ref<string | number>(1)
 const activeTab = ref<'results' | 'history' | 'schedule'>('results')
 const running = ref(false)
@@ -366,15 +376,18 @@ let modelLoadToken = 0
 async function loadModels() {
   if (!props.account) return
   const token = ++modelLoadToken
+  const accountId = props.account.id
+  const initialModel = modelId.value
+  availableModels.value = []
   try {
-    const models = await getAvailableModels(props.account.id)
-    if (token !== modelLoadToken || !props.account) return
+    const models = await getAvailableModels(accountId)
+    if (token !== modelLoadToken || props.account?.id !== accountId || !props.show) return
     availableModels.value = models.map((model: any) => ({ id: model.id, display_name: model.display_name }))
-    if (!availableModels.value.some((model) => model.id === modelId.value) && availableModels.value.length > 0) {
-      modelId.value = availableModels.value[0].id
+    if (modelId.value === initialModel && !modelOptions.value.some((model) => model.value === modelId.value) && modelOptions.value.length > 0) {
+      modelId.value = modelOptions.value[0].value
     }
   } catch {
-    availableModels.value = []
+    if (token === modelLoadToken && props.account?.id === accountId) availableModels.value = []
   }
 }
 let reasoningLoadToken = 0
@@ -465,8 +478,8 @@ function formatDate(value: string) {
 function editSchedule(config: PelicanTestConfig, model: string) {
   if (running.value) return
   modelId.value = model
-  // 探针计划没有题目，手动测试的题目保持不变。
-  if (config.question_kind === STATE_PROBE_QUESTION) return
+  // Server-generated questions belong to quality rules, not manual test inputs.
+  if (config.question_kind === STATE_PROBE_QUESTION || config.question_kind === 'random_reasoning') return
   questionKind.value = config.question_kind || 'pelican'
   prompt.value = config.prompt
   modelId.value = model
@@ -496,7 +509,9 @@ function previewScheduled(result: ScheduledTestResult) {
 
 function loadRecord(record: TestRecord) {
   if (running.value) return
-  if (record.questionKind === STATE_PROBE_QUESTION) {
+  // Generated reasoning questions are result-only here: replaying their prompt
+  // as a manual fixed question would bypass the server-side generator/judge.
+  if (record.questionKind === STATE_PROBE_QUESTION || record.questionKind === 'random_reasoning') {
     runs.value = record.runs.map(run => ({ ...run }))
     viewingScheduled.value = true
     activeTab.value = 'results'

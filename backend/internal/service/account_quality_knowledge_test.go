@@ -41,7 +41,7 @@ func knowledgeQualityPlan(kind, action string) *ScheduledTestPlan {
 
 func TestQualityKnowledgePlanCreateUpdateAndTemplate(t *testing.T) {
 	for _, kind := range []string{"knowledge", "japan_pm"} {
-		for _, action := range []string{"observe_only", "remove_groups", "disable_scheduling"} {
+		for _, action := range []string{"observe_only", "remove_groups", "disable_scheduling", "isolate_models"} {
 			t.Run(kind+"/"+action, func(t *testing.T) {
 				plan := knowledgeQualityPlan(kind, action)
 				repo := &knowledgeQualityPlanRepo{}

@@ -79,6 +79,11 @@ func TestPriorityOAuthQuotaEvidenceAndCapacity(t *testing.T) {
 		{"latency", func(_ *PrioritySchedulingConfig, _ *openAIAccountCandidateScore, s *PrioritySchedulingSignal) {
 			s.P90TTFTMs = 9999
 		}, 0},
+		{"latency_recovery_cannot_displace_healthy_api_capacity", func(_ *PrioritySchedulingConfig, _ *openAIAccountCandidateScore, s *PrioritySchedulingSignal) {
+			s.P90TTFTMs = 9999
+			at := now.Add(-11 * time.Minute)
+			s.LatestLatencyAt = &at
+		}, 0},
 		{"cold_financial_samples", func(_ *PrioritySchedulingConfig, _ *openAIAccountCandidateScore, s *PrioritySchedulingSignal) {
 			s.Samples = 0
 			s.ProfitSamples = 0
@@ -294,12 +299,15 @@ func TestPriorityOAuthQuotaScopeAndPartitions(t *testing.T) {
 	require.False(t, order[0].priorityAPIStandby, "unknown compact OAuth cannot suppress supported API")
 }
 
-func TestPriorityExplorationDoesNotPromoteAPIKeys(t *testing.T) {
+func TestPriorityExplorationRequiresQualityForAllAccountTypes(t *testing.T) {
 	cfg := DefaultPrioritySchedulingConfig()
 	api := priorityCandidate(1, .1, 0)
 	applyPriorityCandidate(cfg, &api, PrioritySchedulingSignal{}, time.Now())
-	require.False(t, api.priorityExploration, "the OAuth exploration lane must not let API keys bypass the ranked tail")
+	require.False(t, api.priorityExploration, "unknown quality must not enter the exploration lane")
+	signal := PrioritySchedulingSignal{QualitySamples: 10, QualityPassed: 10}
+	applyPriorityCandidate(cfg, &api, signal, time.Now())
+	require.True(t, api.priorityExploration, "quality-ready API keys can receive bounded exploration")
 	api.account.Type = AccountTypeOAuth
-	applyPriorityCandidate(cfg, &api, PrioritySchedulingSignal{}, time.Now())
+	applyPriorityCandidate(cfg, &api, signal, time.Now())
 	require.True(t, api.priorityExploration, "safe OAuth cold starts retain exploration")
 }

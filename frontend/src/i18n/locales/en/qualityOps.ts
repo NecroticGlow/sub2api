@@ -1,4 +1,13 @@
 export default {
+  "isolateModels": "Isolate models; remove groups only when all degrade",
+  "isolationHelp": "Isolate only models with confirmed wrong answers. Remove selected groups only if every tested model explicitly fails this round. Timeouts, unknown and skipped results cannot remove groups. Isolation lasts until a passing retest, preserves healthy models and account concurrency, and applies across all groups on this account.",
+  "isolationRestoreHelp": "With automatic recovery enabled, each model recovers independently on a passing retest. Any passing model restores this rule’s original groups while other degraded models remain isolated. Restore owned changes before changing action/targets or deleting the rule. Pausing preserves isolation.",
+  "isolationRequiresCandy": "Model isolation requires answer tests, not an account state probe",
+  "modelAction": "Model action this round",
+  "modelIsolated": "Isolated until a passing retest",
+  "modelRestored": "Model restored",
+  "modelUnchanged": "Current state retained",
+
   "cooldownPerModelHint": "Each model is cooled or restored using its own test verdict. Passing peers stay available; untested or unsupported models receive no new cooldown. A 5xx lowers account concurrency first, then test verdicts determine model cooldowns.",
 
   "skipped": "Skipped",
@@ -100,6 +109,9 @@ export default {
   "questionCandy": "Candy question (model answer + grading model)",
   "questionKnowledge": "Offline technology knowledge (model answer + grading model)",
   "questionJapanPM": "Offline Japan prime minister (model answer + grading model)",
+  "questionRandom": "Random reasoning (generated question + grading model)",
+  "randomHint": "Fresh questions and local reference answers are generated for every round. No question or answer entry is needed. Batches alternate path counting and weighted XOR; all models receive the same question set. View actual questions in test history. Results are quality indicators only.",
+  "generatedQuestion": "Generated question",
   "questionStateProbe": "State probe (full capability or degraded in seconds, no grading model)",
   "probeHint": "No question is sent. Each round runs one ticket probe: full capability passes, degraded counts as a wrong answer and triggers the action below, and inconclusive runs (network, rate limits, account errors) never change the account. OpenAI subscription (OAuth) accounts only; one probe per round.",
   "probeFailureAction": "Action when degraded",
@@ -153,6 +165,9 @@ export default {
   "queued": "Queued for testing, expected to start within one minute.",
   "deleteConfirm": "Delete this rule and its history? Removed memberships, disabled scheduling or BPS enabled by this rule will not be restored. Resolve them on the Accounts page first.",
   "outcomes": {
+    "models_isolated": "Degraded models isolated; groups retained",
+    "groups_restored_models_isolated": "Original groups restored; other models remain isolated",
+
     "models_cooled": "Failed models cooled",
     "model_cooldown_refreshed": "Model cooldown renewed",
     "models_partially_restored": "Some models restored",
@@ -175,6 +190,7 @@ export default {
     "bps_enabled": "BPS enabled (degraded count reached)",
     "bps_enabled_usage": "BPS enabled (usage threshold reached)",
     "bps_kept_usage": "Healthy, usage still high; BPS kept",
+    "bps_authorizing": "BPS authorizing automatically; activation follows success",
     "bps_already_enabled": "BPS already enabled by an admin; unchanged",
     "bps_blocked_403": "BPS was disabled on 403; not re-enabled",
     "bps_unsupported": "Account does not support BPS",
@@ -273,6 +289,9 @@ export default {
   "discard": "Discard changes",
   "disableSchedulingShort": "Disable scheduling, keep groups",
   "actionHelp": {
+    "models_isolated": "Only models with confirmed wrong answers are isolated. Healthy models remain available. Isolation is removed by a passing retest, never by a timer.",
+    "groups_restored_models_isolated": "At least one model passed its retest, restoring this rule’s original groups. Other degraded models remain isolated.",
+
     "models_cooled": "This rule cooled only models that failed their tests. Passed, skipped and untested models received no new cooldown. See the per-model results below.",
     "model_cooldown_refreshed": "Models that still failed retain this rule's cooldown; models that passed recover independently. Other rules and manual settings are preserved.",
     "models_partially_restored": "Models that passed and were cooled by this rule have been restored. Other models still await a conclusive recovery result.",
@@ -293,6 +312,7 @@ export default {
     "bps_enabled": "The probe reported degraded the configured number of times in a row. BPS was enabled with the models and options selected in this rule.",
     "bps_enabled_usage": "Account usage reached the configured percentage. BPS was enabled with the models and options selected in this rule.",
     "bps_kept_usage": "The probe reached the healthy count, but account usage is still above the trigger and the rule keeps BPS on while usage is high. BPS is turned off on the next healthy round after usage drops.",
+    "bps_authorizing": "The trigger was reached. Excel authorization runs automatically while native routing remains available; success activates BPS without another switch edit.",
     "bps_already_enabled": "The trigger was reached, but an admin had already enabled BPS. This rule does not take over or overwrite those settings and will not turn them off.",
     "bps_blocked_403": "BPS on this account was disabled automatically after a 403 error (possibly an upstream ban). For safety this rule will not re-enable it. Check the account and re-enable BPS manually.",
     "bps_unsupported": "The trigger was reached, but this account does not support BPS (OpenAI subscription OAuth parent accounts only). Nothing was changed.",

@@ -62,10 +62,15 @@ func TestChannelMonitorExcludesClientRejections(t *testing.T) {
 	// Ops retains user errors in the excluded view and full request history.
 	result, err := ops.ListErrorLogs(ctx, &service.OpsErrorLogFilter{StartTime: &start, EndTime: &end, View: "excluded", Owner: "client", Model: model})
 	require.NoError(t, err)
-	require.EqualValues(t, 4, result.Total)
+	require.EqualValues(t, 5, result.Total, "legacy local model rejection is also attributed to the client")
 	result, err = ops.ListErrorLogs(ctx, &service.OpsErrorLogFilter{StartTime: &start, EndTime: &end, View: "errors", Model: model})
 	require.NoError(t, err)
-	require.EqualValues(t, 2, result.Total)
+	require.EqualValues(t, 3, result.Total, "raw history retains the earlier provider failure even after a final local rejection")
+	var errorRequestIDs []string
+	for _, item := range result.Errors {
+		errorRequestIDs = append(errorRequestIDs, item.RequestID)
+	}
+	require.ElementsMatch(t, []string{"client-isolation-provider", "client-isolation-capacity", "client-isolation-dedup"}, errorRequestIDs)
 }
 
 func TestChannelMonitorClientRejectionRequiresLocalEvidence(t *testing.T) {
@@ -91,7 +96,8 @@ func TestChannelMonitorClientRejectionRequiresLocalEvidence(t *testing.T) {
     SELECT TRUE AS is_business_limited, NULLIF($1::text,'') AS error_owner,
      $2::text AS error_source, NULLIF($3::int,0) AS upstream_status_code,
      $4::jsonb AS upstream_errors, 'request' AS error_phase,
-     'api_error' AS error_type, NULL::bigint AS account_id
+     'api_error' AS error_type, NULL::bigint AS account_id,
+     403 AS status_code, NULL::text AS error_message, NULL::text AS upstream_error_message
    ) current_error`, tc.owner, tc.source, tc.upstreamStatus, tc.events).Scan(&excluded)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, excluded)

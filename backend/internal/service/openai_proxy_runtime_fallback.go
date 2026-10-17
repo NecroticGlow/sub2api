@@ -131,10 +131,23 @@ func runtimeProxyErrorAttribution(account *Account, err error) (*int64, string) 
 // Keep plugin routing inside each attempt, including a preselected healthy
 // egress. No request is sent to both a plugin and the native transport.
 func (s *OpenAIGatewayService) doOpenAIProxyAttempt(req *http.Request, account *Account, target runtimeProxyEgress) (resp *http.Response, err error) {
+	if req != nil {
+		req = req.WithContext(s.withRequestTimezoneEgress(req.Context(), account))
+	}
+	if err := regionalMeterHTTPRequest(req); err != nil {
+		return nil, err
+	}
+	if err := regionalMeterBeforeSend(req.Context()); err != nil {
+		return nil, err
+	}
 	if err := s.acquireOpenAIRPMForSend(req.Context(), account); err != nil {
 		return nil, err
 	}
+	if err := controlledSubmission(req.Context(), "native_http"); err != nil {
+		return nil, err
+	}
 	defer func() { s.rateLimitService.observeQualityResponse(req.Context(), account, resp, err) }()
+	defer func() { controlledHTTPResponse(req.Context(), resp) }()
 	req, timingTrace := requesttiming.StartAttempt(req, account.ID, target.proxyID)
 	defer func() { timingTrace.Response(resp, err) }()
 	defer func() {
@@ -164,7 +177,7 @@ func (s *OpenAIGatewayService) doUpstreamWithProxyFallback(ctx context.Context, 
 		primary.proxyID = account.Proxy.ID
 		primary.proxyName = account.Proxy.Name
 	}
-	if s.codexTicketPinsEgress(req, account) || account.Proxy == nil || primaryProxyURL == "" ||
+	if isControlledExperiment(ctx) || s.codexTicketPinsEgress(req, account) || account.Proxy == nil || primaryProxyURL == "" ||
 		primaryProxyURL != account.Proxy.URL() ||
 		(account.Proxy.FallbackMode != FallbackModeDirect && account.Proxy.FallbackMode != FallbackModeProxy) {
 		return s.doOpenAIProxyAttempt(req, account, primary)

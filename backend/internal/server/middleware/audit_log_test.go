@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -175,6 +176,80 @@ func TestOllamaCloudUsageSessionRouteOmitsAuditBody(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/admin/accounts/7/ollama-cloud-usage/session",
 		bytes.NewBufferString(`{"session":"wos-session=audit-canary-cookie; __Secure-authjs.session-token.0=audit-canary-shard"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	auditService.Stop()
+
+	repository.mu.Lock()
+	logs := append([]*service.AuditLog(nil), repository.logs...)
+	repository.mu.Unlock()
+	require.Len(t, logs, 1)
+	require.Equal(t, "<credential-bearing body omitted>", logs[0].RequestBody)
+	require.NotContains(t, logs[0].RequestBody, "audit-canary")
+}
+
+func TestAccountOpsRobotConfigOmitsAuditBody(t *testing.T) {
+	for _, path := range []string{"/api/v1/admin/account-ops/config", "/api/v1/admin/account-ops/webhooks/:id"} {
+		t.Run(path, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+
+			repository := &auditCaptureRepository{}
+			auditService := service.NewAuditLogService(repository, nil)
+			auditService.Start()
+
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(ContextKeyUser), AuthSubject{UserID: 77})
+				c.Set(string(ContextKeyUserRole), "admin")
+				c.Next()
+			})
+			router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+			router.PUT(path, func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"ok": true})
+			})
+
+			requestPath := strings.ReplaceAll(path, ":id", "fixture")
+			request := httptest.NewRequest(http.MethodPut, requestPath,
+				bytes.NewBufferString(`{"webhooks":[{"url":"https://open.feishu.cn/open-apis/bot/v2/hook/audit-canary","secret":"secret-canary"}]}`))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusOK, recorder.Code)
+			auditService.Stop()
+
+			repository.mu.Lock()
+			logs := append([]*service.AuditLog(nil), repository.logs...)
+			repository.mu.Unlock()
+			require.Len(t, logs, 1)
+			require.Equal(t, "<credential-bearing body omitted>", logs[0].RequestBody)
+			require.NotContains(t, logs[0].RequestBody, "audit-canary")
+		})
+	}
+}
+
+func TestOpenAISessionExportOmitsAuditBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	require.Contains(t, auditBodyOmittedRoutes, "POST /api/v1/admin/accounts/:id/export-session")
+
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyUser), AuthSubject{UserID: 77})
+		c.Set(string(ContextKeyUserRole), "admin")
+		c.Next()
+	})
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.POST("/api/v1/admin/accounts/:id/export-session", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/7/export-session",
+		bytes.NewBufferString(`{"cookie":"__Secure-next-auth.session-token=audit-canary-cookie","remember_cookie":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)

@@ -69,9 +69,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 	payload := s.buildOpenAIWSCreatePayload(reqBody, account)
 	accelerateHTTPSSE := decision.Reason == openAIOAuthWSSSEAccelerationReason
-	if accelerateHTTPSSE && hasOpenAIWSSSEUnsupportedTool(payload) {
-		return nil, errOpenAIWSSSEUnsupportedTool
-	}
 	payloadStrategy, removedKeys := applyOpenAIWSRetryPayloadStrategy(payload, attempt)
 	turnState := ""
 	turnMetadata := ""
@@ -228,7 +225,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, wrapOpenAIWSFallback("codex_ticket_unavailable", pinErr)
 	}
 	defer releaseHarvest()
-	if anchor != nil && anchor.connID == "" {
+	// A bound ticket already supplied the complete Cookie pair and pinned exit.
+	// Do not acquire a second lease or overlay a gateway cookie on that bundle.
+	if anchor != nil && anchor.connID == "" && (!s.UnifiedAstraTicketsEnabled(ctx) || s.boundCodexTicketFromHeader(ctx, wsHeaders, account) == nil) {
 		if pool, ok := s.httpUpstream.(interface {
 			CodexGatewayPinWSRequest(context.Context, http.Header, string, int64, int) (string, string, func(), error)
 		}); ok {
@@ -478,15 +477,32 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			return nil, err
 		}
 	}
-	if err := s.performOpenAIWSGeneratePrewarm(ctx, lease, decision, payload, previousResponseID, reqBody, account, stateStore, groupID); err != nil {
-		cleanExit = errors.Is(err, errOpenAIWSSSEPayloadTooLarge)
-		return nil, err
+	if !isControlledExperiment(ctx) {
+		if err := s.performOpenAIWSGeneratePrewarm(ctx, lease, decision, payload, previousResponseID, reqBody, account, stateStore, groupID); err != nil {
+			cleanExit = errors.Is(err, errOpenAIWSSSEPayloadTooLarge)
+			return nil, err
+		}
 	}
 	if err := checkBeforeWrite(); err != nil {
 		return nil, err
 	}
 	sendRequest := func(value any) error {
+		if regionalMeterAttemptFrom(ctx) != nil {
+			raw, err := json.Marshal(value)
+			if err != nil {
+				return err
+			}
+			if err = regionalMeterValidatePayload(ctx, raw); err != nil {
+				return err
+			}
+		}
+		if err := regionalMeterBeforeSend(ctx); err != nil {
+			return err
+		}
 		if err := s.acquireOpenAIRPMForSend(ctx, account); err != nil {
+			return err
+		}
+		if err := controlledSubmission(ctx, "native_ws"); err != nil {
 			return err
 		}
 		if err := lease.WriteJSONWithContextTimeout(ctx, value, s.openAIWSWriteTimeout()); err != nil {
@@ -828,6 +844,7 @@ readLoop:
 			message = restoreCodexToolNamesFromContext(c, message)
 		}
 		if openAIWSMessageShouldParseUsage(eventType, message) {
+			regionalMeterObserveUsage(ctx, message, eventType)
 			parseOpenAIWSResponseUsageFromCompletedEvent(message, usage)
 		}
 		imageCounter.AddSSEData(message)

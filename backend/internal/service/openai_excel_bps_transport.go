@@ -165,7 +165,11 @@ func (s *OpenAIGatewayService) doExcelBPSRequest(ctx context.Context, c *gin.Con
 	build := func(ctx context.Context) (*http.Request, error) {
 		return newExcelBPSRequest(ctx, body, token, accountID)
 	}
-	return s.doExcelBPSRequestTo(ctx, c, account, scope, basispoints.ResponsesURL, build, acquire)
+	response, lease, proxy, err := s.doExcelBPSRequestTo(ctx, c, account, scope, basispoints.ResponsesURL, build, acquire)
+	if err == nil {
+		s.guardExcelBPSProgress(ctx, response)
+	}
+	return response, lease, proxy, err
 }
 
 // doExcelBPSRequestTo applies the same exit and no-replay rules to another BPS
@@ -202,14 +206,21 @@ func (s *OpenAIGatewayService) doExcelBPSRequestTo(ctx context.Context, c *gin.C
 			return nil, nil, proxy, err
 		}
 		c.Set("excel_bps_upstream_attempt", attempt)
+		if err := controlledSubmission(ctx, "bps"); err != nil {
+			if lease != nil {
+				lease.Release()
+			}
+			return nil, nil, proxy, err
+		}
 		evidence := &excelBPSWriteEvidence{}
 		resp, err := s.httpUpstream.Do(evidence.request(req), proxy, account.ID, account.Concurrency)
+		controlledHTTPResponse(ctx, resp)
 		s.rateLimitService.observeQualityResponse(req.Context(), account, resp, err)
 		if err == nil {
 			return resp, lease, proxy, nil
 		}
 		// Even an unusual response+error result makes replay unsafe.
-		retry := managed && attempt == 1 && resp == nil && evidence.unsent() && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+		retry := !isControlledExperiment(ctx) && managed && attempt == 1 && resp == nil && evidence.unsent() && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}

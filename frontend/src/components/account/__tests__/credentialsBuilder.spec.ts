@@ -26,6 +26,7 @@ import {
   parseHeaderOverridesJson,
   parseOpenCodeGoProtocolRules,
   planTypeDisplayLabel,
+  protocolRuleSet,
   readPlanType,
   serializeHeaderOverrideRows,
   splitHeaderOverridesObject,
@@ -39,18 +40,18 @@ describe('ClinePass quota visibility', () => {
     expect(clinePassUsageEnabled('true')).toBe(true)
     for (const value of [false, 'false', null, 0, {}, 'invalid']) {
       expect(clinePassUsageEnabled(value)).toBe(false)
-      expect(cnQuotaCellVisible('deepseek', 'payg', 'https://api.cline.bot', 'apikey', value)).toBe(false)
+      expect(cnQuotaCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: 'payg', base_url: 'https://api.cline.bot', clinepass_usage_enabled: value } })).toBe(false)
     }
-    expect(cnQuotaCellVisible('deepseek', 'payg', 'https://api.cline.bot', 'apikey', true)).toBe(true)
-    expect(cnQuotaCellVisible('deepseek', 'payg', 'https://relay.example', 'apikey', true)).toBe(false)
-    expect(cnBalanceCellVisible('deepseek', 'payg', 'https://api.cline.bot', 'apikey')).toBe(false)
+    expect(cnQuotaCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: 'payg', base_url: 'https://api.cline.bot', clinepass_usage_enabled: true } })).toBe(true)
+    expect(cnQuotaCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: 'payg', base_url: 'https://relay.example', clinepass_usage_enabled: true } })).toBe(false)
+    expect(cnBalanceCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: 'payg', base_url: 'https://api.cline.bot' } })).toBe(false)
   })
   it('uses subscription windows instead of DeepSeek payg balance on the official Cline host', () => {
     expect(isClinePassAccount('deepseek', 'https://api.cline.bot/api/v1', 'apikey')).toBe(true)
-    expect(cnQuotaCellVisible('deepseek', 'payg', 'https://api.cline.bot/api/v1', 'apikey')).toBe(true)
-    expect(cnBalanceCellVisible('deepseek', 'payg', 'https://api.cline.bot/api/v1', 'apikey')).toBe(false)
-    expect(cnQuotaCellVisible('deepseek', '', 'https://api.cline.bot', 'apikey')).toBe(true)
-    expect(cnBalanceCellVisible('deepseek', 'payg', 'https://api.deepseek.com', 'apikey')).toBe(true)
+    expect(cnQuotaCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: 'payg', base_url: 'https://api.cline.bot/api/v1' } })).toBe(true)
+    expect(cnBalanceCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: 'payg', base_url: 'https://api.cline.bot/api/v1' } })).toBe(false)
+    expect(cnQuotaCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: '', base_url: 'https://api.cline.bot' } })).toBe(true)
+    expect(cnBalanceCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: 'payg', base_url: 'https://api.deepseek.com' } })).toBe(true)
   })
 
   it.each([
@@ -64,7 +65,7 @@ describe('ClinePass quota visibility', () => {
     'invalid'
   ])('does not identify an unrelated or unsafe host as ClinePass: %s', (baseURL) => {
     expect(isClinePassAccount('deepseek', baseURL, 'apikey')).toBe(false)
-    expect(cnQuotaCellVisible('deepseek', 'payg', baseURL, 'apikey')).toBe(false)
+    expect(cnQuotaCellVisible({ platform: 'deepseek', type: 'apikey', credentials: { account_mode: 'payg', base_url: baseURL } })).toBe(false)
   })
 
   it('excludes OAuth accounts and other platforms', () => {
@@ -166,9 +167,10 @@ describe('openCodeGo protocol rules', () => {
     expect(defaultCNBaseUrl('opencode_go', 'go', 'anthropic')).toBe('https://opencode.ai/zen/go')
     expect(defaultOpenCodeProtocolRules('zen').some(rule => rule.pattern === 'claude-*')).toBe(true)
     expect(defaultOpenCodeProtocolRules('go').some(rule => rule.pattern === 'minimax-*')).toBe(true)
-    expect(cnQuotaCellVisible('opencode_go', 'zen')).toBe(false)
-    expect(cnQuotaCellVisible('opencode_go', 'go')).toBe(true)
-    expect(cnQuotaCellVisible('opencode_go', '')).toBe(true)
+    const openCodeAccount = (account_mode?: string) => ({ platform: 'opencode_go', type: 'apikey', credentials: { account_mode } })
+    expect(cnQuotaCellVisible(openCodeAccount('zen'))).toBe(false)
+    expect(cnQuotaCellVisible(openCodeAccount('go'))).toBe(true)
+    expect(cnQuotaCellVisible(openCodeAccount())).toBe(true)
   })
 
   it('parses stored rules and skips invalid entries', () => {
@@ -184,6 +186,31 @@ describe('openCodeGo protocol rules', () => {
     ).toEqual([
       { pattern: 'grok-*', protocol: 'responses' },
       { pattern: 'minimax-*', protocol: 'anthropic' }
+    ])
+  })
+
+  it('round-trips protocol sets with the preferred protocol first', () => {
+    const parsed = parseOpenCodeGoProtocolRules([
+      { pattern: 'gpt-*', protocol: 'responses', protocols: ['responses', 'chat_completions', 'adaptive', 'chat_completions'] },
+      { pattern: 'glm-*', protocols: ['anthropic', 'chat_completions'] },
+      { pattern: 'kimi-*', protocol: 'chat_completions', protocols: ['chat_completions'] }
+    ])
+    expect(parsed).toEqual([
+      { pattern: 'gpt-*', protocol: 'responses', extraProtocols: ['chat_completions'] },
+      { pattern: 'glm-*', protocol: 'anthropic', extraProtocols: ['chat_completions'] },
+      { pattern: 'kimi-*', protocol: 'chat_completions' }
+    ])
+    expect(protocolRuleSet(parsed![0])).toEqual(['responses', 'chat_completions'])
+
+    const cloned = cloneOpenCodeGoProtocolRules(parsed!)
+    expect(cloned).toEqual(parsed)
+    expect(cloned[0].extraProtocols).not.toBe(parsed![0].extraProtocols)
+
+    const credentials: Record<string, unknown> = {}
+    applyOpenCodeGoProtocolRules(credentials, [{ pattern: ' GPT-* ', protocol: 'responses', extraProtocols: ['chat_completions', 'responses'] }, ...parsed!.slice(2)], 'create')
+    expect(credentials[OPENCODE_GO_PROTOCOL_RULES_KEY]).toEqual([
+      { pattern: 'gpt-*', protocol: 'responses', protocols: ['responses', 'chat_completions'] },
+      { pattern: 'kimi-*', protocol: 'chat_completions' }
     ])
   })
 

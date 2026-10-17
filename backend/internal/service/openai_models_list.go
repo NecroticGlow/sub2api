@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,6 +17,13 @@ import (
 // API keys use the standard endpoint; OAuth reuses the authenticated, cached
 // Codex source. Account mappings and group policy are applied after this cache.
 func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, account *Account) (*OpenAIModelsResponse, error) {
+	if account != nil && account.IsExcelBPSEnabled() {
+		return s.fetchExcelBPSAccountModels(ctx, account)
+	}
+	return s.fetchNativeOpenAIModelsList(ctx, account)
+}
+
+func (s *OpenAIGatewayService) fetchNativeOpenAIModelsList(ctx context.Context, account *Account) (*OpenAIModelsResponse, error) {
 	if s == nil || account == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_MODELS_ACCOUNT_REQUIRED", "OpenAI account is required")
 	}
@@ -23,12 +31,15 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 	if err != nil {
 		return nil, fmt.Errorf("resolve model list credentials: %w", err)
 	}
+	if credentialAccount.IsExcelOAuth() {
+		return nil, errExcelOAuthRouteUnavailable
+	}
 	if credentialAccount.IsOpenAIOAuth() {
 		clientVersion := CodexCanonicalClientVersion()
 		if s.settingService != nil {
 			clientVersion = s.settingService.GetOpenAICodexClientVersion(ctx)
 		}
-		response, err := s.FetchCodexModelsManifest(ctx, account, clientVersion, "")
+		response, err := s.fetchNativeCodexModelsManifest(ctx, account, clientVersion, "")
 		if err != nil {
 			return nil, err
 		}
@@ -160,10 +171,22 @@ func standardOpenAIModelsBody(body []byte, fromManifest bool) ([]byte, error) {
 	}{Object: "list", Data: models})
 }
 
-// projectAccountModelsBody applies the same public-name mapping to both model
-// representations while retaining the source entry's metadata. It never changes
-// the shared response and never synthesizes models absent from this account.
+// projectAccountModelsBody projects upstream entries to public names before
+// checking their routing eligibility. Applying account mappings to source IDs
+// would interpret upstream names as aliases and can retain retired targets or
+// discard metadata needed by a valid replacement alias.
 func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
+	projected, err := projectAccountModelAliases(body, account, group, codex)
+	if err != nil {
+		return nil, err
+	}
+	filtered, _, err := filterRetiredOpenAIPublicModelsBody(projected, []Account{*account}, codex)
+	return filtered, err
+}
+
+// projectAccountModelAliases retains the source entry's metadata, never changes
+// the shared response, and never synthesizes models absent from this account.
+func projectAccountModelAliases(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
 	var groupID *int64
 	if group != nil {
 		groupID = &group.ID
@@ -241,6 +264,10 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 			continue
 		}
 		seen[id] = struct{}{}
+		if id == target {
+			projected = append(projected, raw)
+			continue
+		}
 		var entry map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &entry); err != nil {
 			return nil, err
@@ -254,6 +281,9 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 			return nil, err
 		}
 		projected = append(projected, encoded)
+	}
+	if slices.EqualFunc(entries, projected, func(a, b json.RawMessage) bool { return bytes.Equal(a, b) }) {
+		return body, nil
 	}
 	envelope[field], err = json.Marshal(projected)
 	if err != nil {
@@ -290,18 +320,21 @@ func filterModelsBodyForGroup(body []byte, account *Account, groupID *int64, fie
 	return json.Marshal(envelope)
 }
 
-// ApplyPinnedCodexModelsMapping is used by pinned discovery and its scheduler
-// fallback. The ordinary (non-pinned) Codex path retains its local catalog policy.
+// ApplyPinnedCodexModelsMapping projects all remotely discovered Codex catalogs,
+// including ordinary discovery and pinned scheduler fallback. Locally generated
+// catalogs retain their existing policy and do not pass through this function.
 func ApplyPinnedCodexModelsMapping(response *OpenAIModelsResponse, account *Account, group *Group) error {
-	if group == nil || group.Platform != PlatformOpenAI || !group.CodexModelsManifestConfig.Enabled {
+	if group == nil || group.Platform != PlatformOpenAI {
 		return nil
 	}
 	body, err := projectAccountModelsBody(response.Body, account, group, true)
 	if err != nil {
 		return err
 	}
-	response.Body = body
-	response.ETag = codexModelsManifestBodyETag(body)
+	if !bytes.Equal(response.Body, body) {
+		response.Body = body
+		response.ETag = codexModelsManifestBodyETag(body)
+	}
 	return nil
 }
 

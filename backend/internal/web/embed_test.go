@@ -352,7 +352,7 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 		assert.True(t, strings.HasSuffix(etag, `"`))
 	})
 
-	t.Run("returns_304_for_matching_etag", func(t *testing.T) {
+	t.Run("returns_304_for_matching_etag_without_nonce", func(t *testing.T) {
 		provider := &mockSettingsProvider{
 			settings: map[string]string{"test": "value"},
 		}
@@ -362,10 +362,6 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 
 		// Use a real router for proper 304 handling
 		router := gin.New()
-		router.Use(func(c *gin.Context) {
-			c.Set(middleware.CSPNonceKey, "test-nonce")
-			c.Next()
-		})
 		router.Use(server.Middleware())
 
 		// First request to populate cache and get ETag
@@ -383,6 +379,35 @@ func TestFrontendServer_ServeIndexHTML(t *testing.T) {
 
 		assert.Equal(t, http.StatusNotModified, w2.Code)
 		assert.Empty(t, w2.Body.String())
+	})
+
+	t.Run("matching_etag_still_returns_html_with_current_nonce", func(t *testing.T) {
+		provider := &mockSettingsProvider{settings: map[string]string{"test": "value"}}
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+		router := gin.New()
+		nonce := "first-page-nonce"
+		router.Use(func(c *gin.Context) {
+			c.Set(middleware.CSPNonceKey, nonce)
+			c.Next()
+		})
+		router.Use(server.Middleware())
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, httptest.NewRequest(http.MethodGet, "/", nil))
+		require.Equal(t, http.StatusOK, w1.Code)
+		require.Contains(t, w1.Body.String(), `nonce="first-page-nonce"`)
+		etag := w1.Header().Get("ETag")
+		require.NotEmpty(t, etag)
+
+		nonce = "current-page-nonce"
+		w2 := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("If-None-Match", etag)
+		router.ServeHTTP(w2, req)
+		assert.Equal(t, http.StatusOK, w2.Code)
+		assert.Contains(t, w2.Body.String(), `nonce="current-page-nonce"`)
+		assert.NotContains(t, w2.Body.String(), `nonce="first-page-nonce"`)
+		assert.Equal(t, 1, provider.called)
 	})
 
 	t.Run("sets_cache_control_header", func(t *testing.T) {
@@ -545,6 +570,7 @@ func TestFrontendServer_Middleware(t *testing.T) {
 			"/realtime",
 			"/web_search",
 			"/x_search",
+			"/models/gpt-5.5",
 		}
 
 		for _, path := range apiPaths {
@@ -705,6 +731,42 @@ func TestEmbeddedFrontendBypassesBareVideoAPIRoutes(t *testing.T) {
 	}
 }
 
+func TestEmbeddedFrontendBypassesBareAPIAliases(t *testing.T) {
+	for _, path := range []string{
+		"/chat/completions",
+		"/embeddings",
+		"/messages/count_tokens",
+		"/models/gpt-5.5",
+		"/videos",
+		"/tts",
+		"/stt",
+		"/custom-voices",
+		"/custom-voices/voice-123",
+		"/custom-voices/voice-123/audio",
+		"/realtime",
+		"/web_search",
+		"/x_search",
+		"/contents/generations/tasks",
+		"/contents/generations/tasks/task-123",
+		"/v3/contents/generations/tasks",
+		"/v3/contents/generations/tasks/task-123",
+		// The existing /v3/ API namespace must not fall back to SPA HTML.
+		"/v3/other",
+	} {
+		require.True(t, shouldBypassEmbeddedFrontend(path), "path=%s", path)
+	}
+
+	for _, path := range []string{
+		"/model-plaza",
+		"/custom/page-1",
+		"/monitor",
+		"/setup",
+		"/v30/other",
+	} {
+		require.False(t, shouldBypassEmbeddedFrontend(path), "path=%s", path)
+	}
+}
+
 func TestNewFrontendServer(t *testing.T) {
 	t.Run("creates_server_successfully", func(t *testing.T) {
 		provider := &mockSettingsProvider{
@@ -809,6 +871,9 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 			"/health",
 			"/responses",
 			"/responses/compact",
+			"/chat/completions",
+			"/models/gpt-5.5",
+			"/v3/contents/generations/tasks/task-123",
 		}
 
 		for _, path := range apiPaths {

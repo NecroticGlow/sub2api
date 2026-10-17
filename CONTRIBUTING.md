@@ -167,7 +167,7 @@ git switch -c fix/describe-the-change project/production
 
 ### 环境与依赖
 
-工具链以当前 checkout 的 [backend/go.mod](backend/go.mod)、[CI](.github/workflows/backend-ci.yml)、[frontend/package.json](frontend/package.json) 和锁文件为准。本指南编写时，后端 CI 使用 Go 1.27.0 与 golangci-lint v2.13；前端 CI 使用 Node.js 20 和 pnpm 9。版本要求变化时一并更新说明，不沿用旧教程中的最低版本。
+工具链以当前 checkout 的 [backend/go.mod](backend/go.mod)、[CI](.github/workflows/backend-ci.yml)、[frontend/package.json](frontend/package.json) 和锁文件为准。本指南编写时，后端 CI 使用 Go 1.27.2 与 golangci-lint v2.14.0；前端 CI 使用 Node.js 20 和 pnpm 9。版本要求变化时一并更新说明，不沿用旧教程中的最低版本。
 
 运行应用需要独立的 PostgreSQL/Redis 测试环境，配置与初始化方式见 [部署说明](deploy/README.md)。部分集成测试通过 testcontainers 启动依赖，需要可用的 Docker；缺少 Docker 或测试环境变量可能导致用例跳过，检查日志中的 skip 信息，不能仅凭退出码声称全部覆盖。
 
@@ -225,7 +225,7 @@ pnpm --dir frontend run build
 )
 ```
 
-UI 改动补充可复核的前后截图、交互步骤与相关语言覆盖；性能改动补充硬件、并发、样本量、测量方法和前后结果。mock 测试、集成测试、CI 和生产验证分别说明，不把其中一种当成另一种。
+UI 改动补充可复核的前后截图、交互步骤与相关语言覆盖；截图上传到 PR 附件，不将 PR 对比图片提交到源码仓库。`docs/screenshots/` 仅保留文字验证说明与历史链接，长期使用的教程配图放在 `docs/images/`。性能改动补充硬件、并发、样本量、测量方法和前后结果。mock 测试、集成测试、CI 和生产验证分别说明，不把其中一种当成另一种。
 
 ## 提交与维护 PR
 

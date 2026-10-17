@@ -104,6 +104,9 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		BalanceLowNotifyThreshold:           settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:         settings.BalanceLowNotifyRechargeURL,
 
+		ExcelBPSEnabled:     settings.ExcelBPSEnabled,
+		PrismBrowserEnabled: settings.PrismBrowserEnabled,
+
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorMode:                   settings.ChannelMonitorMode,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
@@ -119,12 +122,16 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled: settings.PluginManagementEnabled,
 
+		SupportTicketEnabled: settings.SupportTicketEnabled,
+
 		AffiliateEnabled: settings.AffiliateEnabled,
 
 		RiskControlEnabled: settings.RiskControlEnabled,
 
 		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
 		UsageShowLongContextBadge:  settings.UsageShowLongContextBadge,
+		UsageShowCacheRate:         settings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:  settings.UsageShowCacheRateToUsers,
 	})
 }
 

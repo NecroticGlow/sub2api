@@ -405,6 +405,7 @@ const baseSettingsResponse = {
   doc_url: "",
   home_content: "",
   compact_home_enabled: false,
+  excel_bps_enabled: true,
   excel_bps_image_mode: 'native',
   excel_bps_image_relay_enabled: true,
   excel_bps_image_base_url: '',
@@ -482,6 +483,7 @@ const baseSettingsResponse = {
   fallback_model_antigravity: "",
   grok_default_text_model: "grok-4.5",
   grok_cross_client_model_map_enabled: false,
+  grok_video_source_url_enabled: false,
   enable_identity_patch: false,
   identity_patch_prompt: "",
   ops_monitoring_enabled: false,
@@ -825,6 +827,33 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("edits the support ticket card and sends a cleaned config", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      support_ticket_enabled: false,
+      support_ticket_config: { categories: ["账户与充值", "其他"], max_open_per_user: 5, notice: "" },
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    const card = wrapper.get('[data-testid="support-ticket-settings"]');
+    expect(card.find('[data-testid="support-ticket-categories"]').exists()).toBe(false);
+    await wrapper.get("#support-ticket-enabled").setValue(true);
+    const inputs = () => wrapper.get('[data-testid="support-ticket-categories"]').findAll("input");
+    expect(inputs().map((input) => (input.element as HTMLInputElement).value)).toEqual(["账户与充值", "其他"]);
+    await wrapper.get('[data-testid="support-ticket-add-category"]').trigger("click");
+    await inputs()[2].setValue("  退款  ");
+    await wrapper.get('[data-testid="support-ticket-add-category"]').trigger("click");
+    await wrapper.get("#support-ticket-max-open").setValue("8");
+    await wrapper.get("#support-ticket-notice").setValue("工作时间 9–21 点");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
+      support_ticket_enabled: true,
+      support_ticket_config: { categories: ["账户与充值", "其他", "退款"], max_open_per_user: 8, notice: "工作时间 9–21 点" },
+    });
+    wrapper.unmount();
+  });
+
   it("saves expanded image capacity and rejects values above each ceiling", async () => {
     getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, excel_bps_image_mode: 'relay' });
     const wrapper = mountView();
@@ -907,6 +936,20 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     expect(showError).not.toHaveBeenCalled();
     expect(showSuccess).toHaveBeenCalledWith('admin.settings.settingsSaved');
+    wrapper.unmount();
+  });
+
+  it("saves the BPS and Prism protocol switches", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const tab = wrapper.findAll('button').find((node) => node.text().includes('admin.settings.tabs.features'));
+    await tab?.trigger('click');
+    const protocolSwitches = wrapper.get('[data-testid="protocol-feature-switches"]');
+    await protocolSwitches.get('input').setValue(false);
+    await protocolSwitches.findAll('input')[1].setValue(true);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ excel_bps_enabled: false, prism_browser_enabled: true });
     wrapper.unmount();
   });
 
@@ -1075,233 +1118,43 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
-  it("submits the Codex ticket harvest toggle", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_enabled: false,
-    });
+  it.each([false, true])("loads and toggles request timezone binding from %s", async (enabled) => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, openai_request_timezone_enabled: enabled });
     const wrapper = mountView();
     await flushPromises();
-    const toggle = wrapper.get("#codex-ticket-enabled");
-    await toggle.setValue(true);
+    const toggle = wrapper.get<HTMLInputElement>("#request-timezone-enabled");
+    expect(toggle.element.checked).toBe(enabled);
+    await toggle.setValue(!enabled);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_enabled).toBe(true);
-    wrapper.unmount();
+    expect(updateSettings.mock.calls[0]?.[0].openai_request_timezone_enabled).toBe(!enabled);
   });
 
-  it("loads and saves independent Codex ticket model toggles", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
-    });
+  it.each([false, true])("loads and saves timezone source from %s", async (auto) => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, openai_request_timezone_enabled: true, openai_request_timezone_auto: auto });
     const wrapper = mountView();
     await flushPromises();
-    await wrapper.get("#codex-ticket-model-sol").setValue(false);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_models).toEqual([
-      "gpt-6-astra",
-    ]);
-    wrapper.unmount();
-  });
-
-  it("keeps missing-ticket account pausing off by default and saves explicit opt-in", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_fail_closed: false,
-    });
-    const wrapper = mountView();
-    await flushPromises();
-    const toggle = wrapper.get<HTMLInputElement>("#codex-ticket-fail-closed");
-    expect(toggle.element.checked).toBe(false);
-    await toggle.setValue(true);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_fail_closed).toBe(true);
-    wrapper.unmount();
-  });
-
-  it("loads and changes the ticket refresh strategy", async () => {
-    getSettings.mockResolvedValueOnce({...baseSettingsResponse,openai_codex_ticket_strategy:'standby'});
-    const wrapper=mountView();await flushPromises();
-    await wrapper.get('#codex-ticket-strategy').setValue('fixed');
-    await wrapper.find('form').trigger('submit.prevent');await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_strategy).toBe('fixed');
-    wrapper.unmount();
-  });
-
-  it("loads and saves selected harvest groups, preserving an explicitly empty selection", async () => {
-    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse,
-      openai_codex_ticket_harvest_scope: { mode: 'selected', group_ids: [2], account_policy: 'schedulable_only' },
-    });
-    getGroups.mockResolvedValueOnce([
-      { id: 2, name: 'PLUS', platform: 'openai', status: 'active' },
-      { id: 24, name: 'PRO', platform: 'openai', status: 'active' },
-      { id: 32, name: 'Grok', platform: 'grok', status: 'active' },
-    ]);
-    const wrapper = mountView(); await flushPromises();
-    expect(wrapper.find('#codex-ticket-group-32').exists()).toBe(false);
-    expect(wrapper.get<HTMLInputElement>('#codex-ticket-group-2').element.checked).toBe(true);
-    await wrapper.get('#codex-ticket-group-24').setValue(true);
-    await wrapper.find('form').trigger('submit.prevent'); await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({mode:'selected',group_ids:[2,24],account_policy:'schedulable_only'});
-    await wrapper.get('#codex-ticket-group-2').setValue(false);
-    await wrapper.get('#codex-ticket-group-24').setValue(false);
-    await wrapper.find('form').trigger('submit.prevent'); await flushPromises();
-    expect(updateSettings.mock.calls[1]?.[0].openai_codex_ticket_harvest_scope).toEqual({mode:'selected',group_ids:[],account_policy:'schedulable_only'});
-    wrapper.unmount();
-  });
-
-  it("preserves selected harvest IDs when group loading fails", async () => {
-    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse,
-      openai_codex_ticket_harvest_scope: { mode: 'selected', group_ids: [24], account_policy: 'schedulable_only' },
-    });
-    getGroups.mockRejectedValueOnce(new Error('offline'));
-    const wrapper = mountView(); await flushPromises();
-    expect(wrapper.get<HTMLInputElement>('#codex-ticket-group-24').element.checked).toBe(true);
-    await wrapper.find('form').trigger('submit.prevent'); await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({mode:'selected',group_ids:[24],account_policy:'schedulable_only'});
-    wrapper.unmount();
-  });
-
-  it("defaults legacy harvest scopes to schedulable only and saves compatibility policy", async () => {
-    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse,
-      openai_codex_ticket_harvest_scope: { mode: 'selected', group_ids: [24] },
-    });
-    const wrapper = mountView();
-    await flushPromises();
-    const policy = wrapper.get<HTMLSelectElement>('#codex-ticket-account-policy');
-    expect(policy.element.value).toBe('schedulable_only');
-    await policy.setValue('prioritize_schedulable');
+    expect(wrapper.get<HTMLSelectElement>('#request-timezone-mode').element.value).toBe(auto ? 'auto' : 'manual');
+    await wrapper.get('#request-timezone-mode').setValue(auto ? 'manual' : 'auto');
     await wrapper.find('form').trigger('submit.prevent');
     await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_scope).toEqual({
-      mode: 'selected', group_ids: [24], account_policy: 'prioritize_schedulable',
-    });
+    expect(updateSettings.mock.calls[0]?.[0].openai_request_timezone_auto).toBe(!auto);
     wrapper.unmount();
   });
 
-  it("keeps strict ticket response rejection opt-in", async () => {
-    const wrapper=mountView();await flushPromises();
-    expect(wrapper.get<HTMLInputElement>('#codex-ticket-strict').element.checked).toBe(false);
-    await wrapper.get('#codex-ticket-strict').setValue(true);
-    await wrapper.find('form').trigger('submit.prevent');await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_strict_response).toBe(true);
-    wrapper.unmount();
-  });
-
-  it("loads the masked Codex harvest proxy and submits a replacement URL", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
-      openai_codex_ticket_harvest_proxy_configured: true,
+  it("keeps harvest policy and exit settings in their dedicated pages", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse,
+      openai_codex_ticket_enabled: true,
+      openai_codex_ticket_harvest_proxy_url: "ippool://active",
     });
     const wrapper = mountView();
     await flushPromises();
-    const input = wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy");
-    expect(input.element.value).toBe("http://user:***@old.example.com:8080");
-    await input.setValue("socks5h://user:new-secret@new.example.com:1080");
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
-      .toBe("socks5h://user:new-secret@new.example.com:1080");
-    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("openai_codex_ticket_harvest_proxy_configured");
-    wrapper.unmount();
-  });
-
-  it("confirms Mihomo proxy selection and applies it only when settings are saved", async () => {
-    const endpoint = "http://127.0.0.1:3101";
-    const getStatus = vi.spyOn(apiClient, "get").mockResolvedValue({ data: {
-      installed: true, supported: true, running: true, busy: false,
-      nodes: 1, subscriptions: 1, phase: "running", endpoint,
-    } });
-    const wrapper = mountView();
-    try {
-      await flushPromises();
-      await wrapper.get('input[name="codex-ticket-proxy-mode"][value="mihomo"]').setValue(true);
-      await flushPromises();
-      const button = wrapper.findAll("button").find(node => node.text() === "设为打票代理");
-      expect(button).toBeDefined();
-      await button!.trigger("click");
-      expect(showSuccess).toHaveBeenCalledWith("admin.settings.gatewayForwarding.codexTicketProxyMihomoSelected");
-      expect(updateSettings).not.toHaveBeenCalled();
-      await wrapper.find("form").trigger("submit.prevent");
-      await flushPromises();
-      expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
-        openai_codex_ticket_harvest_proxy_url: endpoint,
-      }));
-    } finally {
-      wrapper.unmount();
-      getStatus.mockRestore();
-    }
-  });
-
-  it("does not activate an unverified Mihomo endpoint just by selecting the mode", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: "",
-      openai_codex_ticket_harvest_proxy_configured: false,
-    });
-    const wrapper = mountView();
-    await flushPromises();
-
-    await wrapper
-      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="mihomo"]')
-      .setValue(true);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
-      .toBe("");
-    wrapper.unmount();
-  });
-
-  it("saves the IP management pool as the harvest proxy and restores the static address when leaving it", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
-      openai_codex_ticket_harvest_proxy_configured: true,
-    });
-    const wrapper = mountView();
-    await flushPromises();
-
-    await wrapper
-      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="ip_pool"]')
-      .setValue(true);
+    expect(wrapper.find("#codex-ticket-enabled").exists()).toBe(false);
     expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
-    expect(wrapper.find('[data-testid="codex-ticket-proxy-ip-pool-hint"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="codex-management-links"]').exists()).toBe(true);
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
-    expect(updateSettings.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      openai_codex_ticket_harvest_proxy_url: "ippool://active",
-      openai_codex_ticket_use_saved_static_proxy: false,
-    }));
-
-    await wrapper
-      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="static"]')
-      .setValue(true);
-    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value)
-      .toBe("http://user:***@old.example.com:8080");
-    wrapper.unmount();
-  });
-
-  it("restores the IP management pool mode from saved settings", async () => {
-    getSettings.mockResolvedValueOnce({
-      ...baseSettingsResponse,
-      openai_codex_ticket_harvest_proxy_url: "ippool://active",
-      openai_codex_ticket_harvest_proxy_configured: true,
-      openai_codex_ticket_static_proxy_url: "http://user:***@saved.example.com:8080",
-    });
-    const wrapper = mountView();
-    await flushPromises();
-    expect(wrapper.get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="ip_pool"]').element.checked)
-      .toBe(true);
-    await wrapper
-      .get<HTMLInputElement>('input[name="codex-ticket-proxy-mode"][value="static"]')
-      .setValue(true);
-    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value)
-      .toBe("http://user:***@saved.example.com:8080");
+    expect(Object.keys(updateSettings.mock.calls[0]?.[0] ?? {}).filter(key => key.startsWith('openai_codex_ticket_'))).toEqual([]);
     wrapper.unmount();
   });
 
@@ -2066,6 +1919,29 @@ describe("admin SettingsView payment visible method controls", () => {
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(payload.grok_default_text_model).toBe("grok-custom-text");
     expect(payload.grok_cross_client_model_map_enabled).toBe(false);
+  });
+
+  it("loads and saves the Grok video source URL switch", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      grok_video_source_url_enabled: true,
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const sourceURLToggle = wrapper.get(
+      '[data-testid="grok-video-source-url-toggle"]',
+    );
+    expect((sourceURLToggle.element as HTMLInputElement).checked).toBe(true);
+
+    await sourceURLToggle.setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(payload.grok_video_source_url_enabled).toBe(false);
   });
 
   it("loads and saves the OpenAI Responses first-token metric mode", async () => {

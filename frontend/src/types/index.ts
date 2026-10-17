@@ -210,6 +210,8 @@ export interface LoginAgreementDocument {
 }
 
 export interface PublicSettings {
+  excel_bps_enabled?: boolean
+  prism_browser_enabled?: boolean
   registration_enabled: boolean
   email_verify_enabled: boolean
   force_email_on_third_party_signup: boolean
@@ -287,11 +289,17 @@ export interface PublicSettings {
   model_plaza_enabled: boolean
   model_plaza_require_auth: boolean
   plugin_management_enabled: boolean
+  /** Opt-in support tickets (sidebar「网站工单」for users and admins). */
+  support_ticket_enabled?: boolean
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
   /** Usage 表中长上下文计费 x2 徽标的展示开关（后端默认开启，缺失时按开启处理） */
   usage_show_long_context_badge?: boolean
+  /** 使用记录单条缓存率。缺失时按开启处理。 */
+  usage_show_cache_rate?: boolean
+  /** 是否向终端用户展示单条缓存率。缺失时按关闭处理。 */
+  usage_show_cache_rate_to_users?: boolean
 }
 
 export interface AuthResponse {
@@ -544,7 +552,11 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'opencode_go' | 'typesafe' | 'composite'
+/**
+ * 分组平台：具体平台或 composite。具体平台以平台清单（constants/platformCatalog）
+ * 为准，后端新登记的平台是 KnownAccountPlatform 之外的字符串。
+ */
+export type GroupPlatform = AccountPlatform | 'composite'
 
 export type VideoModelPrices = Record<string, Record<string, number>>
 
@@ -566,6 +578,16 @@ export interface ReasoningEffortMapping {
   model?: string
 }
 
+/** 分组名称与描述在某个语言下的译文；字段为空表示沿用分组自身的 name/description。 */
+export interface GroupLocaleText {
+  name?: string
+  description?: string
+}
+
+/** 以语言代码（en、zh…）为键的分组文案译文。 */
+export type GroupI18n = Record<string, GroupLocaleText>
+
+// 用户侧接口返回的 name / description 已由后端按请求语言（Accept-Language）选好
 export interface Group {
   user_concurrency_limit?: number
   id: number
@@ -630,6 +652,8 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  // 管理端的 name / description 始终是原字段，各语言译文另放在 i18n 里
+  i18n?: GroupI18n
   force_openai_fast: boolean
   free_openai_fast: boolean
   // 仅允许流式请求（管理端请求策略，用户侧分组不返回）
@@ -817,6 +841,7 @@ export interface CreateGroupRequest {
   user_concurrency_limit?: number
   name: string
   description?: string | null
+  i18n?: GroupI18n
   platform?: GroupPlatform
   rate_multiplier?: number
   is_exclusive?: boolean
@@ -884,6 +909,7 @@ export interface UpdateGroupRequest {
   user_concurrency_limit?: number
   name?: string
   description?: string | null
+  i18n?: GroupI18n
   platform?: GroupPlatform
   rate_multiplier?: number
   is_exclusive?: boolean
@@ -949,7 +975,13 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'opencode_go' | 'typesafe'
+/** 前端内置专属界面（图标、配色、表单等）的平台。 */
+export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'opencode_go' | 'typesafe' | 'command_code' | 'cline'
+/**
+ * 账号平台：内置平台，或后端平台清单中新登记的平台（任意字符串）。
+ * `string & {}` 保留内置平台的字面量补全。
+ */
+export type AccountPlatform = KnownAccountPlatform | (string & {})
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
@@ -970,6 +1002,7 @@ export interface Proxy {
   protocol: ProxyProtocol
   host: string
   port: number
+  mihomo_node_id?: string
   username: string | null
   password?: string | null
   status: 'active' | 'inactive' | 'expired'
@@ -1033,6 +1066,7 @@ export interface ProxyQualityCheckResult {
 export interface GeminiCredentials {
   // API Key authentication
   api_key?: string
+  base_url?: string
 
   // OAuth authentication
   access_token?: string
@@ -1057,11 +1091,15 @@ export interface GeminiCredentials {
   model_mapping?: Record<string, string>
 }
 
+export type TempUnschedulableScope = 'account' | 'model'
+
 export interface TempUnschedulableRule {
   error_code: number
   keywords: string[]
   duration_minutes: number
   description: string
+  // 作用范围：account 暂停整个账号，model 只冷却本次请求的模型；缺省时 401 按 account、其余按 model 处理。
+  scope?: TempUnschedulableScope
 }
 
 export interface TempUnschedulableState {
@@ -1069,6 +1107,8 @@ export interface TempUnschedulableState {
   triggered_at_unix: number
   status_code: number
   matched_keyword: string
+  scope?: TempUnschedulableScope
+  model?: string
   rule_index: number
   error_message: string
   trigger_count?: number
@@ -1082,18 +1122,21 @@ export interface TempUnschedulableStatus {
 }
 
 export interface UpstreamBillingData {
-  object: 'sub2api.key_billing'
+  object: 'sub2api.key_billing' | 'new_api.group_billing'
   schema_version: 1
-  billing_scope: 'token'
-  group_rate_multiplier: number
+  billing_scope: 'token' | 'group'
+  provider?: 'new_api'
+  group?: string
+  token_id?: number
+  group_rate_multiplier?: number
   user_rate_multiplier?: number
-  resolved_rate_multiplier: number
-  peak_rate_enabled: boolean
+  resolved_rate_multiplier?: number
+  peak_rate_enabled?: boolean
   peak_start?: string
   peak_end?: string
   peak_rate_multiplier?: number
   applied_peak_multiplier?: number
-  effective_rate_multiplier: number
+  effective_rate_multiplier?: number
   timezone?: string
   observed_at: string
 }
@@ -1111,6 +1154,7 @@ export interface UpstreamBalanceWindow {
 
 // Sanitized balance fields of the upstream /v1/usage response.
 export interface UpstreamBalanceData {
+  source?: 'new_api'
   is_valid: boolean
   mode?: 'unrestricted' | 'quota_limited'
   key_status?: string
@@ -1154,6 +1198,38 @@ export interface UpstreamBillingProbeSnapshot {
   // Upstream balance read by the same probe; its status is independent of the
   // rate status above.
   balance?: UpstreamBalanceSnapshot
+}
+
+export interface NewAPIUpstreamConfig {
+  account_id: number
+  site_url: string
+  configured: boolean
+  user_id?: number
+  encryption_key_configured: boolean
+  accounts: Array<{ account_id: number; name: string; configured_user_id?: number }>
+}
+
+export interface NewAPIUpstreamConfigRequest {
+  user_id: number
+  access_token?: string
+  account_ids: number[]
+  token_selections?: Record<string, number>
+}
+
+export interface NewAPIUpstreamPreview {
+  site_url: string
+  user_id: number
+  wallet: { amount: number; unit: 'USD' }
+  accounts: Array<{
+    account_id: number
+    name: string
+    matched: boolean
+    token_id?: number
+    group?: string
+    rate?: number
+    error?: string
+    token_options: Array<{ token_id: number; name: string; group: string; masked_key: string }>
+  }>
 }
 
 export interface UpstreamBillingProbeSettings {
@@ -1270,8 +1346,17 @@ export interface OpenCodeGoUsageSettings {
   debounce_minutes: number
 }
 
+export interface ExcelBPSCredentialState {
+ status: string
+ expires_at?: string
+ observed_at?: string
+ error_code?: string
+ requires_manual_resume?: boolean
+}
+
 export interface Account {
   rate_limit_429_retry_count?: number
+ excel_bps_credential_state?: ExcelBPSCredentialState
   id: number
   name: string
   notes?: string | null
@@ -1299,6 +1384,7 @@ export interface Account {
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
+    upstream_billing_provider?: 'new_api'
     upstream_billing_probe_enabled?: boolean
     upstream_billing_rate_sync_enabled?: boolean
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
@@ -2611,7 +2697,7 @@ export interface QualityBPSPolicy {
 export interface QualityPolicy {
   judge?: QualityJudgeConfig
   expected_answer: string
-  action: 'remove_groups' | 'remove_models' | 'disable_scheduling' | 'enable_bps' | 'observe_only'
+  action: 'isolate_models' | 'remove_groups' | 'remove_models' | 'disable_scheduling' | 'enable_bps' | 'observe_only'
   remove_group_ids: number[]
   remove_models?: string[]
   recovery_concurrency?: number
@@ -2624,7 +2710,9 @@ export interface PelicanTestConfig {
   quality_model_actions?: Record<string, string>
   trigger_source?: string
   quality?: QualityPolicy
-  question_kind?: 'candy' | 'pelican' | 'knowledge' | 'japan_pm' | 'state_probe'
+  question_kind?: 'candy' | 'pelican' | 'knowledge' | 'japan_pm' | 'state_probe' | 'random_reasoning'
+  // Result-only identity of a runtime-generated question.
+  random_question?: { id: string; family: 'paths' | 'weighted_xor'; version: string }
   test_channel?: 'account' | 'bps'
   prompt: string
   reasoning_effort: string

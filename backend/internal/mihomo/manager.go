@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -75,9 +76,11 @@ type NodeStatus struct {
 	DisplayName      string     `json:"display_name,omitempty"`
 	State            string     `json:"state"`
 	Check            *NodeCheck `json:"check,omitempty"`
+	StaticProxy      bool       `json:"static_proxy"`
 }
 
 type saved struct {
+	CollectionLastNode    string                        `json:"collection_last_node,omitempty"`
 	DownloadMode          SubscriptionDownloadMode      `json:"subscription_download_mode"`
 	SubscriptionCache     map[string]subscriptionCache  `json:"subscription_cache,omitempty"`
 	DisabledSubscriptions map[string]bool               `json:"disabled_subscriptions,omitempty"`
@@ -91,6 +94,7 @@ type saved struct {
 	NodeNames             map[string]string             `json:"node_names,omitempty"`
 	Secret                string                        `json:"secret"`
 	Disabled              map[string]string             `json:"disabled,omitempty"`
+	StaticBindings        map[string]StaticBinding      `json:"static_bindings,omitempty"`
 }
 
 type Manager struct {
@@ -190,7 +194,7 @@ func (m *Manager) baseStatus() Status {
 			} else if state == "enabled" {
 				s.EligibleNodes++
 			}
-			node := NodeStatus{SubscriptionIDs: sources[name], Dynamic: dynamic, Name: name, DisplayName: m.saved.NodeNames[name], State: state, CountryCode: observation.Code, CountryError: observation.Error, CountryBlocked: blocked}
+			node := NodeStatus{SubscriptionIDs: sources[name], Dynamic: dynamic, Name: name, DisplayName: m.saved.NodeNames[name], State: state, CountryCode: observation.Code, CountryError: observation.Error, CountryBlocked: blocked, StaticProxy: m.saved.StaticBindings[name].Enabled}
 			if !observation.CheckedAt.IsZero() {
 				checked := observation.CheckedAt
 				node.CountryCheckedAt = &checked
@@ -330,6 +334,7 @@ func (m *Manager) SubmitSourceManagement(action string, urls, dynamicProxies []s
 			m.mu.Lock()
 			next.Disabled = m.saved.Disabled
 			next.UseOnce = m.saved.UseOnce
+			next.CollectionLastNode = m.saved.CollectionLastNode
 			m.mu.Unlock()
 			err = m.run(ctx, action, next)
 			m.release()
@@ -429,7 +434,7 @@ func (m *Manager) run(ctx context.Context, action string, next saved) error {
 	}
 	// Removing the last source installs a REJECT-only configuration so stale
 	// exits cannot remain active and traffic cannot fall back to direct access.
-	if len(next.Nodes) == 0 && !sourceOperation(op) {
+	if len(next.Nodes) == 0 && !sourceOperation(op) && op != "static_unbind" {
 		return errors.New("save a valid subscription first")
 	}
 	if action == "country_scan" || strings.HasPrefix(action, "country_probe/") {
@@ -721,6 +726,16 @@ func (m *Manager) fetchNodes(ctx context.Context, urls []string) ([]map[string]a
 }
 
 func (m *Manager) config(s saved) ([]byte, error) {
+	return m.collectionConfig(s, nil)
+}
+
+func (m *Manager) collectionConfig(s saved, ports []int) ([]byte, error) {
+	if len(ports) == 0 {
+		ports = make([]int, defaultCollectLanes)
+		for lane := range ports {
+			ports[lane] = collectPort + lane
+		}
+	}
 	names := []string{}
 	for _, n := range s.Nodes {
 		name, ok := n["name"].(string)
@@ -750,10 +765,36 @@ func (m *Manager) config(s saved) ([]byte, error) {
 			laneNodes = append(laneNodes, name)
 		}
 	}
-	listeners := make([]any, 0, MaxCollectLanes)
-	for lane := 0; lane < MaxCollectLanes; lane++ {
+	listeners := make([]any, 0, len(ports))
+	for lane, port := range ports {
 		groups = append(groups, map[string]any{"name": collectionGroup(lane), "type": "select", "proxies": laneNodes})
-		listeners = append(listeners, map[string]any{"name": collectionGroup(lane), "type": "mixed", "listen": "127.0.0.1", "port": collectPort + lane, "proxy": collectionGroup(lane)})
+		listeners = append(listeners, map[string]any{"name": collectionGroup(lane), "type": "mixed", "listen": "127.0.0.1", "port": port, "proxy": collectionGroup(lane)})
+	}
+	staticNames := make([]string, 0, len(s.StaticBindings))
+	for name := range s.StaticBindings {
+		staticNames = append(staticNames, name)
+	}
+	sort.Strings(staticNames)
+	available := make(map[string]bool, len(s.Nodes))
+	for _, node := range s.Nodes {
+		name, _ := node["name"].(string)
+		available[name] = true
+	}
+	staticPorts := make(map[int]bool, len(staticNames))
+	for _, name := range staticNames {
+		binding := s.StaticBindings[name]
+		if !binding.Enabled {
+			continue
+		}
+		if binding.Port < staticNodePortStart || binding.Port >= staticNodePortEnd || staticPorts[binding.Port] {
+			return nil, errors.New("invalid static node binding")
+		}
+		staticPorts[binding.Port] = true
+		target := "REJECT"
+		if available[name] && s.Disabled[name] == "" && countryAllowed(s, name) {
+			target = name
+		}
+		listeners = append(listeners, map[string]any{"name": "STATIC-" + name, "type": "mixed", "listen": "127.0.0.1", "port": binding.Port, "proxy": target})
 	}
 	bpsListeners, err := m.bpsListeners(s)
 	if err != nil {
@@ -782,7 +823,12 @@ func (m *Manager) control(ctx context.Context, method, path, secret string, payl
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{Proxy: nil}}
+	timeout := 2 * time.Second
+	if strings.HasPrefix(path, "/configs") {
+		// Applying a large listener set can take longer than selector updates.
+		timeout = 30 * time.Second
+	}
+	client := &http.Client{Timeout: timeout, Transport: &http.Transport{Proxy: nil}}
 	defer client.CloseIdleConnections()
 	resp, err := client.Do(req)
 	if err != nil {
@@ -808,7 +854,7 @@ func (m *Manager) reloadAstraLocked(ctx context.Context, b []byte, secret string
 
 func (m *Manager) start(ctx context.Context, path, secret string) error {
 	ports := []string{"127.0.0.1:3101", "127.0.0.1:9098"}
-	for lane := 0; lane < MaxCollectLanes; lane++ {
+	for lane := 0; lane < defaultCollectLanes; lane++ {
 		ports = append(ports, fmt.Sprintf("127.0.0.1:%d", collectPort+lane))
 	}
 	m.bpsMu.Lock()

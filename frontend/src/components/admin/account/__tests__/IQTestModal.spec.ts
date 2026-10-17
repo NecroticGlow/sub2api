@@ -10,6 +10,7 @@ beforeEach(() => {
     vi.mocked(history.list).mockResolvedValue([record])
   })
 })
+import TestModelSelect from '../TestModelSelect.vue'
 
 const { probeOpenAICodexState, getAvailableModels, getModelReasoning } = vi.hoisted(() => ({
   probeOpenAICodexState: vi.fn(), getAvailableModels: vi.fn(), getModelReasoning: vi.fn()
@@ -37,9 +38,9 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-function streamResponse(events: Array<Record<string, unknown>>) {
+function streamResponse(events: Array<Record<string, unknown> | string>) {
   const encoder = new TextEncoder()
-  const chunks = events.map((event) => encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+  const chunks = events.map((event) => encoder.encode(typeof event === 'string' ? event : `data: ${JSON.stringify(event)}\n\n`))
   let index = 0
   return {
     ok: true,
@@ -79,6 +80,18 @@ function mountModal(account: Record<string, unknown> = {}) {
 }
 
 describe('IQTestModal', () => {
+  it('previews generated reasoning history without turning it into a manual fixed question', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const initialKind = vm.questionKind
+    vm.loadRecord({ questionKind: 'random_reasoning', runs: [], prompt: 'generated', modelId: 'mock-model' })
+    expect(vm.viewingScheduled).toBe(true)
+    expect(vm.activeTab).toBe('results')
+    expect(vm.questionKind).toBe(initialKind)
+    wrapper.unmount()
+  })
+
   it('loads account model capabilities while retaining Chinese questions and shared history', async () => {
     getAvailableModels.mockResolvedValue([{ id: 'account-model', display_name: 'Account model' }])
     getModelReasoning.mockResolvedValue({
@@ -88,7 +101,7 @@ describe('IQTestModal', () => {
     await flushPromises()
     expect(getAvailableModels).toHaveBeenCalledWith(42)
     expect(getModelReasoning).toHaveBeenLastCalledWith(42, 'account-model')
-    expect((wrapper.vm as any).modelOptions).toEqual([{ value: 'account-model', label: 'Account model' }])
+    expect((wrapper.vm as any).modelOptions).toEqual([{ value: 'account-model', label: 'account-model (Account model)' }])
     expect((wrapper.vm as any).reasoningEffort).toBe('xhigh')
     ;(wrapper.vm as any).selectQuestion('knowledge')
     expect((wrapper.vm as any).prompt).toBe(KNOWLEDGE_PROMPT)
@@ -120,6 +133,45 @@ describe('IQTestModal', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('keeps all eight configured model IDs when discovery only returns six', async () => {
+    const ids = ['codex-auto-review', 'gpt-5.5', 'gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-sol']
+    getAvailableModels.mockResolvedValue(ids.filter(id => !['gpt-5.6-terra', 'gpt-6.1-sol'].includes(id))
+      .map(id => ({ id, display_name: id.toUpperCase() })))
+    const wrapper = mountModal({ credentials: { model_mapping: { ...Object.fromEntries(ids.map(id => [id, id])), 'custom-*': 'upstream-target' } } })
+    await flushPromises()
+    const picker = wrapper.getComponent(TestModelSelect)
+    expect(picker.props('options').map(option => option.value).sort()).toEqual([...ids].sort())
+    expect(picker.props('options').map(option => option.label)).not.toContain('upstream-target')
+    picker.vm.$emit('update:modelValue', 'gpt-6.1-sol')
+    await flushPromises()
+    await (wrapper.vm as any).startTest()
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body).model_id).toBe('gpt-6.1-sol')
+    wrapper.unmount()
+  })
+
+  it('submits a manually entered model without discovery overwriting it', async () => {
+    let finishDiscovery!: (models: Array<{ id: string }>) => void
+    getAvailableModels.mockReturnValue(new Promise(resolve => { finishDiscovery = resolve }))
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="model-input-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="manual-model-input"]').setValue('gpt-6.1-sol')
+    finishDiscovery([{ id: 'gpt-5.5' }])
+    await flushPromises()
+    expect((wrapper.get('[data-testid="manual-model-input"]').element as HTMLInputElement).value).toBe('gpt-6.1-sol')
+    await (wrapper.vm as any).startTest()
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body).model_id).toBe('gpt-6.1-sol')
+    expect(getModelReasoning).toHaveBeenLastCalledWith(42, 'gpt-6.1-sol')
+    wrapper.unmount()
+  })
+
+  it('retains configured choices when discovery fails', async () => {
+    getAvailableModels.mockRejectedValue(new Error('discovery unavailable'))
+    const wrapper = mountModal({ credentials: { model_mapping: { 'gpt-6.1-sol': 'gpt-6.1-sol' } } })
+    await flushPromises()
+    expect(wrapper.getComponent(TestModelSelect).props('options')).toEqual([{ value: 'gpt-6.1-sol', label: 'gpt-6.1-sol' }])
+    wrapper.unmount()
   })
 
   it('uses the dedicated endpoint and sends identical settings to parallel runs', async () => {
@@ -163,6 +215,37 @@ describe('IQTestModal', () => {
 
     await wrapper.setProps({ account: { id: 43, name: 'Astra account', platform: 'openai', type: 'oauth', status: 'active' } as any })
     expect((wrapper.vm as any).modelId).toBe('gpt-6-astra')
+  })
+
+  it('ignores fragmented keepalive comments without changing generated HTML', async () => {
+    const html = '<!doctype html><html><body>verified</body></html>'
+    global.fetch = vi.fn(() => Promise.resolve(streamResponse([
+      ': keep', 'alive\n\n',
+      { type: 'test_start', model: 'gpt-6-astra' },
+      ': keepalive\n\n',
+      { type: 'content', text: html },
+      ': keepalive\n\n',
+      { type: 'test_complete', success: true }
+    ]))) as any
+    const wrapper = mountModal()
+    ;(wrapper.vm as any).selectQuestion('pelican')
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    expect((wrapper.vm as any).runs[0]).toMatchObject({ status: 'success', output: html })
+    expect(wrapper.get('iframe').attributes('srcdoc')).toContain('<body>verified</body>')
+    expect(wrapper.get('iframe').attributes('srcdoc')).not.toContain('keepalive')
+    wrapper.unmount()
+  })
+
+  it('does not treat keepalive comments as output or successful completion', async () => {
+    global.fetch = vi.fn(() => Promise.resolve(streamResponse([': keepalive\n\n', ': keepalive\n\n']))) as any
+    const wrapper = mountModal()
+    ;(wrapper.vm as any).selectQuestion('pelican')
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    expect((wrapper.vm as any).runs[0]).toMatchObject({ status: 'error', output: '' })
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('keeps non-HTML output visible but marks it as failed', async () => {
@@ -275,6 +358,18 @@ describe('Intelligence question selection', () => {
     expect((wrapper.vm as any).questionKind).toBe('candy')
     wrapper.unmount()
   })
+  it('previews generated reasoning as text without changing the manual question mode', async () => {
+    const wrapper = mountModal()
+    const manualKind = (wrapper.vm as any).questionKind
+    ;(wrapper.vm as any).previewScheduled({ id: 1, status: 'success', response_text: '{"example":0}', error_message: '', latency_ms: 100, started_at: new Date().toISOString(), pelican_config: { question_kind: 'random_reasoning', prompt: 'Synthetic generated question', reasoning_effort: 'medium', parallel_count: 1 } })
+    await flushPromises()
+    expect((wrapper.vm as any).questionKind).toBe(manualKind)
+    expect((wrapper.vm as any).runs[0].questionKind).toBe('random_reasoning')
+    expect((wrapper.vm as any).runs[0].html).toBe('')
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('previews scheduled candy results without marking text as invalid HTML', async () => {
     const wrapper = mountModal()
     ;(wrapper.vm as any).previewScheduled({ id: 1, status: 'success', response_text: '29', error_message: '', latency_ms: 100, started_at: new Date().toISOString(), pelican_config: { question_kind: 'candy', prompt: 'question', reasoning_effort: 'medium', parallel_count: 1 } })
