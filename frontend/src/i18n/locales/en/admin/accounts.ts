@@ -1,5 +1,14 @@
 export default {
     accounts: {
+      claudeQuotaReset: {
+        query: 'Query resets', count: 'Resets', use: 'Use reset',
+        expires: 'Expires {time}', noExpiry: 'No expiry specified', updated: 'Queried {time}',
+        ineligible: 'Not currently eligible', unknown: 'Upstream did not report reset inventory; this does not mean zero.',
+        confirm: 'Consume one Claude limit reset? This cannot be undone.',
+        queryFailed: 'Query failed. Try again later.', refreshWarning: 'Post-reset refresh was incomplete. Query again.',
+        outcomeUnknown: 'Outcome unconfirmed; a reset may have been consumed. Query first; retrying the same grant keeps the same request ID.',
+        results: { reset: 'Limits reset; one reset consumed.', already_used: 'Already processed; no duplicate consumption.', not_limited: 'Upstream reports no reset needed; nothing consumed.', cooldown: 'Upstream cooldown; nothing consumed.', ineligible: 'Not eligible for this reset.', unavailable: 'No upstream reset available.' }
+      },
       messages: {
         accountCreated: 'Account created successfully',
       },

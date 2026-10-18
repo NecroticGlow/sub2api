@@ -962,6 +962,39 @@ export interface OpenAIQuotaResetCredit {
   redeemed_at?: string
 }
 
+export interface ClaudeResetGrant {
+  id: string
+  resets_left: number
+  starts_at?: string
+  ends_at?: string
+  clears?: string[]
+  paused: boolean
+  usable_now: boolean
+}
+export interface ClaudeResetStatus {
+  eligible: boolean
+  ineligible_reason?: string
+  next_grant_id?: string
+  cooldown_until?: string
+  grants: ClaudeResetGrant[]
+  available_count: number
+  fetched_at: string
+}
+export interface ClaudeResetInput { confirmed: boolean; grant_id: string; resets_left: number }
+export async function refreshClaudeResetCredits(id: number): Promise<ClaudeResetStatus | null> {
+  const { data } = await apiClient.post<ClaudeResetStatus | null>(`/admin/accounts/${id}/claude/reset-credits/refresh`)
+  return data
+}
+export async function resetClaudeQuota(id: number, input: ClaudeResetInput) {
+  const { data } = await apiClient.post<{
+    result: 'reset' | 'already_used' | 'not_limited' | 'cooldown' | 'ineligible' | 'unavailable'
+    credits: ClaudeResetStatus | null
+    account?: Account
+    refresh_warning: boolean
+  }>(`/admin/accounts/${id}/claude/reset-quota`, input, { timeout: 90_000 })
+  return data
+}
+
 export interface OpenAIQuotaResetResult {
   code: string
   credit?: OpenAIQuotaResetCredit | null

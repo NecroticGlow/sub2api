@@ -16,6 +16,12 @@ maintainer. Do not infer current requirements from older commits alone.
   Never run multiple unbounded compilers on the production host. Keep production
   headroom; a killed test compiler is not a passing test. Reuse caches to avoid
   repeated cold builds, but do not skip a failed regression to ship a release.
+- Serialize ALL resource-intensive verification stages, including Node/frontend
+  and Go, under one host-side atomic lock. Separate per-container limits are not
+  a host-wide memory budget. Keep Go at most 4 GiB and frontend at most 3 GiB;
+  reserve production headroom, check MemAvailable before starting, and stop only
+  the verification container if available RAM falls below 1.5 GiB or production
+  health fails. Never run frontend and backend compilers simultaneously here.
 - Verification must not call real model accounts or spend quota. Use synthetic
   mocks and isolated test databases; never use production DB credentials for tests.
 - Production deployment requires user authorization, a recoverable code/database

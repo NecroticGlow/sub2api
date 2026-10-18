@@ -643,7 +643,7 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('7d|36|900')
   })
 
-  it('仅为 OpenAI OAuth 7d 窗口计算预计总费用', async () => {
+  it.each(['openai', 'anthropic'] as const)('为 %s OAuth 7d 窗口计算预计总费用', async (platform) => {
     getUsage.mockResolvedValue({
       five_hour: {
         utilization: 25,
@@ -661,7 +661,7 @@ describe('AccountUsageCell', () => {
 
     const wrapper = mount(AccountUsageCell, {
       props: {
-        account: makeAccount({ id: 6752, platform: 'openai', type: 'oauth' })
+        account: makeAccount({ id: 6752, platform, type: 'oauth' })
       },
       global: {
         stubs: {

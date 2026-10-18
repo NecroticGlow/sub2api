@@ -1626,6 +1626,7 @@ export interface GrokBillingSummary {
 }
 
 export interface AccountUsageInfo {
+  claude_reset_credits?: import('@/api/admin/accounts').ClaudeResetStatus | null
   source?: 'passive' | 'active'
   updated_at: string | null
   five_hour: UsageProgress | null

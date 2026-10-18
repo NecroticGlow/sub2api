@@ -57,6 +57,8 @@
           label="7d"
           :utilization="usageInfo.seven_day.utilization"
           :resets-at="usageInfo.seven_day.resets_at"
+          :window-stats="usageInfo.seven_day.window_stats"
+          :estimated-total-cost="sevenDayEstimatedTotalCost"
           color="emerald"
         />
 
@@ -115,6 +117,13 @@
       <div v-else class="space-y-1">
         <div class="text-xs text-gray-400">-</div>
       </div>
+      <ClaudeQuotaResetCell
+        v-if="account.type === 'oauth'"
+        :account="account"
+        :credits="usageInfo?.claude_reset_credits"
+        @account-updated="emit('account-updated', $event)"
+        @reset-completed="loadActiveUsage"
+      />
     </template>
 
     <!-- OpenAI Codex accounts: ticket status; usage querying remains OAuth-only. -->
@@ -153,7 +162,7 @@
           :utilization="usageInfo.seven_day.utilization"
           :resets-at="usageInfo.seven_day.resets_at"
           :window-stats="usageInfo.seven_day.window_stats"
-          :estimated-total-cost="openAISevenDayEstimatedTotalCost"
+          :estimated-total-cost="sevenDayEstimatedTotalCost"
           :overdraft-active="usageInfo.seven_day.overdraft_active"
           :overdraft-stats="usageInfo.seven_day.overdraft_stats"
           :overdraft-started-at="usageInfo.seven_day.overdraft_started_at"
@@ -698,6 +707,7 @@ import UsageProgressBar from './UsageProgressBar.vue'
 import CodexOverdraftStatus from './CodexOverdraftStatus.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
+import ClaudeQuotaResetCell from './ClaudeQuotaResetCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
@@ -854,7 +864,7 @@ function formatCodexTicketRemaining(seconds: number) {
   return `${m}m${String(s).padStart(2, '0')}s`
 }
 
-const openAISevenDayEstimatedTotalCost = computed(() => {
+const sevenDayEstimatedTotalCost = computed(() => {
   const sevenDay = usageInfo.value?.seven_day
   const utilization = sevenDay?.utilization
   const currentCost = sevenDay?.window_stats?.cost

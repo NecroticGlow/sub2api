@@ -1,5 +1,14 @@
 export default {
     accounts: {
+      claudeQuotaReset: {
+        query: '查询重置卡', count: '重置卡', use: '使用重置卡',
+        expires: '到期 {time}', noExpiry: '未指定到期日', updated: '查询于 {time}',
+        ineligible: '当前不可兑换', unknown: '上游未提供重置卡信息，不代表没有卡。',
+        confirm: '将消耗 1 次 Claude 重置机会，此操作不可撤销。确认使用？',
+        queryFailed: '查询失败，请稍后重试。', refreshWarning: '用卡后的状态刷新未全部完成，请重新查询。',
+        outcomeUnknown: '操作未确认成功，可能已用卡。请先查询；重试同一张卡不会更换请求编号。',
+        results: { reset: '重置成功，已消耗 1 次机会。', already_used: '此操作已处理，未重复消耗。', not_limited: '上游认为无需重置，未用卡。', cooldown: '上游冷却中，未用卡。', ineligible: '当前不符合用卡条件。', unavailable: '上游重置机会不可用。' }
+      },
       messages: {
         accountCreated: '账号创建成功',
       },

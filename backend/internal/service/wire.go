@@ -254,6 +254,8 @@ func ProvideOpenAIQuotaAutoResetService(
 }
 
 func ProvideAccountUsageService(
+	claudeTokenProvider *ClaudeTokenProvider,
+	idempotency *IdempotencyCoordinator,
 	accountRepo AccountRepository,
 	usageLogRepo UsageLogRepository,
 	usageFetcher ClaudeUsageFetcher,
@@ -281,6 +283,8 @@ func ProvideAccountUsageService(
 		tlsFPProfileService,
 	)
 	service.agentIdentityWS = openAIGatewayService
+	service.claudeTokenProvider = claudeTokenProvider
+	service.claudeResetIdempotency = idempotency
 	service.SetCodexQuotaOverdraftCoordinator(openAIGatewayService.codexQuotaOverdraftCoordinator(tlsFPProfileService))
 	return service
 }

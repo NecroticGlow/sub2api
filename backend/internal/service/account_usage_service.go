@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -188,6 +189,7 @@ type AICredit struct {
 
 // UsageInfo 账号使用量信息
 type UsageInfo struct {
+	ClaudeResetCredits  *ClaudeResetStatus             `json:"claude_reset_credits"`
 	Source              string                         `json:"source,omitempty"`           // "passive" or "active"
 	UpdatedAt           *time.Time                     `json:"updated_at,omitempty"`       // 更新时间
 	FiveHour            *UsageProgress                 `json:"five_hour"`                  // 5小时窗口
@@ -262,7 +264,12 @@ type ClaudeUsageWindow struct {
 
 // ClaudeUsageResponse Anthropic API返回的usage结构
 type ClaudeUsageResponse struct {
-	FiveHour struct {
+	CedarEmber        *ClaudeResetProgram `json:"cedar_ember"`
+	SevenDayOpus      ClaudeUsageWindow   `json:"seven_day_opus"`
+	SevenDayOAuthApps ClaudeUsageWindow   `json:"seven_day_oauth_apps"`
+	SevenDayCowork    ClaudeUsageWindow   `json:"seven_day_cowork"`
+	SevenDayOmelette  ClaudeUsageWindow   `json:"seven_day_omelette"`
+	FiveHour          struct {
 		Utilization float64 `json:"utilization"`
 		ResetsAt    string  `json:"resets_at"`
 	} `json:"five_hour"`
@@ -298,6 +305,8 @@ type ClaudeUsageFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
+	claudeTokenProvider     *ClaudeTokenProvider
+	claudeResetIdempotency  *IdempotencyCoordinator
 	accountRepo             AccountRepository
 	usageLogRepo            UsageLogRepository
 	usageFetcher            ClaudeUsageFetcher
@@ -611,6 +620,7 @@ func (s *AccountUsageService) getPassiveUsageForAccount(ctx context.Context, acc
 	// 复用 estimateSetupTokenUsage 构建 5h 窗口（OAuth 和 SetupToken 逻辑一致）
 	info := s.estimateSetupTokenUsage(account)
 	info.Source = "passive"
+	info.ClaudeResetCredits = claudeResetSnapshot(account.Extra)
 
 	// 设置采样时间
 	if raw, ok := account.Extra["passive_usage_sampled_at"]; ok {
@@ -682,6 +692,7 @@ func buildPassiveUsageWindow(extra map[string]any, utilKey, resetKey string) *Us
 // 这样下次被动加载时能看到最新值。
 func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, accountID int64, usage *UsageInfo) {
 	extraUpdates := make(map[string]any, 4)
+	extraUpdates[claudeResetSnapshotKey] = usage.ClaudeResetCredits
 
 	if usage.FiveHour != nil {
 		extraUpdates["session_window_utilization"] = usage.FiveHour.Utilization / 100
@@ -1375,6 +1386,7 @@ func enrichUsageWithAccountError(info *UsageInfo, account *Account) {
 // addWindowStats 为 usage 数据添加窗口期统计
 // 使用独立缓存（1 分钟），与 API 缓存分离
 func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Account, usage *UsageInfo) {
+	s.addClaudeWeeklyStats(ctx, account, usage)
 	// 修复：即使 FiveHour 为 nil，也要尝试获取统计数据
 	// 因为 SevenDay/SevenDaySonnet/SevenDayFable 可能需要
 	if usage.FiveHour == nil && usage.SevenDay == nil && usage.SevenDaySonnet == nil && usage.SevenDayFable == nil {
@@ -1615,6 +1627,13 @@ func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountI
 // 如果有缓存的 Fingerprint，则使用缓存的 User-Agent 等信息
 func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *Account) (*ClaudeUsageResponse, error) {
 	accessToken := account.GetCredential("access_token")
+	if s.claudeTokenProvider != nil {
+		var err error
+		accessToken, err = s.claudeTokenProvider.GetAccessToken(ctx, account)
+		if err != nil {
+			return nil, infraerrors.New(502, "CLAUDE_QUOTA_AUTH_FAILED", "Claude authorization could not be refreshed")
+		}
+	}
 	if accessToken == "" {
 		return nil, fmt.Errorf("no access token available")
 	}
@@ -1687,7 +1706,8 @@ func (s *AccountUsageService) tryClearRecoverableAccountError(ctx context.Contex
 // buildUsageInfo 构建UsageInfo
 func (s *AccountUsageService) buildUsageInfo(resp *ClaudeUsageResponse, updatedAt *time.Time) *UsageInfo {
 	info := &UsageInfo{
-		UpdatedAt: updatedAt,
+		UpdatedAt:          updatedAt,
+		ClaudeResetCredits: buildClaudeResetStatus(resp.CedarEmber, time.Now()),
 	}
 
 	// 5小时窗口 - 始终创建对象（即使 ResetsAt 为空）
