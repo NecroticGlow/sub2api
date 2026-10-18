@@ -14,6 +14,8 @@ import (
 // before an auto-merged schema can be shipped with mismatched generated defaults.
 func TestMergedGroupDefaultsMatchSchema(t *testing.T) {
 	defaults := map[string]any{
+		"codex_cli_only":                  group.DefaultCodexCliOnly,
+		"block_subagents":                 group.DefaultBlockSubagents,
 		"rpm_limit":                       group.DefaultRpmLimit,
 		"user_concurrency_limit":          group.DefaultUserConcurrencyLimit,
 		"max_reasoning_effort":            group.DefaultMaxReasoningEffort,

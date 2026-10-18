@@ -26,7 +26,7 @@ func TestOpenAISessionExportRequiresAuthAndStepUp(t *testing.T) {
 	stepUp := servermiddleware.StepUpAuthMiddleware(func(c *gin.Context) { stepUpCalls++; c.AbortWithStatus(http.StatusForbidden) })
 	handlers := &handler.Handlers{Admin: &handler.AdminHandlers{Account: &adminhandler.AccountHandler{}}}
 	registerAccountRoutes(group, handlers, stepUp)
-	for _, endpoint := range []struct{ method, path string }{{"POST", "/api/v1/admin/accounts/7/export-session"}, {"DELETE", "/api/v1/admin/accounts/7/session-cookie"}} {
+	for _, endpoint := range []struct{ method, path string }{{"POST", "/api/v1/admin/accounts/7/export-session"}, {"GET", "/api/v1/admin/accounts/7/export-session/9/download"}} {
 		for _, authenticated := range []bool{false, true} {
 			request := httptest.NewRequest(endpoint.method, endpoint.path, nil)
 			if authenticated {

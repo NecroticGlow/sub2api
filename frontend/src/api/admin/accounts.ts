@@ -1542,18 +1542,3 @@ export async function getManagementCapabilities(): Promise<{ web_search_enabled:
   const { data } = await apiClient.get('/admin/accounts/management-capabilities')
   return data
 }
-
-/** Fetch the real ChatGPT Session using a supplied or previously saved Cookie. */
-export async function exportOpenAISession(id: number, cookie = '', rememberCookie = false): Promise<Record<string, unknown>> {
-  const { data } = await apiClient.post<Record<string, unknown>>(`/admin/accounts/${id}/export-session`, { cookie, remember_cookie: rememberCookie })
-  return data
-}
-
-export async function getOpenAISessionCookie(id: number): Promise<{ configured: boolean; storage_enabled: boolean }> {
-  const { data } = await apiClient.get(`/admin/accounts/${id}/session-cookie`)
-  return data
-}
-
-export async function deleteOpenAISessionCookie(id: number): Promise<void> {
-  await apiClient.delete(`/admin/accounts/${id}/session-cookie`)
-}

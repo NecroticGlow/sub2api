@@ -466,8 +466,7 @@
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <IQTestModal :show="showIQTest" :account="iqTestingAcc" :accounts="accounts" @close="closeIQTestModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @iq-test="handleIQTest" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @export-session="sessionAutoExport = true; sessionExportAccount = $event" @configure-session="sessionAutoExport = false; sessionExportAccount = $event" />
-    <OpenAISessionExportDialog :account="sessionExportAccount" :auto-export="sessionAutoExport" @close="sessionExportAccount = null" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @iq-test="handleIQTest" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal v-if="authStore.isAdmin" :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -520,7 +519,6 @@ import AccountTableActions from '@/components/admin/account/AccountTableActions.
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
-import OpenAISessionExportDialog from '@/components/admin/account/OpenAISessionExportDialog.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
@@ -653,8 +651,6 @@ const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, anchorRect:DOMRect|null}>({ show: false, acc: null, anchorRect: null })
 const exportingData = ref(false)
-const sessionExportAccount = ref<Account | null>(null)
-const sessionAutoExport = ref(true)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 const upstreamBillingNow = ref(Date.now())
@@ -1413,7 +1409,6 @@ const isAnyModalOpen = computed(() => {
     showSync.value ||
     showImportData.value ||
     showExportDataDialog.value ||
-    sessionExportAccount.value !== null ||
     showBulkEdit.value ||
     showTempUnsched.value ||
     showDeleteDialog.value ||

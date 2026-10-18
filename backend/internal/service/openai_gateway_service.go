@@ -708,6 +708,9 @@ func (s *OpenAIGatewayService) isCodexImageGenerationBridgeEnabled(ctx context.C
 	if account == nil || account.Platform != PlatformOpenAI {
 		return false
 	}
+	if openAIImageRequestRejection(WithOpenAIImageGenerationIntent(ctx), account, "gpt-image-2") != "" {
+		return false
+	}
 	if override := account.CodexImageGenerationBridgeOverride(); override != nil {
 		return *override
 	}

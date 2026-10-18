@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -8,72 +10,79 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ExportOpenAISession returns the upstream payload only after verifying account
-// identity. Cookie persistence is explicit and encrypted outside account JSON.
+// ExportOpenAISession creates a one-shot 2FA-backed ChatGPT Session task.
 func (h *AccountHandler) ExportOpenAISession(c *gin.Context) {
-	c.Header("Cache-Control", "no-store")
-	c.Header("Pragma", "no-cache")
+	if h.openaiOAuthReauth == nil {
+		response.Error(c, http.StatusServiceUnavailable, "ChatGPT Session export is unavailable")
+		return
+	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
-	var input struct {
-		Cookie         string `json:"cookie"`
-		RememberCookie bool   `json:"remember_cookie"`
-	}
-	if c.ShouldBindJSON(&input) != nil {
-		response.BadRequest(c, "Invalid Session export request")
-		return
-	}
-	account, err := h.adminService.GetAccount(c.Request.Context(), id)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	session, err := h.openaiOAuthService.ExportSavedChatGPTSession(c.Request.Context(), account, input.Cookie, input.RememberCookie)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, session)
-}
-
-// GetOpenAISessionCookie returns presence and storage capability, never secrets.
-func (h *AccountHandler) GetOpenAISessionCookie(c *gin.Context) {
-	h.openAISessionCookieState(c, false)
-}
-
-func (h *AccountHandler) DeleteOpenAISessionCookie(c *gin.Context) {
-	h.openAISessionCookieState(c, true)
-}
-
-func (h *AccountHandler) openAISessionCookieState(c *gin.Context, remove bool) {
-	c.Header("Cache-Control", "no-store")
-	c.Header("Pragma", "no-cache")
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		response.BadRequest(c, "Invalid account ID")
-		return
-	}
-	account, err := h.adminService.GetAccount(c.Request.Context(), id)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	if remove {
-		if err := h.openaiOAuthService.DeleteChatGPTSessionCookie(c.Request.Context(), account); err != nil {
-			response.ErrorFrom(c, err)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4<<10)
+	var input map[string]any
+	if c.Request.Body != nil {
+		if err := json.NewDecoder(c.Request.Body).Decode(&input); err != nil && err != io.EOF {
+			response.BadRequest(c, "Invalid Session export request")
 			return
 		}
-		response.Success(c, gin.H{"deleted": true})
+	}
+	if len(input) != 0 {
+		response.BadRequest(c, "Session export does not accept credentials or cookies")
 		return
 	}
-	state, err := h.openaiOAuthService.ChatGPTSessionCookieState(c.Request.Context(), account)
+	task, err := h.openaiOAuthReauth.CreateSessionExportTask(c.Request.Context(), id)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, state)
+	response.Accepted(c, task)
+}
+
+func (h *AccountHandler) GetOpenAISessionExportTask(c *gin.Context) {
+	if h.openaiOAuthReauth == nil {
+		response.Error(c, http.StatusServiceUnavailable, "ChatGPT Session export is unavailable")
+		return
+	}
+	accountID, taskID, ok := parseSessionExportIDs(c)
+	if !ok {
+		return
+	}
+	task, err := h.openaiOAuthReauth.GetSessionExportTask(c.Request.Context(), accountID, taskID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, task)
+}
+
+func (h *AccountHandler) DownloadOpenAISessionExport(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	if h.openaiOAuthReauth == nil {
+		response.Error(c, http.StatusServiceUnavailable, "ChatGPT Session export is unavailable")
+		return
+	}
+	accountID, taskID, ok := parseSessionExportIDs(c)
+	if !ok {
+		return
+	}
+	body, err := h.openaiOAuthReauth.DownloadSessionExport(c.Request.Context(), accountID, taskID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, body)
+}
+
+func parseSessionExportIDs(c *gin.Context) (int64, int64, bool) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	taskID, taskErr := strconv.ParseInt(c.Param("task_id"), 10, 64)
+	if err != nil || taskErr != nil || accountID <= 0 || taskID <= 0 {
+		response.BadRequest(c, "Invalid Session export task ID")
+		return 0, 0, false
+	}
+	return accountID, taskID, true
 }

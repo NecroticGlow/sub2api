@@ -1200,12 +1200,6 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	if _, err := txClient.Account.Delete().Where(dbaccount.IDEQ(id)).Exec(ctx); err != nil {
 		return err
 	}
-	// Account deletion is soft; remove reusable web credentials explicitly.
-	// The account row lock also serializes this with Session Cookie saves.
-	if _, err := txClient.ExecContext(ctx, "DELETE FROM openai_session_cookies WHERE account_id = $1", id); err != nil {
-		return err
-	}
-
 	if tx != nil {
 		if err := tx.Commit(); err != nil {
 			return err

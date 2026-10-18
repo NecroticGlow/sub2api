@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 27 // v27: include API key concurrency limit; retain stream_only and user-group denied models
+const apiKeyAuthSnapshotVersion = 29 // v29: include group client and subagent admission policies
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -437,6 +437,8 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			FallbackGroupID:                 apiKey.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: apiKey.Group.FallbackGroupIDOnInvalidRequest,
 			StreamOnly:                      apiKey.Group.StreamOnly,
+			CodexCLIOnly:                    apiKey.Group.CodexCLIOnly,
+			BlockSubagents:                  apiKey.Group.BlockSubagents,
 			ModelRouting:                    apiKey.Group.ModelRouting,
 			ModelRoutingEnabled:             apiKey.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    apiKey.Group.MCPXMLInject,
@@ -547,6 +549,8 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			FallbackGroupID:                 snapshot.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: snapshot.Group.FallbackGroupIDOnInvalidRequest,
 			StreamOnly:                      snapshot.Group.StreamOnly,
+			CodexCLIOnly:                    snapshot.Group.CodexCLIOnly,
+			BlockSubagents:                  snapshot.Group.BlockSubagents,
 			ModelRouting:                    snapshot.Group.ModelRouting,
 			ModelRoutingEnabled:             snapshot.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    snapshot.Group.MCPXMLInject,

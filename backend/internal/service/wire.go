@@ -113,13 +113,10 @@ func ProvideOpenAIOAuthService(
 	proxyRepo ProxyRepository,
 	oauthClient OpenAIOAuthClient,
 	privacyClientFactory PrivacyClientFactory,
-	sessionCookies OpenAISessionCookieRepository,
-	encryptor SecretEncryptor,
 	cfg *config.Config,
 ) *OpenAIOAuthService {
 	svc := NewOpenAIOAuthService(proxyRepo, oauthClient)
 	svc.SetPrivacyClientFactory(privacyClientFactory)
-	svc.SetSessionCookieStorage(sessionCookies, encryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured)
 	return svc
 }
 
@@ -127,6 +124,7 @@ func ProvideOpenAIOAuthService(
 // keeping the pure HTTP protocol runner in a separately run worker process.
 func ProvideOpenAIOAuthReauthService(
 	repo OpenAIOAuthReauthRepository,
+	sessionExportRepo OpenAISessionExportRepository,
 	adminService AdminService,
 	accountRepo AccountRepository,
 	openaiOAuthService *OpenAIOAuthService,
@@ -139,6 +137,7 @@ func ProvideOpenAIOAuthReauthService(
 ) *OpenAIOAuthReauthService {
 	credentialUpdater, _ := accountRepo.(OpenAIOAuthReauthCredentialUpdater)
 	svc := NewOpenAIOAuthReauthService(repo, adminService, credentialUpdater, openaiOAuthService, secretEncryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured, tokenCacheInvalidator, runtimeBlocker)
+	svc.SetSessionExportRepository(sessionExportRepo)
 	svc.settings = settings
 	if admin, ok := adminService.(*adminServiceImpl); ok {
 		admin.excelOAuthReauth = svc
