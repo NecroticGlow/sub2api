@@ -113,3 +113,26 @@ it('shows encoding and boundary gaps while leaving absent pre-decode data unknow
   expect(field('tool_wait')).toContain('2.00s')
   wrapper.unmount()
 })
+
+it('PR610 shows separately sampled server totals when legacy passthrough already includes queue', async () => {
+  mocks.get.mockResolvedValue({ traces: [], retention_days: 30 })
+  const record = { ...row(610), first_token_ms: 32_000, duration_ms: 50_000, queue_wait_ms: 30_000,
+    queue_timing: { status: 'measured', source: 'ws_frame_passthrough', scope: 'accepted_frame_including_admission', queue_clamped: false,
+      server_first_token_ms: 32_000, server_duration_ms: 50_000, forward_first_token_ms: 2_000, forward_duration_ms: 20_000 } }
+  const wrapper = mount(UsageTimingDialog, { props: { record }, ...options })
+  await flushPromises()
+  expect(wrapper.text()).toContain('requestTiming.serverFirst')
+  expect(wrapper.text()).toContain('32.00s')
+  expect(wrapper.text()).not.toContain('62.00s')
+  wrapper.unmount()
+})
+
+it('PR610 leaves old queue values without sampled provenance unknown in details', async () => {
+  mocks.get.mockResolvedValue({ traces: [], retention_days: 30 })
+  const wrapper = mount(UsageTimingDialog, { props: { record: { ...row(610), queue_wait_ms: 5_000 } }, ...options })
+  await flushPromises()
+  const queue = wrapper.findAll('div').find(n => n.element.children.length === 2 && n.element.children[0]?.textContent === 'requestTiming.queueWait')
+  expect(queue?.text()).toContain('requestTiming.missing')
+  expect(queue?.text()).not.toContain('5.00s')
+  wrapper.unmount()
+})

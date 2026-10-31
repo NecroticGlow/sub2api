@@ -319,6 +319,8 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// Dashboard (vNext - raw path for MVP)
 		ops.GET("/dashboard/snapshot-v2", h.Admin.Ops.GetDashboardSnapshotV2)
 		ops.GET("/dashboard/overview", h.Admin.Ops.GetDashboardOverview)
+		ops.GET("/dashboard/latency-report", h.Admin.Ops.LatencyReport)
+		ops.GET("/dashboard/network-series", h.Admin.Ops.NetworkSeries)
 		ops.GET("/dashboard/throughput-trend", h.Admin.Ops.GetDashboardThroughputTrend)
 		ops.GET("/dashboard/latency-histogram", h.Admin.Ops.GetDashboardLatencyHistogram)
 		ops.GET("/dashboard/error-trend", h.Admin.Ops.GetDashboardErrorTrend)
@@ -743,6 +745,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpA
 		// 流超时处理配置
 		adminSettings.GET("/stream-timeout", h.Admin.Setting.GetStreamTimeoutSettings)
 		adminSettings.PUT("/stream-timeout", h.Admin.Setting.UpdateStreamTimeoutSettings)
+		// OpenAI/Codex 响应头超时配置
+		adminSettings.GET("/openai-response-header-timeout", h.Admin.Setting.GetOpenAIResponseHeaderTimeoutSettings)
+		adminSettings.PUT("/openai-response-header-timeout", h.Admin.Setting.UpdateOpenAIResponseHeaderTimeoutSettings)
 		// 请求整流器配置
 		adminSettings.GET("/rectifier", h.Admin.Setting.GetRectifierSettings)
 		adminSettings.PUT("/rectifier", h.Admin.Setting.UpdateRectifierSettings)
@@ -862,6 +867,7 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		usage.GET("/traffic/keys", h.Admin.Usage.TrafficKeys)
 		usage.GET("/traffic/health", h.Admin.Usage.TrafficHealth)
 		usage.GET("/stats", h.Admin.Usage.Stats)
+		usage.GET("/latency-report", h.Admin.Usage.LatencyReport)
 		usage.GET("/connections", h.Admin.Usage.Connections)
 		usage.POST("/connections/edge", h.Admin.Usage.ImportEdgeConnections)
 		usage.GET("/:id/timing", h.Admin.Usage.Timing)

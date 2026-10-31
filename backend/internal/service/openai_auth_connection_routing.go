@@ -101,7 +101,7 @@ func (s *OpenAIGatewayService) prepareAuthConnection(ctx context.Context, c *gin
 	if s.excelOAuthReauth == nil {
 		return nil, errors.New("authorization connection service unavailable")
 	}
-	connections, err := s.excelOAuthReauth.ListAuthConnections(ctx, account.ID)
+	connections, err := s.excelOAuthReauth.listRuntimeAuthConnections(ctx, account.ID)
 	if err != nil {
 		return nil, err
 	}

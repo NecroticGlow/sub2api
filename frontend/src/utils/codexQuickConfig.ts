@@ -56,7 +56,7 @@ const providerNames: Record<CodexQuickConfigPlatform, string> = {
   zhipu: 'Sub2API Zhipu',
   deepseek: 'Sub2API DeepSeek',
   minimax: 'Sub2API MiniMax',
-  opencode_go: 'Sub2API OpenCode',
+  opencode_go: 'Sub2API DeepSeek',
   composite: 'Sub2API Composite'
 }
 

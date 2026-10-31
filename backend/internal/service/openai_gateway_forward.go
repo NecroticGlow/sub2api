@@ -106,6 +106,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if IsOpenAIResponsesCompactPath(c) {
 		endpoint += "/compact"
 	}
+	ctx = WithObservationRequestEffort(ctx, body)
 	ctx, errorScope := withPriorityAttemptScope(ctx, gjson.GetBytes(body, "model").String(), endpoint)
 	defer func() { errorScope.finish(result) }()
 	ctx = s.withOpenAIHTTPBudget(ctx, c)
@@ -167,7 +168,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if _, err := s.prepareCodexAccountIdentitySource(ctx, c, account); err != nil {
 		return nil, err
 	}
-	startTime := time.Now()
+	startTime := requesttiming.Now(ctx)
+	// Record the pre-forward wait for the usage log without changing the
+	// forward-scope Duration/FirstTokenMs used by scheduling and ops.
+	defer func() {
+		if result != nil {
+			applyOpenAIQueueTiming(result, openAIIngressStart(ctx), startTime, startTime, "http_ingress_responses", "pre_final_forward")
+		}
+	}()
 	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。
 	canonicalImageIntentBody := body
 

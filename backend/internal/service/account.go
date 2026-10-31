@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"reflect"
 	"slices"
@@ -251,6 +252,17 @@ func (a *Account) EffectiveLoadFactor() int {
 		return a.Concurrency
 	}
 	return 1
+}
+
+// accountLoadPreferenceRate preserves load_factor as a bounded soft preference
+// after capacity has been measured against real concurrency slots.
+func accountLoadPreferenceRate(account *Account, loadRate int) int {
+	if account == nil || account.Concurrency <= 0 || account.LoadFactor == nil || *account.LoadFactor <= 0 {
+		return loadRate
+	}
+	weight := float64(*account.LoadFactor) / float64(account.Concurrency)
+	weight = math.Max(0.5, math.Min(2, weight))
+	return int(math.Round(float64(max(0, loadRate)) / weight))
 }
 
 func (a *Account) IsSchedulable() bool {

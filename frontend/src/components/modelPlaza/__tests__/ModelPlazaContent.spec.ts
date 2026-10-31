@@ -45,6 +45,20 @@ beforeEach(() => {
 })
 
 describe('ModelPlazaContent', () => {
+  it('brands OpenCode groups as DeepSeek while keeping the actual filter value and model ID', async () => {
+    const group = {
+      ...response.groups[0], name: 'OpenCode GO', platform: 'opencode_go',
+      models: [{ ...response.groups[0].models[0], name: 'beam-free', platform: 'opencode_go' }]
+    }
+    const wrapper = render({ response: { ...response, groups: [group] } })
+    expect(wrapper.text()).toContain('DeepSeek')
+    expect(wrapper.text()).not.toMatch(/opencode/i)
+    await wrapper.get('[data-testid="platform-filter"]').setValue('opencode_go')
+    expect(wrapper.get('.model-card h3').text()).toBe('beam-free')
+    expect(group.platform).toBe('opencode_go')
+    expect(group.name).toBe('OpenCode GO')
+  })
+
   it('retains upstream platform and effective user-rate filters in the custom catalog', async () => {
     const first = response.groups[0]
     const wrapper = render({ response: { ...response, groups: [

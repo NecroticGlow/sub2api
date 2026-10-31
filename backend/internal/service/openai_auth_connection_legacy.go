@@ -83,7 +83,7 @@ func (s *OpenAIOAuthReauthService) legacyAuthConnections(ctx context.Context, a 
 
 // Return to the existing route only by an explicit administrative operation.
 func (s *OpenAIOAuthReauthService) SelectLegacyAuthConnection(ctx context.Context, accountID int64) error {
-	if _, err := s.connectionAccount(ctx, accountID); err != nil {
+	if _, err := s.managementConnectionAccount(ctx, accountID); err != nil {
 		return err
 	}
 	r, err := s.connectionRepository()
@@ -94,6 +94,9 @@ func (s *OpenAIOAuthReauthService) SelectLegacyAuthConnection(ctx context.Contex
 }
 
 func (s *OpenAIOAuthReauthService) RotateConnectionAPIKey(ctx context.Context, accountID int64, id string, revision int64, key string) (*OpenAIAuthConnection, error) {
+	if _, err := s.managementConnectionAccount(ctx, accountID); err != nil {
+		return nil, err
+	}
 	key = strings.TrimSpace(key)
 	lease, err := s.lockAuthConnection(ctx, accountID, id)
 	if err != nil {

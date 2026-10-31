@@ -1,7 +1,7 @@
 # 自定义功能清单与升级保护
 
-最后核对：2026-10-31。当前上游基线：`ranxi2001/sub2api` 正式 tag `v2.18.1`
-（`eb68bc4fd38e6b91ba8a14cf1c66d5fc837141d9`）。
+最后核对：2026-10-31。当前上游基线：`ranxi2001/sub2api` 正式 tag `v2.19.0`
+（`55da3ead72ce6f6126a977c75abf72cb4ad3f394`）。
 维护仓库：`NecroticGlow/sub2api`，发布分支：`main`。
 
 这是后续 AI 和维护者同步源码前必须阅读的清单。代码和测试是实际行为的
@@ -26,6 +26,7 @@
 | 降智/质量测试 | 以 ranxi 完整实现为基础，保留糖果、鹈鹕、定时质量操作及不联网知识题。账号智商测试与质量规则均可选择中文数码知识题和日本首相题；替换旧英文提示词，要求不联网/不用工具/不猜测/不加免责声明，未知项仅写 uncertain。参考答案由管理员指定（iPhone 17 series、2025-09-09 公布、2025-09-19 开售、RTX 5090、Android 16、macOS Tahoe 26、Windows 11 25H2；日本首相为高市早苗），不是实时最新事实查询。切换题目须同步参考答案，不把生成完成等同质量通过；知识题仅走账号渠道，不走 BPS 糖果专用渠道。 | `frontend/src/utils/intelligenceTest.ts`、`IQTestModal.vue`、`AccountQualityView.vue`、Pelican service/schedule/quality tests |
 | 测试历史共享 | 手工测试历史服务端持久化至账号 extra 的 `pelican_manual_history`，最多 8 条；其他管理员可见，不仅存浏览器；保留当前实现的 usage/费用展示。手工显示历史不是权威账单。 | `backend/internal/service/pelican_manual_history.go`、history tests、`pelican_test_usage.go`、IQTestModal |
 | 自定义首页 | 保留 Wanwu 首页、品牌和模型广场定制，不被上游首页覆盖。 | `frontend/src/components/home/WanwuHome.vue`、对应 tests、首页/模型广场入口 |
+| OpenCode 用户侧品牌 | 用户侧分组、平台徽章、模型广场、订阅及导出配置的 OpenCode 渠道显示为 DeepSeek，使用 DeepSeek 色和图标；账号管理仍保留真实 OpenCode 身份。仅展示别名，底层 platform、模型 ID、协议、调度、计费与账号配置不变；OpenCode 客户端导入选项不改名。 | `userPlatformColors.ts`、`UserPlatformIcon.vue`、`UserGroupBadge.vue`、用户侧入口与 branding tests |
 | OpenCode Go 用量 | 保留官方窗口查询、主动刷新/自动刷新、同 Key 组共享、活动防抖、超窗刷新、7d/1m 显示和 lite DTO 字段；账号更新不得清掉托管用量状态。 | OpenCode Go service、repository/DTO、AccountUsageCell 与对应 tests |
 | 账号 429 重试 | 账号配置的同账号重试预算（当前默认 5 次）作用于 HTTP/WS，预算按请求/账号共享；用尽后切换账号，不因包装响应丢失重试标记。禁止为了让旧测试通过而修改生产默认策略。 | `backend/internal/service/upstream_429_retry.go`、retry tests、Grok failover tests |
 | WS 握手超时 | 连接池每次握手遵守配置的 dial timeout，同时保留父请求更早的截止时间；不能因复用池的外层上下文而变成无界等待。 | `backend/internal/service/openai_ws_pool.go`、`TestOpenAIWSConnPool_DialConnUsesPerAttemptTimeout` |
@@ -176,6 +177,17 @@ Vision Exp 当前按 V4.1 Flash 档，别名/第三方 slug 映射以测试为�
   回归覆盖查询/消费合同、拒绝未确认/过期卡、重复消费和前端显示。验收不使用真实重置卡。
 
 ## 同步与发布检查表
+
+### v2.19.0 同步（2026-10-31）
+
+- 合并正式版的 WS 智能协议路由、优先调度生命周期、响应头超时及连接/排队耗时观测。
+  保留账号级 429 重试和 Codex 透支观察，并接入上游测试耗时包装，不用新实现覆盖定制。
+- 新增迁移 320–322；不修改现有账号/分组的底层平台，不擅自开启新 WS 策略。
+- OpenCode 用户侧展示别名见上表；后台账号管理继续显示 OpenCode，避免误改平台导致调度失败。
+- 构建与验证继续服务器 Docker 串行、硬限内存，不调用真实账号，不消耗额度。
+- 本次针对性验证：Ent 合并结构、requesttiming、服务层的新 WS 协议/响应头超时、
+  测试耗时与自定义 429/DeepSeek/Codex 相关回归通过；前端 113 项通过、54 项由
+  平台条件或既有 skip 标记跳过。未进行全量类型检查；构建与上线状态另见此次记录。
 
 ### v2.18.1 同步（2026-10-31）
 

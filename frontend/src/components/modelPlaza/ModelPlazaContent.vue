@@ -155,7 +155,7 @@
             /></label>
             <select v-model="selectedGroup" :aria-label="c.groupFilter" class="group-filter">
               <option value="all">{{ c.allGroups }} ({{ groups.length }})</option>
-              <option v-for="group in groups" :key="group.id" :value="String(group.id)">{{ group.name }} ({{ group.models.length }})</option>
+              <option v-for="group in groups" :key="group.id" :value="String(group.id)">{{ userGroupName(group.name) }} ({{ group.models.length }})</option>
             </select>
             <select v-model="sortOrder" :aria-label="c.sort">
               <option value="popular">{{ c.sortPopular }}</option>
@@ -164,7 +164,7 @@
             </select>
             <select v-model="selectedPlatform" :aria-label="t('modelPlaza.filters.platformLabel')" data-testid="platform-filter">
               <option value="all">{{ t('modelPlaza.filters.platformLabel') }} · {{ t('modelPlaza.filters.all') }}</option>
-              <option v-for="platform in platforms" :key="platform" :value="platform">{{ platform }}</option>
+              <option v-for="platform in platforms" :key="platform" :value="platform">{{ platformLabel(platform) }}</option>
             </select>
             <select v-model="selectedRate" :aria-label="t('modelPlaza.filters.rateLabel')" data-testid="rate-filter">
               <option value="all">{{ t('modelPlaza.filters.rateLabel') }} · {{ t('modelPlaza.filters.all') }}</option>
@@ -261,7 +261,7 @@
                 }}
               </p>
               <div class="tags">
-                <span>{{ model.platform }}</span
+                <span>{{ platformLabel(model.platform) }}</span
                 ><span>{{ model.routes.length }} {{ c.routeCount }}</span>
               </div>
               <div class="prices">
@@ -381,6 +381,7 @@
 </template>
 
 <script setup lang="ts">
+import { userGroupName, userPlatform, platformLabel } from '@/utils/userPlatformColors'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
@@ -462,7 +463,7 @@ const icons: Record<string, string> = {
   zhipu: 'glm'
 }
 function providerLabel(id: string) {
-  return labels[id] || id
+  return labels[userPlatform(id)] || id
 }
 const providers = computed(() =>
   [...new Set(catalog.value.map((m) => modelProvider(m.name, m.platform)))]

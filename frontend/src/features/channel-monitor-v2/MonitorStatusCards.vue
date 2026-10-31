@@ -111,7 +111,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId,
 import { useI18n } from 'vue-i18n'
 import type { MonitorCandyResult, MonitorCoverage, MonitorMatrixBucket, MonitorMatrixRow } from '@/api/channelMonitorV2'
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
-import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { useChannelMonitorFormat } from '@/composables/useUserChannelMonitorFormat'
 import { formatMonitorMs, formatMonitorPercent } from './monitorFormat'
 import { candyDisplayState, candyHistoryLimit, candyHistorySlots, hasMonitorSamples, MONITOR_CARD_SLOT_COUNT, monitorCandyHistories, monitorCardTimeline, monitorCardTimelineMode, type MonitorCardTimelineMode } from './monitorCards'
 

@@ -15,13 +15,13 @@
       <div class="mb-3 flex items-start justify-between gap-2">
         <div class="min-w-0 flex-1">
           <h3
-            :title="plan.name"
+            :title="userGroupName(plan.name)"
             class="h-12 min-w-0 break-words [overflow-wrap:anywhere] text-base font-bold leading-6 text-gray-900 dark:text-white line-clamp-2"
           >
-            {{ plan.name }}
+            {{ userGroupName(plan.name) }}
           </h3>
           <p v-if="plan.description" class="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-dark-400 line-clamp-2">
-            {{ plan.description }}
+            {{ userGroupName(plan.description) }}
           </p>
         </div>
         <div class="shrink-0 text-right">
@@ -114,6 +114,7 @@ import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLa
 import { planValiditySuffix } from './validity'
 import { currencySymbol } from '@/components/payment/currency'
 import {
+  userGroupName,
   platformAccentBarClass,
   platformBadgeLightClass,
   platformBorderClass,
@@ -122,7 +123,7 @@ import {
   platformButtonClass,
   platformDiscountClass,
   platformLabel,
-} from '@/utils/platformColors'
+} from '@/utils/userPlatformColors'
 
 const props = defineProps<{ plan: SubscriptionPlan; activeSubscriptions?: UserSubscription[] }>()
 const emit = defineEmits<{ select: [plan: SubscriptionPlan] }>()

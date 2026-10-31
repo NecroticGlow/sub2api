@@ -10,7 +10,6 @@ import (
 	"net/http/httptrace"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/util/transportdiag"
 )
@@ -48,7 +47,7 @@ func startAttempt(req *http.Request, accountID, proxyID int64, kind string, pare
 		return req, nil
 	}
 	idx := len(c.data.Attempts)
-	c.data.Attempts = append(c.data.Attempts, Attempt{Route: transportdiag.HTTPRoute(req), Kind: kind, Parent: parent, Number: idx + 1, AccountID: accountID, ProxyID: proxyID, StartMS: c.offset(time.Now()), RequestBytes: req.ContentLength, Events: map[string]float64{}})
+	c.data.Attempts = append(c.data.Attempts, Attempt{Route: transportdiag.HTTPRoute(req), Kind: kind, Parent: parent, Number: idx + 1, AccountID: accountID, ProxyID: proxyID, StartMS: c.offset(c.now()), RequestBytes: req.ContentLength, Events: map[string]float64{}})
 	c.mu.Unlock()
 	t := &Trace{c: c, index: idx}
 	ctx := context.WithValue(req.Context(), attemptKey{}, t)
@@ -65,13 +64,13 @@ func (t *Trace) update(fn func(*Attempt)) {
 	}
 }
 func (t *Trace) mark(name string) {
-	t.update(func(a *Attempt) { a.Events[name] = t.c.offset(time.Now()) })
+	t.update(func(a *Attempt) { a.Events[name] = t.c.offset(t.c.now()) })
 }
 func (t *Trace) clientTrace() *httptrace.ClientTrace {
 	return &httptrace.ClientTrace{
 		GetConn: func(string) { t.mark("connection_start") },
 		GotConn: func(i httptrace.GotConnInfo) {
-			t.update(func(a *Attempt) { v := i.Reused; a.Reused = &v; a.Events["connection_ready"] = t.c.offset(time.Now()) })
+			t.update(func(a *Attempt) { v := i.Reused; a.Reused = &v; a.Events["connection_ready"] = t.c.offset(t.c.now()) })
 		},
 		DNSStart: func(httptrace.DNSStartInfo) { t.mark("dns_start") }, DNSDone: func(httptrace.DNSDoneInfo) { t.mark("dns_end") },
 		ConnectStart: func(string, string) { t.mark("tcp_start") }, ConnectDone: func(string, string, error) { t.mark("tcp_end") },
@@ -79,10 +78,25 @@ func (t *Trace) clientTrace() *httptrace.ClientTrace {
 		WroteHeaders: func() { t.mark("headers_written") }, WroteRequest: func(i httptrace.WroteRequestInfo) {
 			if i.Err == nil {
 				t.mark("request_written")
+			} else {
+				t.mark("request_write_failed")
 			}
 		},
 		GotFirstResponseByte: func() { t.mark("first_byte") },
 	}
+}
+
+// Headers marks Client.Do returning complete headers, before any body wrapper
+// (notably gzip initialization) can wait for body bytes. Response preserves it.
+func (t *Trace) Headers(resp *http.Response) {
+	if resp == nil {
+		return
+	}
+	t.update(func(a *Attempt) {
+		if _, ok := a.Events["response_headers"]; !ok {
+			a.Events["response_headers"] = t.c.offset(t.c.now())
+		}
+	})
 }
 func (t *Trace) Response(resp *http.Response, err error) {
 	if t == nil {
@@ -95,10 +109,12 @@ func (t *Trace) Response(resp *http.Response, err error) {
 		if resp != nil {
 			a.Status = resp.StatusCode
 			a.Route.ResponseFormat = transportdiag.ResponseFormat(resp.Header)
-			a.Events["response_headers"] = t.c.offset(time.Now())
+			if _, ok := a.Events["response_headers"]; !ok {
+				a.Events["response_headers"] = t.c.offset(t.c.now())
+			}
 		}
 		if err != nil || resp == nil || resp.Body == nil {
-			v := t.c.offset(time.Now())
+			v := t.c.offset(t.c.now())
 			a.EndMS = &v
 		}
 	})
@@ -151,7 +167,7 @@ func (b *responseBody) Read(p []byte) (int, error) {
 	return n, err
 }
 func (b *responseBody) end() {
-	b.once.Do(func() { b.trace.update(func(a *Attempt) { v := b.trace.c.offset(time.Now()); a.EndMS = &v }) })
+	b.once.Do(func() { b.trace.update(func(a *Attempt) { v := b.trace.c.offset(b.trace.c.now()); a.EndMS = &v }) })
 }
 func (b *responseBody) Close() error {
 	b.closing.Store(true)
@@ -187,7 +203,7 @@ func Stage(ctx context.Context, name string) {
 	if t.c.finished {
 		return
 	}
-	now := t.c.offset(time.Now())
+	now := t.c.offset(t.c.now())
 	for index := t.index; index >= 0; {
 		a := &t.c.data.Attempts[index]
 		if _, ok := a.Events[name]; !ok {

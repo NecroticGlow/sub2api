@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -247,7 +248,10 @@ type OpenAIForwardResult struct {
 	// UsageUnavailable prevents a protocol without upstream usage from being
 	// recorded or billed as if it reported an authoritative zero-token result.
 	UsageUnavailable bool
-	Model            string // 原始模型（用于响应和日志显示）
+	// ObservedUsageOnError permits settlement of authoritative usage on a strict
+	// smart session error, without interpreting absent output as non-execution.
+	ObservedUsageOnError bool
+	Model                string // 原始模型（用于响应和日志显示）
 	// BillingModel is the model used for cost calculation.
 	// When non-empty, CalculateCost uses this instead of Model.
 	// This is set by the Anthropic Messages conversion path where
@@ -279,14 +283,31 @@ type OpenAIForwardResult struct {
 	RequestedReasoningEffort *string
 	Stream                   bool
 	OpenAIWSMode             bool
+	UpstreamProtocol         string
+	ProtocolDecisionReason   string
+	FirstUpstreamEventMs     *int
+	FirstActualContentMs     *int
+	FirstActualContentKind   string
 	// UpstreamTerminalEvent is the normalized terminal event observed on an
 	// upstream Responses WebSocket turn. Empty preserves legacy/non-WS success.
 	UpstreamTerminalEvent string
 	ResponseHeaders       http.Header
 	Duration              time.Duration
 	FirstTokenMs          *int
-	ClientDisconnect      bool
-	ImageCount            int
+	// QueueWait records pre-forward elapsed time. Legacy timers have protocol-specific
+	// overlap; consumers use QueueTiming instead of blindly adding it.
+	QueueWait time.Duration
+	// QueueWaitMeasured distinguishes a measured zero wait from a path without
+	// an ingress clock (historical/other endpoints), so usage rows can record
+	// 0 for new non-queued requests and NULL for unknown.
+	QueueTiming       *QueueTiming
+	QueueWaitMeasured bool
+	// HeaderTimeoutRetries counts submitted attempts that timed out waiting for
+	// response headers before the successful attempt. The usage record adds one
+	// 1:1 surcharge unit per retry because the upstream may have billed it.
+	HeaderTimeoutRetries int
+	ClientDisconnect     bool
+	ImageCount           int
 	// ImageEndpoint 标记请求来自专用图片端点；分组 image_count_billing 开关
 	// 只对这类请求生效，混合 Responses/Chat/WS 请求仍按 token 计费。
 	ImageEndpoint      bool
@@ -316,6 +337,28 @@ type OpenAIForwardResult struct {
 	// Local stream-read timeout is not an observed upstream terminal event.
 	// Keep observed partial usage without reporting a successful generation.
 	streamReadIncomplete bool
+}
+
+const maxOpenAIQueueWait = time.Hour
+
+// openAIQueueWait returns the wait between request arrival and the start of the
+// upstream forward attempt, plus whether an ingress clock was actually present.
+// The logger middleware stores request arrival in ctxkey.RequestStartTime;
+// callers that do not have it (tests, internal jobs) report unmeasured rather
+// than guessing a zero.
+func openAIQueueWait(ctx context.Context, forwardStart time.Time) (time.Duration, bool) {
+	if ctx == nil || forwardStart.IsZero() {
+		return 0, false
+	}
+	requestStart, ok := ctx.Value(ctxkey.RequestStartTime).(time.Time)
+	if !ok || requestStart.IsZero() || forwardStart.Before(requestStart) {
+		return 0, false
+	}
+	wait := forwardStart.Sub(requestStart)
+	if wait > maxOpenAIQueueWait {
+		wait = maxOpenAIQueueWait
+	}
+	return wait, true
 }
 
 // SucceededForScheduling reports whether this result is an upstream success
@@ -469,6 +512,7 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
+	smartProtocolHistory    openAISmartProtocolHistory
 	requestTimezoneEgress   openAIRequestTimezoneEgress
 	requestTimezoneProber   ProxyExitInfoProber
 	stopAstraSetup          func()

@@ -1,5 +1,5 @@
 <template>
-  <section class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600" data-testid="auth-connections">
+  <section v-if="eligible" class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600" data-testid="auth-connections">
     <h3 class="font-medium">{{ t('openaiAuth.title') }}</h3>
     <p class="input-hint">{{ t('openaiAuth.hint') }}</p>
     <p class="input-hint">{{ t('openaiAuth.sharedLimits') }}</p>
@@ -36,7 +36,7 @@
           <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || connection.status !== 'active' || !connection.capabilities.length || (!!connection.refresh_state && connection.refresh_state !== 'idle')" data-testid="select-connection" @click="mutate(connection, 'select')">{{ t('openaiAuth.select') }}</button>
           <button v-if="connection.status === 'active' && connection.refresh_state && connection.refresh_state !== 'idle'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'recover')">{{ t('openaiAuth.recoverRefresh') }}</button>
           <button v-if="connection.kind !== 'api_key'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="authorize(connection)">{{ t('openaiAuth.authorize') }}</button>
-          <button v-else type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="rotation = connection; apiKey = ''">{{ t('openaiAuth.rotate') }}</button>
+          <button v-else type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="rotation = connection">{{ t('openaiAuth.rotate') }}</button>
           <button v-if="connection.status === 'active'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'disable')">{{ t('openaiAuth.disable') }}</button>
           <button v-if="connection.status === 'disabled'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'enable')">{{ t('openaiAuth.enable') }}</button>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || connection.status === 'unlinked'" @click="revocation = connection">{{ t('openaiAuth.unlink') }}</button>
@@ -46,16 +46,12 @@
     <div class="space-y-2" data-testid="add-connection-fields">
       <label :for="`connection-kind-${accountId}`" class="input-label">{{ t('openaiAuth.kind') }}</label>
       <select :id="`connection-kind-${accountId}`" v-model="kind" class="input" :disabled="busy">
-        <option value="codex">Codex</option><option value="bps">BPS</option><option value="siwc">SIWC</option><option value="api_key">{{ t('openaiAuth.apiKey') }}</option>
+        <option value="codex">Codex</option><option value="bps">BPS</option><option value="siwc">SIWC</option>
       </select>
       <label :for="`connection-label-${accountId}`" class="input-label">{{ t('openaiAuth.label') }}</label>
       <input :id="`connection-label-${accountId}`" v-model="label" class="input" maxlength="120" autocomplete="off" :disabled="busy" data-testid="connection-label" />
-      <template v-if="kind === 'api_key'">
-        <label :for="`connection-key-${accountId}`" class="input-label">{{ t('openaiAuth.apiKey') }}</label>
-        <input :id="`connection-key-${accountId}`" v-model="apiKey" type="password" class="input" autocomplete="new-password" :disabled="busy" />
-      </template>
       <p v-if="kind === 'siwc'" class="input-hint">{{ t('openaiAuth.siwcApproval') }}</p>
-      <button type="button" class="btn btn-secondary btn-sm" @click="add" :disabled="busy || !label.trim() || (kind === 'api_key' && !apiKey.trim())" data-testid="add-connection">{{ t('openaiAuth.add') }}</button>
+      <button type="button" class="btn btn-secondary btn-sm" @click="add" :disabled="busy || !label.trim()" data-testid="add-connection">{{ t('openaiAuth.add') }}</button>
     </div>
     <div v-if="authorization" class="space-y-2" data-testid="connection-authorization">
       <p>{{ t('openaiAuth.authorizing', { label: authorization.label }) }}</p>
@@ -80,16 +76,16 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { authorizeConnection, completeConnection, createAuthConnection, listAuthConnections, revokeConnection, rotateConnectionAPIKey, updateAuthConnection, useLegacyConnections, type ConnectionKind, type OpenAIAuthConnection } from '@/api/admin/openaiAuthConnections'
+import { authorizeConnection, completeConnection, createAuthConnection, listAuthConnections, revokeConnection, rotateConnectionAPIKey, updateAuthConnection, useLegacyConnections, type OAuthConnectionKind, type OpenAIAuthConnection } from '@/api/admin/openaiAuthConnections'
 
-const props = defineProps<{ accountId: number; active: boolean }>()
+const props = defineProps<{ accountId: number; accountType: string; active: boolean }>()
 const { t } = useI18n()
+const eligible = computed(() => props.active && props.accountType === 'oauth')
 const connections = ref<OpenAIAuthConnection[]>([])
-const kind = ref<ConnectionKind>('codex')
+const kind = ref<OAuthConnectionKind>('codex')
 const label = ref('')
-const apiKey = ref('')
 const callback = ref('')
 const rotationKey = ref('')
 const busy = ref(false)
@@ -99,13 +95,15 @@ const authorization = ref<{ id: string; label: string; auth_url: string; session
 const rotation = ref<OpenAIAuthConnection | null>(null)
 const revocation = ref<OpenAIAuthConnection | null>(null)
 let generation = 0
-function clearSecrets() { rotationKey.value = ''; apiKey.value = ''; callback.value = ''; authorization.value = null; rotation.value = null; revocation.value = null }
+function clearSecrets() { rotationKey.value = ''; callback.value = ''; authorization.value = null; rotation.value = null; revocation.value = null }
 async function reload() {
+  if (!eligible.value) return
   const current = generation
   const next = await listAuthConnections(props.accountId)
-  if (current === generation && props.active) connections.value = next
+  if (current === generation && eligible.value) connections.value = next
 }
 async function run(action: (id: number, current: number) => Promise<void>) {
+  if (!eligible.value) return
   const current = generation
   const id = props.accountId
   busy.value = true; error.value = ''; notice.value = ''
@@ -115,8 +113,8 @@ async function run(action: (id: number, current: number) => Promise<void>) {
 }
 async function refresh() { await run(async () => { await reload() }) }
 async function add() {
-  const input = { kind: kind.value, label: label.value.trim(), ...(kind.value === 'api_key' ? { api_key: apiKey.value.trim() } : {}) }
-  apiKey.value = ''
+  if (!['codex', 'bps', 'siwc'].includes(kind.value)) return
+  const input = { kind: kind.value, label: label.value.trim() }
   await run(async (id, current) => { await createAuthConnection(id, input); if (current === generation) { label.value = ''; await reload() } })
 }
 async function mutate(c: OpenAIAuthConnection, action: 'select' | 'disable' | 'enable' | 'recover') {
@@ -144,9 +142,9 @@ async function unlink() {
     if (current === generation) { clearSecrets(); notice.value = t(result.remote_revocation_confirmed ? 'openaiAuth.revoked' : 'openaiAuth.revocationUnconfirmed'); await reload() }
   })
 }
-watch(() => [props.accountId, props.active] as const, () => {
+watch(() => [props.accountId, props.active, props.accountType] as const, () => {
   generation++; clearSecrets(); connections.value = []; busy.value = false; error.value = ''; notice.value = ''
-  if (props.active) void run(async () => { await reload() })
+  if (eligible.value) void run(async () => { await reload() })
 }, { immediate: true })
 onBeforeUnmount(() => { generation++; clearSecrets() })
 </script>

@@ -258,6 +258,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   kimi: 'Kimi',
   zhipu: 'Zhipu GLM',
   deepseek: 'DeepSeek',
+  opencode_go: 'DeepSeek',
   minimax: 'MiniMax',
   typesafe: 'TypeSafe / Jev',
 }

@@ -222,6 +222,7 @@
 </template>
 
 <script setup lang="ts">
+import { userGroupName } from '@/utils/userPlatformColors'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -425,7 +426,7 @@ const apiKeyOptions = computed<SelectOption[]>(() => [
 ])
 const groupOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allGroups') },
-  ...groups.value.map((group) => ({ value: group.id, label: group.name })),
+  ...groups.value.map((group) => ({ value: group.id, label: userGroupName(group.name) })),
 ])
 const modelOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allModels') },

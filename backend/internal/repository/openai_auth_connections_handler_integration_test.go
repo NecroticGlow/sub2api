@@ -47,8 +47,8 @@ func TestIssue594ReviewRealHTTPSelectionSlotsOutputAndUsage(t *testing.T) {
 		_, _ = f.db.Exec(`DELETE FROM groups WHERE id=$1`, group.ID)
 		_, _ = f.db.Exec(`DELETE FROM users WHERE id=$1`, user.ID)
 	})
-	first := connectionResponse(t, f.request("POST", "", `{"kind":"api_key","label":"HTTP one","api_key":"synthetic-http-one"}`))
-	second := connectionResponse(t, f.request("POST", "", `{"kind":"api_key","label":"HTTP two","api_key":"synthetic-http-two"}`))
+	first := f.seedHistoricalAPIKey(t, "HTTP one", "synthetic-http-one")
+	second := f.seedHistoricalAPIKey(t, "HTTP two", "synthetic-http-two")
 	connectionResponse(t, f.request("PATCH", "/"+first.ID, `{"revision":1,"action":"select"}`))
 	var mu sync.Mutex
 	accepted := map[string]string{}

@@ -60,6 +60,9 @@ func (s *OpenAIOAuthReauthService) encryptConnectionCredentials(c *OpenAIAuthCon
 }
 
 func (s *OpenAIOAuthReauthService) BeginConnectionAuthorization(ctx context.Context, accountID int64, id string) (*OpenAIAuthURLResult, error) {
+	if _, err := s.managementConnectionAccount(ctx, accountID); err != nil {
+		return nil, err
+	}
 	c, err := s.authConnection(ctx, accountID, id)
 	if err != nil {
 		return nil, err
@@ -143,6 +146,9 @@ func (s *OpenAIOAuthReauthService) BeginConnectionAuthorization(ctx context.Cont
 }
 
 func (s *OpenAIOAuthReauthService) CompleteConnectionAuthorization(ctx context.Context, accountID int64, id, sessionID, callback string) error {
+	if _, err := s.managementConnectionAccount(ctx, accountID); err != nil {
+		return err
+	}
 	c, err := s.authConnection(ctx, accountID, id)
 	if err != nil {
 		return err
@@ -437,6 +443,9 @@ func (s *OpenAIOAuthReauthService) ConnectionAccessToken(ctx context.Context, ac
 func stringCredential(creds map[string]any, key string) string { v, _ := creds[key].(string); return v }
 
 func (s *OpenAIOAuthReauthService) RevokeAuthConnection(ctx context.Context, accountID int64, id string, revision int64) (bool, error) {
+	if _, err := s.managementConnectionAccount(ctx, accountID); err != nil {
+		return false, err
+	}
 	lease, err := s.lockAuthConnection(ctx, accountID, id)
 	if err != nil {
 		return false, err

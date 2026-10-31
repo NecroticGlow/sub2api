@@ -45685,6 +45685,8 @@ type UsageLogMutation struct {
 	addduration_ms               *int
 	first_token_ms               *int
 	addfirst_token_ms            *int
+	queue_wait_ms                *int
+	addqueue_wait_ms             *int
 	user_agent                   *string
 	ip_address                   *string
 	image_count                  *int
@@ -45700,6 +45702,7 @@ type UsageLogMutation struct {
 	video_duration_seconds       *int
 	addvideo_duration_seconds    *int
 	cache_ttl_overridden         *bool
+	queue_timing                 *map[string]interface{}
 	created_at                   *time.Time
 	clearedFields                map[string]struct{}
 	user                         *int64
@@ -47572,6 +47575,76 @@ func (m *UsageLogMutation) ResetFirstTokenMs() {
 	delete(m.clearedFields, usagelog.FieldFirstTokenMs)
 }
 
+// SetQueueWaitMs sets the "queue_wait_ms" field.
+func (m *UsageLogMutation) SetQueueWaitMs(i int) {
+	m.queue_wait_ms = &i
+	m.addqueue_wait_ms = nil
+}
+
+// QueueWaitMs returns the value of the "queue_wait_ms" field in the mutation.
+func (m *UsageLogMutation) QueueWaitMs() (r int, exists bool) {
+	v := m.queue_wait_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldQueueWaitMs returns the old "queue_wait_ms" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldQueueWaitMs(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldQueueWaitMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldQueueWaitMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldQueueWaitMs: %w", err)
+	}
+	return oldValue.QueueWaitMs, nil
+}
+
+// AddQueueWaitMs adds i to the "queue_wait_ms" field.
+func (m *UsageLogMutation) AddQueueWaitMs(i int) {
+	if m.addqueue_wait_ms != nil {
+		*m.addqueue_wait_ms += i
+	} else {
+		m.addqueue_wait_ms = &i
+	}
+}
+
+// AddedQueueWaitMs returns the value that was added to the "queue_wait_ms" field in this mutation.
+func (m *UsageLogMutation) AddedQueueWaitMs() (r int, exists bool) {
+	v := m.addqueue_wait_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearQueueWaitMs clears the value of the "queue_wait_ms" field.
+func (m *UsageLogMutation) ClearQueueWaitMs() {
+	m.queue_wait_ms = nil
+	m.addqueue_wait_ms = nil
+	m.clearedFields[usagelog.FieldQueueWaitMs] = struct{}{}
+}
+
+// QueueWaitMsCleared returns if the "queue_wait_ms" field was cleared in this mutation.
+func (m *UsageLogMutation) QueueWaitMsCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldQueueWaitMs]
+	return ok
+}
+
+// ResetQueueWaitMs resets all changes to the "queue_wait_ms" field.
+func (m *UsageLogMutation) ResetQueueWaitMs() {
+	m.queue_wait_ms = nil
+	m.addqueue_wait_ms = nil
+	delete(m.clearedFields, usagelog.FieldQueueWaitMs)
+}
+
 // SetUserAgent sets the "user_agent" field.
 func (m *UsageLogMutation) SetUserAgent(s string) {
 	m.user_agent = &s
@@ -48182,6 +48255,55 @@ func (m *UsageLogMutation) ResetCacheTTLOverridden() {
 	m.cache_ttl_overridden = nil
 }
 
+// SetQueueTiming sets the "queue_timing" field.
+func (m *UsageLogMutation) SetQueueTiming(value map[string]interface{}) {
+	m.queue_timing = &value
+}
+
+// QueueTiming returns the value of the "queue_timing" field in the mutation.
+func (m *UsageLogMutation) QueueTiming() (r map[string]interface{}, exists bool) {
+	v := m.queue_timing
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldQueueTiming returns the old "queue_timing" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldQueueTiming(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldQueueTiming is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldQueueTiming requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldQueueTiming: %w", err)
+	}
+	return oldValue.QueueTiming, nil
+}
+
+// ClearQueueTiming clears the value of the "queue_timing" field.
+func (m *UsageLogMutation) ClearQueueTiming() {
+	m.queue_timing = nil
+	m.clearedFields[usagelog.FieldQueueTiming] = struct{}{}
+}
+
+// QueueTimingCleared returns if the "queue_timing" field was cleared in this mutation.
+func (m *UsageLogMutation) QueueTimingCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldQueueTiming]
+	return ok
+}
+
+// ResetQueueTiming resets all changes to the "queue_timing" field.
+func (m *UsageLogMutation) ResetQueueTiming() {
+	m.queue_timing = nil
+	delete(m.clearedFields, usagelog.FieldQueueTiming)
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *UsageLogMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -48387,7 +48509,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 47)
+	fields := make([]string, 0, 49)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -48490,6 +48612,9 @@ func (m *UsageLogMutation) Fields() []string {
 	if m.first_token_ms != nil {
 		fields = append(fields, usagelog.FieldFirstTokenMs)
 	}
+	if m.queue_wait_ms != nil {
+		fields = append(fields, usagelog.FieldQueueWaitMs)
+	}
 	if m.user_agent != nil {
 		fields = append(fields, usagelog.FieldUserAgent)
 	}
@@ -48525,6 +48650,9 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.cache_ttl_overridden != nil {
 		fields = append(fields, usagelog.FieldCacheTTLOverridden)
+	}
+	if m.queue_timing != nil {
+		fields = append(fields, usagelog.FieldQueueTiming)
 	}
 	if m.created_at != nil {
 		fields = append(fields, usagelog.FieldCreatedAt)
@@ -48605,6 +48733,8 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.DurationMs()
 	case usagelog.FieldFirstTokenMs:
 		return m.FirstTokenMs()
+	case usagelog.FieldQueueWaitMs:
+		return m.QueueWaitMs()
 	case usagelog.FieldUserAgent:
 		return m.UserAgent()
 	case usagelog.FieldIPAddress:
@@ -48629,6 +48759,8 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.VideoDurationSeconds()
 	case usagelog.FieldCacheTTLOverridden:
 		return m.CacheTTLOverridden()
+	case usagelog.FieldQueueTiming:
+		return m.QueueTiming()
 	case usagelog.FieldCreatedAt:
 		return m.CreatedAt()
 	}
@@ -48708,6 +48840,8 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldDurationMs(ctx)
 	case usagelog.FieldFirstTokenMs:
 		return m.OldFirstTokenMs(ctx)
+	case usagelog.FieldQueueWaitMs:
+		return m.OldQueueWaitMs(ctx)
 	case usagelog.FieldUserAgent:
 		return m.OldUserAgent(ctx)
 	case usagelog.FieldIPAddress:
@@ -48732,6 +48866,8 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldVideoDurationSeconds(ctx)
 	case usagelog.FieldCacheTTLOverridden:
 		return m.OldCacheTTLOverridden(ctx)
+	case usagelog.FieldQueueTiming:
+		return m.OldQueueTiming(ctx)
 	case usagelog.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	}
@@ -48981,6 +49117,13 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetFirstTokenMs(v)
 		return nil
+	case usagelog.FieldQueueWaitMs:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetQueueWaitMs(v)
+		return nil
 	case usagelog.FieldUserAgent:
 		v, ok := value.(string)
 		if !ok {
@@ -49065,6 +49208,13 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetCacheTTLOverridden(v)
 		return nil
+	case usagelog.FieldQueueTiming:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetQueueTiming(v)
+		return nil
 	case usagelog.FieldCreatedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -49134,6 +49284,9 @@ func (m *UsageLogMutation) AddedFields() []string {
 	if m.addfirst_token_ms != nil {
 		fields = append(fields, usagelog.FieldFirstTokenMs)
 	}
+	if m.addqueue_wait_ms != nil {
+		fields = append(fields, usagelog.FieldQueueWaitMs)
+	}
 	if m.addimage_count != nil {
 		fields = append(fields, usagelog.FieldImageCount)
 	}
@@ -49187,6 +49340,8 @@ func (m *UsageLogMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedDurationMs()
 	case usagelog.FieldFirstTokenMs:
 		return m.AddedFirstTokenMs()
+	case usagelog.FieldQueueWaitMs:
+		return m.AddedQueueWaitMs()
 	case usagelog.FieldImageCount:
 		return m.AddedImageCount()
 	case usagelog.FieldVideoCount:
@@ -49328,6 +49483,13 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddFirstTokenMs(v)
 		return nil
+	case usagelog.FieldQueueWaitMs:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddQueueWaitMs(v)
+		return nil
 	case usagelog.FieldImageCount:
 		v, ok := value.(int)
 		if !ok {
@@ -49396,6 +49558,9 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	if m.FieldCleared(usagelog.FieldFirstTokenMs) {
 		fields = append(fields, usagelog.FieldFirstTokenMs)
 	}
+	if m.FieldCleared(usagelog.FieldQueueWaitMs) {
+		fields = append(fields, usagelog.FieldQueueWaitMs)
+	}
 	if m.FieldCleared(usagelog.FieldUserAgent) {
 		fields = append(fields, usagelog.FieldUserAgent)
 	}
@@ -49422,6 +49587,9 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(usagelog.FieldVideoDurationSeconds) {
 		fields = append(fields, usagelog.FieldVideoDurationSeconds)
+	}
+	if m.FieldCleared(usagelog.FieldQueueTiming) {
+		fields = append(fields, usagelog.FieldQueueTiming)
 	}
 	return fields
 }
@@ -49476,6 +49644,9 @@ func (m *UsageLogMutation) ClearField(name string) error {
 	case usagelog.FieldFirstTokenMs:
 		m.ClearFirstTokenMs()
 		return nil
+	case usagelog.FieldQueueWaitMs:
+		m.ClearQueueWaitMs()
+		return nil
 	case usagelog.FieldUserAgent:
 		m.ClearUserAgent()
 		return nil
@@ -49502,6 +49673,9 @@ func (m *UsageLogMutation) ClearField(name string) error {
 		return nil
 	case usagelog.FieldVideoDurationSeconds:
 		m.ClearVideoDurationSeconds()
+		return nil
+	case usagelog.FieldQueueTiming:
+		m.ClearQueueTiming()
 		return nil
 	}
 	return fmt.Errorf("unknown UsageLog nullable field %s", name)
@@ -49613,6 +49787,9 @@ func (m *UsageLogMutation) ResetField(name string) error {
 	case usagelog.FieldFirstTokenMs:
 		m.ResetFirstTokenMs()
 		return nil
+	case usagelog.FieldQueueWaitMs:
+		m.ResetQueueWaitMs()
+		return nil
 	case usagelog.FieldUserAgent:
 		m.ResetUserAgent()
 		return nil
@@ -49648,6 +49825,9 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldCacheTTLOverridden:
 		m.ResetCacheTTLOverridden()
+		return nil
+	case usagelog.FieldQueueTiming:
+		m.ResetQueueTiming()
 		return nil
 	case usagelog.FieldCreatedAt:
 		m.ResetCreatedAt()

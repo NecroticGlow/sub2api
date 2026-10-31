@@ -58,7 +58,7 @@ func TestIssue594ReviewUncertainRefreshNeverReplaysOldGrant(t *testing.T) {
 func TestIssue594ReviewExpiredLeaseCannotCommitOldCredentials(t *testing.T) {
 	f := newConnectionHTTPFixture(t)
 	ctx := context.Background()
-	c := connectionResponse(t, f.request("POST", "", `{"kind":"api_key","label":"lease fence","api_key":"synthetic-key"}`))
+	c := f.seedHistoricalAPIKey(t, "lease fence", "synthetic-key")
 	acquired, err := f.repo.AcquireAuthConnectionLease(ctx, f.accountID, c.ID, "expired-worker")
 	require.NoError(t, err)
 	require.True(t, acquired)

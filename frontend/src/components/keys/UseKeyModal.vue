@@ -1328,7 +1328,7 @@ function generateRoutedCodexFiles(
     zhipu: 'Zhipu',
     deepseek: 'DeepSeek',
     minimax: 'MiniMax',
-    opencode_go: 'OpenCode',
+    opencode_go: 'DeepSeek',
     typesafe: 'TypeSafe / Jev',
     command_code: 'Command Code',
     cline: 'Cline',

@@ -26,6 +26,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { userPlatform } from '@/utils/userPlatformColors'
 import type { Provider } from '@/api/admin/channelMonitor'
 
 interface IconData {
@@ -98,7 +99,7 @@ const props = withDefaults(defineProps<{
 })
 
 const iconInfo = computed<IconData | null>(() => {
-  const key = props.provider as Provider
+  const key = userPlatform(props.provider) as Provider
   return PROVIDER_ICONS[key] ?? null
 })
 

@@ -38,11 +38,12 @@ func TestIssue594LeaseTakeoverCannotAdoptAnotherOwnersProof(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			f := newConnectionHTTPFixture(t)
 			ctx := context.Background()
-			input := `{"kind":"api_key","label":"lease takeover","api_key":"synthetic-takeover-key"}`
+			var c *service.OpenAIAuthConnection
 			if action == "refresh" {
-				input = `{"kind":"siwc","label":"refresh lease takeover"}`
+				c = connectionResponse(t, f.request("POST", "", `{"kind":"siwc","label":"refresh lease takeover"}`))
+			} else {
+				c = f.seedHistoricalAPIKey(t, "lease takeover", "synthetic-takeover-key")
 			}
-			c := connectionResponse(t, f.request("POST", "", input))
 
 			var network atomic.Int32
 			if action == "refresh" {

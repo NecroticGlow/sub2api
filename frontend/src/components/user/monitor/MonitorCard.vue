@@ -83,7 +83,7 @@ import type { UserMonitorView } from '@/api/channelMonitor'
 import {
   useChannelMonitorFormat,
   providerGradient,
-} from '@/composables/useChannelMonitorFormat'
+} from '@/composables/useUserChannelMonitorFormat'
 import { isChannelMonitorQuotaVisible } from '@/utils/featureFlags'
 import ProviderIcon from './ProviderIcon.vue'
 import MonitorMetricPair from './MonitorMetricPair.vue'
@@ -101,7 +101,7 @@ const PROVIDER_TINT: Record<string, string> = {
   kimi: 'text-pink-600 dark:text-pink-300',
   zhipu: 'text-indigo-600 dark:text-indigo-300',
   deepseek: 'text-teal-600 dark:text-teal-300',
-  opencode_go: 'text-amber-700 dark:text-amber-300',
+  opencode_go: 'text-teal-600 dark:text-teal-300',
 }
 
 const props = defineProps<{

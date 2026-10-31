@@ -172,6 +172,10 @@ func (s *OpenAIGatewayService) priorityHistory(req OpenAIAccountScheduleRequest,
 			group = &value
 		}
 		query := PrioritySchedulingQuery{LatencyPercentile: c.LatencyPercentile, LatencyMeasurement: c.LatencyMeasurement, TargetTTFTMs: c.TargetTTFTMs, AccountIDs: ids, Model: priorityHistoryModel(req), QualityModel: strings.TrimSpace(req.RequestedModel), GroupID: group, UsageUntil: now, UsageSince: now.Add(-time.Duration(c.WindowMinutes) * time.Minute), QualitySince: now.Add(-time.Duration(c.QualityMaxAgeHours) * time.Hour)}
+		if req.ObservationEffortScoped {
+			value := req.ObservationEffort
+			query.ObservationEffort = &value
+		}
 		state.launches[state.launchIndex] = now
 		state.launchIndex = (state.launchIndex + 1) % len(state.launches)
 		entry.refreshing = true
@@ -304,7 +308,7 @@ func priorityHistoryKey(req OpenAIAccountScheduleRequest, c PrioritySchedulingCo
 	// The action changes admission, not the measured population. Switching soft
 	// and stop must retain the exact same model/group/measurement evidence.
 	c.LatencyPenaltyMode = PriorityLatencyDeprioritize
-	return fmt.Sprintf("%q/%q/%d/%t/%d/%d", priorityHistoryModel(req), strings.TrimSpace(req.RequestedModel), derefGroupID(req.GroupID), req.GroupID != nil, c.WindowMinutes, c.QualityMaxAgeHours) + "/" + priorityConfigRevision(c)
+	return fmt.Sprintf("%q/%q/%d/%t/%d/%d/%t/%q", priorityHistoryModel(req), strings.TrimSpace(req.RequestedModel), derefGroupID(req.GroupID), req.GroupID != nil, c.WindowMinutes, c.QualityMaxAgeHours, req.ObservationEffortScoped, req.ObservationEffort) + "/" + priorityConfigRevision(c)
 }
 
 // Include every scoring setting so stale scopes never mix targets or semantics.

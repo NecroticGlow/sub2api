@@ -23,7 +23,7 @@
         v-if="showPlatform && model.platform"
         class="rounded bg-gray-200/60 px-1 text-[10px] uppercase text-gray-600 dark:bg-dark-700 dark:text-gray-400"
       >
-        {{ model.platform }}
+        {{ platformLabel(model.platform) }}
       </span>
       {{ model.name }}
     </span>
@@ -50,7 +50,7 @@
             v-if="model.platform"
             class="flex-shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] uppercase tracking-wide dark:bg-dark-900/60"
           >
-            {{ model.platform }}
+            {{ platformLabel(model.platform) }}
           </span>
         </div>
 
@@ -173,6 +173,7 @@
 </template>
 
 <script setup lang="ts">
+import { userGroupName, platformLabel } from '@/utils/userPlatformColors'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PricingRow from './PricingRow.vue'
@@ -186,9 +187,9 @@ import {
 // 复用 api/channels.ts 的用户侧最小形态 DTO。
 // admin 侧 ChannelModelPricing 字段更多，但结构上是用户 DTO 的超集，admin 视图传入可直接通过结构化子类型检查。
 import type { UserPricingInterval, UserSupportedModel, UserSupportedModelPricing } from '@/api/channels'
-import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import PlatformIcon from '@/components/common/UserPlatformIcon.vue'
 import type { GroupPlatform } from '@/types'
-import { platformBadgeClass, platformBorderClass, platformBadgeLightClass } from '@/utils/platformColors'
+import { platformBadgeClass, platformBorderClass, platformBadgeLightClass } from '@/utils/userPlatformColors'
 
 const props = withDefaults(
   defineProps<{

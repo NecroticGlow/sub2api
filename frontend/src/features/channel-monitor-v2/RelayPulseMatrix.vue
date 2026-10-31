@@ -177,7 +177,7 @@ import type {
 } from '@/api/channelMonitorV2'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { useChannelMonitorFormat } from '@/composables/useUserChannelMonitorFormat'
 import {
   formatLatencyPrivacy,
   formatMonitorMs,

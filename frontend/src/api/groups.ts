@@ -3,6 +3,7 @@
  * Handles group-related operations for regular users
  */
 
+import { userGroupName } from '@/utils/userPlatformColors'
 import { apiClient } from './client'
 import type { Group } from '@/types'
 
@@ -15,7 +16,7 @@ import type { Group } from '@/types'
  */
 export async function getAvailable(): Promise<Group[]> {
   const { data } = await apiClient.get<Group[]>('/groups/available')
-  return data
+  return data.map(group => ({ ...group, name: userGroupName(group.name) }))
 }
 
 /**

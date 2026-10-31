@@ -1,6 +1,7 @@
 import { apiClient } from '../client'
 
-export type ConnectionKind = 'codex' | 'bps' | 'siwc' | 'api_key'
+export type OAuthConnectionKind = 'codex' | 'bps' | 'siwc'
+export type ConnectionKind = OAuthConnectionKind | 'api_key'
 export interface OpenAIAuthConnection {
   id: string
   account_id: number
@@ -25,7 +26,12 @@ export interface OpenAIAuthConnection {
 }
 const path = (id: number) => `/admin/accounts/${id}/auth-connections`
 export const listAuthConnections = async (id: number): Promise<OpenAIAuthConnection[]> => (await apiClient.get(path(id))).data
-export const createAuthConnection = async (id: number, input: { kind: ConnectionKind; label: string; api_key?: string }): Promise<OpenAIAuthConnection> => (await apiClient.post(path(id), input)).data
+export const createAuthConnection = async (id: number, input: { kind: OAuthConnectionKind; label: string }): Promise<OpenAIAuthConnection> => {
+  if (!['codex', 'bps', 'siwc'].includes(input.kind) || 'api_key' in input) {
+    throw new Error('OAuth connections cannot register API keys')
+  }
+  return (await apiClient.post(path(id), input)).data
+}
 export const updateAuthConnection = async (id: number, c: OpenAIAuthConnection, action: 'select' | 'disable' | 'enable' | 'unlink' | 'recover'): Promise<OpenAIAuthConnection> => (await apiClient.patch(`${path(id)}/${c.id}`, { revision: c.revision, action })).data
 export const authorizeConnection = async (id: number, connectionId: string): Promise<{ auth_url: string; session_id: string }> => (await apiClient.post(`${path(id)}/${connectionId}/authorize`)).data
 export const completeConnection = async (id: number, connectionId: string, sessionId: string, callbackUrl: string): Promise<void> => { await apiClient.post(`${path(id)}/${connectionId}/callback`, { session_id: sessionId, callback_url: callbackUrl }) }

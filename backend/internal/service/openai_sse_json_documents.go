@@ -164,6 +164,7 @@ func (s *openAISSEJSONDocumentScanner) observeTimingLine(line string) {
 	// separator/EOF. Incomplete multiline JSON is joined only for diagnostics.
 	requesttiming.Stage(s.ctx, "sse_parsed_first")
 	eventType := effectiveOpenAISSEEventType(s.timingData, s.timingEventType)
+	requesttiming.Content(s.ctx, s.timingData, eventType)
 	if openAIStreamDataStartsVisibleOutput(string(s.timingData), eventType) {
 		requesttiming.Stage(s.ctx, "sse_visible_first")
 	}

@@ -717,7 +717,11 @@ type UpstreamFailoverError struct {
 	RequestScopedTransient   bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
 	Account429RetryExhausted bool          // 本请求对该账号的透明 429 额外重试预算已耗尽（仅诊断；后续仍执行官方流程）
 	SafeToFailoverAfterWrite bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
-	BoundUpstreamPassthrough bool          // 绑定显式缓存的请求在上游网关账号上收到的 429 / 5xx：反映持有缓存的上游账号状态，原样回写不走错误映射
+	// HeaderTimeoutSubmitted marks a failover caused by an OpenAI response-header
+	// timeout after the request was written. The upstream may have billed the
+	// attempt; the successful usage record adds one retry surcharge unit.
+	HeaderTimeoutSubmitted   bool
+	BoundUpstreamPassthrough bool // 绑定显式缓存的请求在上游网关账号上收到的 429 / 5xx：反映持有缓存的上游账号状态，原样回写不走错误映射
 	Stage                    GatewayFailureStage
 	Scope                    GatewayFailureScope
 	Reason                   GatewayFailureReason

@@ -497,7 +497,7 @@ import MonitorTrendChart from '@/features/channel-monitor-v2/MonitorTrendChart.v
 import RelayPulseMatrix from '@/features/channel-monitor-v2/RelayPulseMatrix.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { useChannelMonitorFormat } from '@/composables/useUserChannelMonitorFormat'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isChannelMonitorThroughputHidden, isChannelMonitorUserRankingHidden } from '@/utils/featureFlags'
 import * as api from '@/api/channelMonitorV2'

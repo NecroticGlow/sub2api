@@ -40,14 +40,14 @@
               <div>
                 <div class="flex items-center gap-2">
                   <h3 class="font-semibold text-gray-900 dark:text-white">
-                    {{ subscription.group?.name || `Group #${subscription.group_id}` }}
+                    {{ userGroupName(subscription.group?.name || '') || `Group #${subscription.group_id}` }}
                   </h3>
                   <span :class="['rounded-md border px-2 py-0.5 text-[11px] font-medium', platformBadgeClass(subscription.group?.platform || '')]">
                     {{ platformLabel(subscription.group?.platform || '') }}
                   </span>
                 </div>
                 <p v-if="subscription.group?.description" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
-                  {{ subscription.group.description }}
+                  {{ userGroupName(subscription.group.description) }}
                 </p>
                 <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
                   <span>{{ t('payment.planCard.rate') }}: ×{{ subscription.group?.rate_multiplier ?? 1 }}</span>
@@ -258,7 +258,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTimeToMinute } from '@/utils/format'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
-import { platformBorderClass, platformBadgeClass, platformButtonClass, platformLabel } from '@/utils/platformColors'
+import { userGroupName, platformBorderClass, platformBadgeClass, platformButtonClass, platformLabel } from '@/utils/userPlatformColors'
 import {
   getExpirationDateRelation,
   getRemainingDurationParts,
@@ -272,6 +272,8 @@ function platformAccentDotClass(p: string): string {
     case 'openai': return 'bg-emerald-500'
     case 'antigravity': return 'bg-purple-500'
     case 'gemini': return 'bg-blue-500'
+    case 'deepseek':
+    case 'opencode_go': return 'bg-teal-500'
     default: return 'bg-gray-400'
   }
 }

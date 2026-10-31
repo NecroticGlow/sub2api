@@ -1274,6 +1274,7 @@
 </template>
 
 <script setup lang="ts">
+import { userGroupName } from '@/utils/userPlatformColors'
 	import { ref, reactive, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
@@ -1297,7 +1298,7 @@ import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
 	import CodexQuickConfigModal from '@/components/keys/CodexQuickConfigModal.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
-	import GroupBadge from '@/components/common/GroupBadge.vue'
+	import GroupBadge from '@/components/common/UserGroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 	import type { ApiKey, ApiKeyConcurrencySnapshot, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
@@ -1305,8 +1306,8 @@ import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
 import CcSwitchImportModal from '@/components/keys/CcSwitchImportModal.vue'
-import PlatformIcon from '@/components/common/PlatformIcon.vue'
-import { platformBadgeLightClass } from '@/utils/platformColors'
+import PlatformIcon from '@/components/common/UserPlatformIcon.vue'
+import { platformBadgeLightClass } from '@/utils/userPlatformColors'
 import { KEY_GROUP_PROVIDERS, KEY_GROUP_PROVIDER_ICONS, getKeyGroupProvider, type KeyGroupProvider } from '@/utils/keyGroupProviders'
 
 import { isCodexQuickConfigPlatform } from '@/utils/codexQuickConfig'
@@ -1696,7 +1697,7 @@ const onStatusFilterChange = (value: string | number | boolean | null) => {
 const groupOptions = computed(() =>
   groups.value.map((group) => ({
     value: group.id,
-    label: group.name,
+    label: userGroupName(group.name),
     description: group.description,
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,

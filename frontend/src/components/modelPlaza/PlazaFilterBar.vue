@@ -17,7 +17,7 @@
           @click="$emit('update:platform', p)"
         >
           <PlatformIcon v-if="p !== 'all'" :platform="p as GroupPlatform" size="xs" />
-          {{ p === 'all' ? t('modelPlaza.filters.all') : p }}
+          {{ p === 'all' ? t('modelPlaza.filters.all') : platformLabel(p) }}
         </button>
       </div>
     </div>
@@ -46,7 +46,7 @@
           :disabled="!groupEnabled(g)"
           @click="$emit('update:groupId', g.id)"
         >
-          {{ g.name }}
+          {{ userGroupName(g.name) }}
         </button>
       </div>
     </div>
@@ -111,10 +111,11 @@
 </template>
 
 <script setup lang="ts">
+import { userGroupName, platformLabel } from '@/utils/userPlatformColors'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
-import PlatformIcon from '@/components/common/PlatformIcon.vue'
-import { platformAccentColor } from '@/utils/platformColors'
+import PlatformIcon from '@/components/common/UserPlatformIcon.vue'
+import { platformAccentColor } from '@/utils/userPlatformColors'
 import type { GroupPlatform } from '@/types'
 
 const props = defineProps<{

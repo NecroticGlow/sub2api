@@ -99,7 +99,31 @@ func (s *OpenAIOAuthReauthService) connectionAccount(ctx context.Context, id int
 	return a, nil
 }
 
+// Management accepts only OAuth parents. Keep connectionAccount and the internal
+// readers compatible with persisted API key grants still used by inference.
+func (s *OpenAIOAuthReauthService) managementConnectionAccount(ctx context.Context, id int64) (*Account, error) {
+	if _, err := s.connectionRepository(); err != nil {
+		return nil, err
+	}
+	a, err := s.connectionAccount(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if a.Type != AccountTypeOAuth {
+		return nil, infraerrors.BadRequest("OPENAI_CONNECTION_ACCOUNT_INVALID", "Connections require an OpenAI OAuth parent account")
+	}
+	return a, nil
+}
+
 func (s *OpenAIOAuthReauthService) ListAuthConnections(ctx context.Context, id int64) ([]*OpenAIAuthConnection, error) {
+	if _, err := s.managementConnectionAccount(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.listRuntimeAuthConnections(ctx, id)
+}
+
+// Internal inference read: also accepts historical managed API key parents.
+func (s *OpenAIOAuthReauthService) listRuntimeAuthConnections(ctx context.Context, id int64) ([]*OpenAIAuthConnection, error) {
 	r, err := s.connectionRepository()
 	if err != nil {
 		return nil, err
@@ -127,7 +151,7 @@ func (s *OpenAIOAuthReauthService) CreateAuthConnection(ctx context.Context, id 
 	if err != nil {
 		return nil, err
 	}
-	if _, err = s.connectionAccount(ctx, id); err != nil {
+	if _, err = s.managementConnectionAccount(ctx, id); err != nil {
 		return nil, err
 	}
 	input.Label = strings.TrimSpace(input.Label)
@@ -145,20 +169,6 @@ func (s *OpenAIOAuthReauthService) CreateAuthConnection(ctx context.Context, id 
 			c.HostID = "urn:uuid:" + uuid.NewString()
 			c.Resource = openai.SIWCResource
 		}
-	case "api_key":
-		key := strings.TrimSpace(input.APIKey)
-		if key == "" || len(key) > 16384 {
-			return nil, infraerrors.BadRequest("OPENAI_CONNECTION_API_KEY_REQUIRED", "An API key is required")
-		}
-		if err = s.ensureDurableEncryption(); err != nil {
-			return nil, err
-		}
-		if err = s.encryptConnectionCredentials(c, map[string]any{"api_key": key}); err != nil {
-			return nil, err
-		}
-		c.Status = "active"
-		c.Capabilities = []string{"responses", "chat_completions", "embeddings"}
-		c.Resource = "https://api.openai.com/v1"
 	default:
 		return nil, infraerrors.BadRequest("OPENAI_CONNECTION_KIND_INVALID", "Unknown authorization connection kind")
 	}
@@ -172,7 +182,7 @@ func (s *OpenAIOAuthReauthService) authConnection(ctx context.Context, accountID
 	if _, err := uuid.Parse(id); err != nil {
 		return nil, infraerrors.BadRequest("OPENAI_CONNECTION_ID_INVALID", "Invalid connection ID")
 	}
-	connections, err := s.ListAuthConnections(ctx, accountID)
+	connections, err := s.listRuntimeAuthConnections(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +195,9 @@ func (s *OpenAIOAuthReauthService) authConnection(ctx context.Context, accountID
 }
 
 func (s *OpenAIOAuthReauthService) UpdateAuthConnection(ctx context.Context, accountID int64, id string, input UpdateOpenAIAuthConnectionInput) (*OpenAIAuthConnection, error) {
+	if _, err := s.managementConnectionAccount(ctx, accountID); err != nil {
+		return nil, err
+	}
 	c, err := s.authConnection(ctx, accountID, id)
 	if err != nil {
 		return nil, err

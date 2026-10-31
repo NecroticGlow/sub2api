@@ -72,7 +72,7 @@
               ]"
             >
               <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ section.platform }}
+              {{ platformLabel(section.platform) }}
             </span>
           </td>
 
@@ -208,7 +208,7 @@
               ]"
             >
               <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ section.platform }}
+              {{ platformLabel(section.platform) }}
             </span>
 
             <dl class="mt-3 space-y-3">
@@ -320,14 +320,15 @@
 </template>
 
 <script setup lang="ts">
+import { platformLabel } from '@/utils/userPlatformColors'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
-import PlatformIcon from '@/components/common/PlatformIcon.vue'
-import GroupBadge from '@/components/common/GroupBadge.vue'
+import PlatformIcon from '@/components/common/UserPlatformIcon.vue'
+import GroupBadge from '@/components/common/UserGroupBadge.vue'
 import SupportedModelChip from './SupportedModelChip.vue'
 import type { UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection } from '@/api/channels'
 import type { GroupPlatform, SubscriptionType } from '@/types'
-import { platformBadgeClass } from '@/utils/platformColors'
+import { platformBadgeClass } from '@/utils/userPlatformColors'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 

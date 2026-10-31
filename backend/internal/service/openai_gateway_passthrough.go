@@ -2446,6 +2446,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthroughWithImage(
 					requesttiming.Stage(ctx, "sse_visible_first")
 				}
 			}
+			requesttiming.Content(ctx, []byte(trimmedData), eventType)
 			requesttiming.Output(ctx, openAIStreamDataStartsSemanticTTFT(trimmedData, eventType), openAIStreamDataStartsVisibleOutput(trimmedData, eventType), timingTerminal(eventType))
 			if firstTokenMs == nil && openAIStreamDataStartsTTFT(trimmedData, eventType, forceFlushFailedEvent, ttftMode) {
 				ms := int(time.Since(startTime).Milliseconds())

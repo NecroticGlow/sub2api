@@ -119,7 +119,7 @@
             <PlatformIcon :platform="group.platform as GroupPlatform" size="sm" />
           </span>
           <div class="min-w-0">
-            <h2 class="truncate text-base font-semibold text-gray-900 dark:text-white">{{ group.name }}</h2>
+            <h2 class="truncate text-base font-semibold text-gray-900 dark:text-white">{{ userGroupName(group.name) }}</h2>
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ platformLabel(group.platform) }}
               · {{ t('pelicanShowcase.itemCount', { count: group.items.length }) }}
@@ -137,13 +137,13 @@
           {{ t('pelicanShowcase.groupEmpty') }}
         </div>
         <!-- Items arrive newest first, so the newest card is on the left and older ones continue to the right. -->
-        <PelicanShowcaseRow v-else :label="t('pelicanShowcase.scrollLabel', { group: group.name })">
+        <PelicanShowcaseRow v-else :label="t('pelicanShowcase.scrollLabel', { group: userGroupName(group.name) })">
           <PelicanShowcaseCard
             v-for="item in group.items"
             :key="item.id"
             :class="CARD_WIDTH"
             :item="item"
-            :group-name="group.name"
+            :group-name="userGroupName(group.name)"
             :body="bodies[item.id]"
             @visible="requestBody(item.id)"
             @open="openPreview(group, item)"
@@ -172,7 +172,7 @@
         <!-- Chips instead of "·" separators, so a wrapped line never starts with a dot on phones. -->
         <div class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 text-xs text-gray-500 dark:text-gray-400">
           <span class="inline-flex items-center rounded-md px-1.5 py-0.5 font-medium" :class="platformBadgeLightClass(preview.group.platform)">
-            {{ preview.group.name }}
+            {{ userGroupName(preview.group.name) }}
           </span>
           <span>{{ formatDateTimeToMinute(preview.item.generated_at) }}</span>
           <span v-if="previewEffort" class="rounded-md bg-gray-100 px-1.5 py-0.5 text-gray-600 dark:bg-dark-700 dark:text-gray-300">
@@ -240,13 +240,14 @@
 </template>
 
 <script setup lang="ts">
+import { userGroupName } from '@/utils/userPlatformColors'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import PlatformIcon from '@/components/common/UserPlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PelicanArtworkPreview from '@/components/user/pelican/PelicanArtworkPreview.vue'
 import PelicanShowcaseApiDialog from '@/components/user/pelican/PelicanShowcaseApiDialog.vue'
@@ -271,7 +272,7 @@ import type { GroupPlatform } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTimeToMinute, formatRelativeTime } from '@/utils/format'
 import { extractPelicanHtml } from '@/utils/pelicanHtml'
-import { platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
+import { platformBadgeLightClass, platformLabel } from '@/utils/userPlatformColors'
 
 const MAX_CONCURRENT_BODIES = 4
 // Use 70% of the former width at every breakpoint; artwork keeps its 4:3 ratio.
@@ -303,7 +304,7 @@ const groups = computed(() => (view.value?.enabled ? view.value.groups : []))
 const apiItemId = computed(() => groups.value.find((group) => group.items.length)?.items[0]?.id)
 const tabs = computed(() => [
   { key: 'all' as TabKey, label: t('pelicanShowcase.allGroups'), count: undefined as number | undefined },
-  ...groups.value.map((group) => ({ key: group.id as TabKey, label: group.name, count: group.items.length })),
+  ...groups.value.map((group) => ({ key: group.id as TabKey, label: userGroupName(group.name), count: group.items.length })),
 ])
 const shownGroups = computed(() =>
   activeGroup.value === 'all' ? groups.value : groups.value.filter((group) => group.id === activeGroup.value)
@@ -311,7 +312,7 @@ const shownGroups = computed(() =>
 const previewBody = computed(() => (preview.value ? bodies[preview.value.item.id] : undefined))
 const previewTitle = computed(() =>
   preview.value
-    ? t('pelicanShowcase.previewTitle', { group: preview.value.group.name, model: preview.value.item.model_id || '—' })
+    ? t('pelicanShowcase.previewTitle', { group: userGroupName(preview.value.group.name), model: preview.value.item.model_id || '—' })
     : ''
 )
 const previewEffort = computed(() => (preview.value ? pelicanEffortLabel(t, preview.value.item.reasoning_effort) : ''))

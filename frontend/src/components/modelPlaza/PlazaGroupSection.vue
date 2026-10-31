@@ -78,11 +78,11 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
-import GroupBadge from '@/components/common/GroupBadge.vue'
+import GroupBadge from '@/components/common/UserGroupBadge.vue'
 import PlazaModelPricingTable from './PlazaModelPricingTable.vue'
 import type { ModelPlazaGroup } from '@/api/modelPlaza'
 import type { GroupPlatform, SubscriptionType } from '@/types'
-import { platformBorderStrongClass } from '@/utils/platformColors'
+import { platformBorderStrongClass } from '@/utils/userPlatformColors'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 import { useAppStore } from '@/stores/app'
 

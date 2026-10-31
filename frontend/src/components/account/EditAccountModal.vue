@@ -27,8 +27,8 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
-      <OpenAIAuthConnections v-if="account.platform === 'openai' && ['oauth', 'apikey'].includes(account.type) && !isSparkShadow"
-        :account-id="account.id" :active="show" />
+      <OpenAIAuthConnections v-if="account.platform === 'openai' && account.type === 'oauth' && !isSparkShadow"
+        :account-id="account.id" :account-type="account.type" :active="show" />
 
       <SIWCAccountSettings v-if="account.platform === 'openai' && account.type === 'oauth' && !isSparkShadow"
         v-model:enabled="siwcEnabled" :account-id="account.id" :active="show" />

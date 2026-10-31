@@ -7,6 +7,7 @@ export interface TimingAttempt {
   body_eof: boolean; events: Record<string, number>
 }
 export interface RequestTiming {
+  latency?: { version: number; status: string; account_switches: number; same_account_retries: number; unknown_transitions: number; large_body: boolean; cost_status: string; extra_upload_component_ms: number | null; extra_wait_component_ms: number | null; attempts: { number: number; transition: string; failed: boolean; body_upload: { ms: number | null; status: string }; post_upload_first_content_wait: { ms: number | null; status: string }; post_upload_first_visible_wait: { ms: number | null; status: string } }[] }
   identity_source?: string
   auth_rejection?: string
   outcome?: string; client_disconnect: boolean; version: number; trace_id: string; started_at: string; total_ms: number; status: number; canceled: boolean

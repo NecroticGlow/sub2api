@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,8 +101,8 @@ func TestIssue594HTTPDatabaseCoexistenceRotationUnlinkAndLegacy(t *testing.T) {
 	f := newConnectionHTTPFixture(t)
 	ctx := context.Background()
 
-	first := connectionResponse(t, f.request("POST", "", `{"kind":"api_key","label":"First key","api_key":"synthetic-first-key"}`))
-	second := connectionResponse(t, f.request("POST", "", `{"kind":"api_key","label":"Second key","api_key":"synthetic-second-key"}`))
+	first := f.seedHistoricalAPIKey(t, "First key", "synthetic-first-key")
+	second := f.seedHistoricalAPIKey(t, "Second key", "synthetic-second-key")
 	require.NotEqual(t, first.ID, second.ID)
 	var ciphertext string
 	require.NoError(t, f.db.QueryRow(`SELECT credentials_ciphertext FROM openai_auth_connections WHERE id=$1`, first.ID).Scan(&ciphertext))
@@ -229,4 +231,40 @@ func TestIssue594DatabaseCASAndCrossInstanceLease(t *testing.T) {
 	rows, err = f.repo.ListAuthConnections(ctx, f.accountID)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
+}
+
+// Explicit upgrade fixture, not a management API shortcut: production no longer
+// permits creating these grants, but pre-upgrade encrypted rows remain valid.
+func (f *connectionHTTPFixture) seedHistoricalAPIKey(t *testing.T, label, key string) *service.OpenAIAuthConnection {
+	t.Helper()
+	c := &service.OpenAIAuthConnection{ID: uuid.NewString(), AccountID: f.accountID, Kind: "api_key", Label: label, Status: "active", RefreshState: "idle", Revision: 1, Scopes: []string{}, Capabilities: []string{"responses", "chat_completions", "embeddings"}, Resource: "https://api.openai.com/v1"}
+	raw, err := json.Marshal(map[string]any{"_connection_id": c.ID, "_account_id": strconv.FormatInt(c.AccountID, 10), "_connection_kind": c.Kind, "_connection_subject": c.Subject, "api_key": key})
+	require.NoError(t, err)
+	c.CredentialsCiphertext, err = f.encryptor.Encrypt(string(raw))
+	require.NoError(t, err)
+	require.NoError(t, f.repo.CreateAuthConnection(context.Background(), c))
+	return c
+}
+
+func TestOpenAIConnectionDatabaseRegistrationBoundary(t *testing.T) {
+	f := newConnectionHTTPFixture(t)
+	rejected := f.request("POST", "", `{"kind":"api_key","label":"Mixed","api_key":"synthetic-rejected"}`)
+	require.Equal(t, 400, rejected.Code, rejected.Body.String())
+	for _, kind := range []string{"codex", "bps", "siwc"} {
+		created := connectionResponse(t, f.request("POST", "", fmt.Sprintf(`{"kind":%q,"label":"Synthetic OAuth"}`, kind)))
+		require.Equal(t, kind, created.Kind)
+	}
+	// Type, not credential shape, controls the account management boundary.
+	_, err := f.db.Exec(`UPDATE accounts SET type='apikey' WHERE id=$1`, f.accountID)
+	require.NoError(t, err)
+	for _, request := range []struct{ method, body string }{
+		{"GET", ""}, {"POST", `{"kind":"codex","label":"Denied"}`},
+	} {
+		response := f.request(request.method, "", request.body)
+		require.Equal(t, 400, response.Code, response.Body.String())
+		require.Contains(t, response.Body.String(), "OPENAI_CONNECTION_ACCOUNT_INVALID")
+	}
+	rows, err := f.repo.ListAuthConnections(context.Background(), f.accountID)
+	require.NoError(t, err)
+	require.Len(t, rows, 3, "stored grants must remain untouched")
 }
