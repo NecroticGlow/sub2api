@@ -66,65 +66,43 @@ func (s *OpenAIGatewayService) handleCodexQuotaOverdraftUpstream429(
 }
 
 func (s *OpenAIGatewayService) processCodexQuotaOverdraftUsageSnapshot(
-	ctx context.Context,
-	accountID int64,
-	now time.Time,
-	updates map[string]any,
+	ctx context.Context, accountID int64, now time.Time, updates map[string]any,
 ) {
-	persistSnapshot := codexQuotaOverdraftSnapshotPrearmReached(updates) || s.getCodexSnapshotThrottle().Allow(accountID, now)
 	businessSuccess := codexQuotaOverdraftWasInjected(ctx, accountID)
-
-	go func() {
-		updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Use upstream's bounded/coalescing writer and atomic freshness fencing.
+	// Do not run a second unfenced UpdateExtra alongside connection snapshots.
+	s.getCodexSnapshotThrottle().submitCodex(s.accountRepo, accountID, updates, func(workerCtx context.Context, latest map[string]any) error {
+		updateCtx, cancel := context.WithTimeout(workerCtx, 5*time.Second)
 		defer cancel()
 		if s.accountRepo == nil {
-			return
+			return nil
 		}
-		var account *Account
-		current, err := s.accountRepo.GetByID(updateCtx, accountID)
-		if err == nil {
-			account = current
+		written, err := persistCodexUsageUpdates(updateCtx, s.accountRepo, accountID, latest)
+		if err != nil {
+			return err
 		}
-		// Account-level disable skips only overdraft state/coordinator work. The
-		// ordinary Codex usage snapshot must still be persisted for the UI.
-		if !isCodexQuotaOverdraftAccount(account) {
-			if persistSnapshot {
-				if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err == nil {
-					notifyOpenAIAutoReset(accountID)
-				}
-			}
-			return
-		}
-		if !persistSnapshot && s.codexQuotaOverdraft != nil {
-			if account != nil {
-				state, hasState := codexQuotaOverdraftStateFromAccount(account)
-				_, wasExhausted := codexQuotaOverdraftSignalFromAccount(account, state, now)
-				persistSnapshot = wasExhausted || hasState && state.Status != codexQuotaOverdraftProbeRecovered
-			}
-		}
-		if persistSnapshot {
-			if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err != nil {
-				return
-			}
+		if written {
 			notifyOpenAIAutoReset(accountID)
 		}
 		if s.codexQuotaOverdraft == nil {
-			return
+			return nil
 		}
-		if account == nil {
-			current, err := s.accountRepo.GetByID(updateCtx, accountID)
-			if err != nil || current == nil {
-				return
-			}
-			account = current
+		account, err := s.accountRepo.GetByID(updateCtx, accountID)
+		if err != nil {
+			return err
 		}
-		mergeAccountExtra(account, updates)
+		if !isCodexQuotaOverdraftAccount(account) {
+			return nil
+		}
+		// Reload authoritative extra: a stale rejected observation must not arm
+		// the overdraft coordinator or overwrite a newer usage window.
 		if businessSuccess {
 			s.codexQuotaOverdraft.observeBusinessSuccess(account, "")
 		} else {
 			s.codexQuotaOverdraft.observeAccount(account, "")
 		}
-	}()
+		return nil
+	})
 }
 
 func (s *OpenAIGatewayService) observeCodexQuotaOverdraftScheduleSuccess(

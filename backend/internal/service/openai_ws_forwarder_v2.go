@@ -43,6 +43,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	if s == nil || account == nil {
 		return nil, wrapOpenAIWSFallback("invalid_state", errors.New("service or account is nil"))
 	}
+	ctx = withOpenAITransportMode(ctx, "ctx_pool")
 	responseModelObserver := &upstreamResponseModelObserver{}
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
@@ -446,6 +447,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if err == nil {
 			err = s.checkOpenAIWSBinding(latest, mappedModel, lease.conn.turnBinding)
 		}
+		if err == nil {
+			_, err = s.beginPriorityLatencyTurn(ctx, c, account, originalModel)
+		}
 		if err != nil {
 			s.invalidateOpenAIWSTurnStateAfterAdmissionFailure(
 				ctx,
@@ -503,6 +507,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			return err
 		}
 		if err := controlledSubmission(ctx, "native_ws"); err != nil {
+			return err
+		}
+		if err := s.priorityLatencyBeforeSend(ctx, account); err != nil {
 			return err
 		}
 		if err := lease.WriteJSONWithContextTimeout(ctx, value, s.openAIWSWriteTimeout()); err != nil {
@@ -857,11 +864,18 @@ readLoop:
 			s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
 			errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(message)
 			s.persistOpenAIWSRateLimitSignal(ctx, account, lease.HandshakeHeaders(), message, errCodeRaw, errTypeRaw, errMsgRaw, mappedModel)
-			errMsg := strings.TrimSpace(errMsgRaw)
+			errMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(errMsgRaw))
 			if errMsg == "" {
 				errMsg = "Upstream websocket error"
 			}
 			fallbackReason, canFallback := classifyOpenAIWSErrorEventFromRaw(errCodeRaw, errTypeRaw, errMsgRaw)
+			if openAIEncryptedErrorCode(errCodeRaw) {
+				errMsg = openAIEncryptedErrorRedacted
+			}
+			if fallbackReason == openAIWSFallbackReasonInvalidEncryptedContent {
+				// 已向下游写出时返回的普通错误不携带 fallback reason，由 Forward 读取该标记补记 lineage。
+				markOpenAIStreamInvalidEncryptedContent(c, message)
+			}
 			errCode, errType, errMessage := summarizeOpenAIWSErrorEventFieldsFromRaw(errCodeRaw, errTypeRaw, errMsgRaw)
 			logOpenAIWSModeInfo(
 				"error_event account_id=%d conn_id=%s idx=%d fallback_reason=%s can_fallback=%v err_code=%s err_type=%s err_message=%s",

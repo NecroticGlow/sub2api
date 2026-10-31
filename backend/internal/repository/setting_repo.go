@@ -38,6 +38,36 @@ func (r *settingRepository) SetContentModerationConfig(ctx context.Context, valu
 	return nil
 }
 
+// CompareAndSetContentModerationConfig prevents stale JSON writes across instances.
+// Group locks keep the existing deletion lock order; the conditional UPDATE is atomic.
+func (r *settingRepository) CompareAndSetContentModerationConfig(ctx context.Context, value, previous string, groupIDs []int64) error {
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	client := tx.Client()
+	if err := lockLiveGroups(ctx, client, groupIDs); err != nil {
+		return err
+	}
+	if previous == "" {
+		// Initialize only an absent setting; Ignore preserves any concurrently created row.
+		if err := client.Setting.Create().SetKey(service.SettingKeyContentModerationConfig).SetValue("").
+			OnConflictColumns(setting.FieldKey).Ignore().Exec(ctx); err != nil {
+			return err
+		}
+	}
+	count, err := client.Setting.Update().Where(setting.KeyEQ(service.SettingKeyContentModerationConfig), setting.ValueEQ(previous)).
+		SetValue(value).SetUpdatedAt(time.Now()).Save(ctx)
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return service.ErrContentModerationConfigConflict
+	}
+	return tx.Commit()
+}
+
 type settingRepository struct {
 	client *ent.Client
 }
@@ -83,6 +113,20 @@ func (r *settingRepository) Set(ctx context.Context, key, value string) error {
 		OnConflictColumns(setting.FieldKey).
 		UpdateNewValues().
 		Exec(ctx)
+}
+
+// ReplaceExistingAdminAPIKey 原子轮换仍存在的旧版管理员密钥。
+// 受影响行数为零表示密钥已被删除或不存在，绝不能通过 upsert 重新创建。
+func (r *settingRepository) ReplaceExistingAdminAPIKey(ctx context.Context, value string) (bool, error) {
+	n, err := r.client.Setting.Update().
+		Where(setting.KeyEQ(service.SettingKeyAdminAPIKey), setting.ValueNEQ("")).
+		SetValue(value).
+		SetUpdatedAt(time.Now()).
+		Save(ctx)
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }
 
 func (r *settingRepository) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {

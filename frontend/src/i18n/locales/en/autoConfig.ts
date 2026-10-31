@@ -1,4 +1,43 @@
 export default {
+  admission: {
+    "pending": "Awaiting admission: 21 streak {count}/{required}",
+    "passed": "Admission passed",
+    "isolated": "Isolated: automatic upgrades stopped",
+    "isolationPending": "Isolation group unavailable; customer scheduling paused until isolation can finish",
+    "streak29": "29 streak {count}/{required}",
+    "outcomes": {
+        "admission_passed": "Admission passed; scheduling enabled",
+        "admission_isolated": "Moved to isolation group",
+        "admission_conflict": "Admission snapshot mismatch; account unchanged",
+        "admission_isolation_pending": "Isolation group unavailable; customer scheduling paused"
+    },
+    "title": "Verify new OpenAI 2FA accounts before scheduling",
+    "hint": "Applies only to applicable accounts newly created through 2FA import after saving. They start at concurrency 1 with customer scheduling off; background tests continue. Relogin and duplicate imports never reinitialize them.",
+    "model": "Test model",
+    "effort": "Reasoning effort",
+    "wait_seconds": "Wait after completion (seconds)",
+    "pass_count": "Consecutive complete answers of 21",
+    "passed_concurrency": "Concurrency after passing",
+    "isolation_count": "Consecutive complete answers of 29",
+    "group": "Isolation target group",
+    "chooseGroup": "Select an active OpenAI group",
+    "unavailableGroup": "Group #{id} is unavailable; choose another",
+    "active": "Active",
+    "passHint": "After {count} complete answers of 21 in a row, set concurrency to {concurrency} and enable scheduling. Normal upgrades count customer successes starting after admission.",
+    "isolationRule": "After {count} complete answers of 29 in a row, move to the selected isolation group.",
+    "isolationHint": "Isolation removes all original groups, preserves the proxy and current concurrency, and stops automatic upgrades. Tests continue, but later correct answers never restore the account automatically. Saved changes apply only to new accounts; existing accounts keep their imported policy. Other answers, errors and incomplete responses break both streaks.",
+    "invalid": "Enter a valid test model, effort, positive counts/concurrency/interval, and select an active OpenAI isolation group.",
+    "efforts": {
+        "none": "None",
+        "minimal": "Minimal",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Extra high",
+        "max": "Maximum",
+        "ultra": "Ultra"
+    }
+},
   quality: {
   "title": "Initial quality operations rule",
   "hint": "Copy an existing quality rule to new OAuth accounts on the selected platform. Leave empty to skip.",
@@ -10,13 +49,22 @@ export default {
   "title": "Auto Configuration",
   "description": "Manage BPS defaults, model pricing, new OAuth account initialization and concurrency upgrades.",
   "modelBilling": {
+    "groups": "Applicable groups (per rule)",
+    "allGroups": "All groups (no selection includes requests without a group)",
+    "selectedGroups": "Only the {count} selected billing groups; ungrouped requests do not match",
+    "clearGroups": "Clear selection and apply to all groups",
+    "unavailableGroup": "Unavailable group; selection retained. Uncheck to remove this ID",
+    "loadingGroups": "Loading all groups…",
+    "groupsFailed": "Group list failed to load. Existing scopes are retained and cannot be edited until retry succeeds.",
+    "invalidGroups": "Applicable group IDs must be positive safe integers.",
+
     "title": "Model pricing",
-    "hint": "Set an extra billing multiplier for selected low-cost models, defaulting to 10×. Enable independently for new requests across all accounts. Only customer token charges increase; base prices and upstream account costs stay the same.",
+    "hint": "Set an extra billing multiplier for selected low-cost models, defaulting to 10×. Enable independently for new requests in each rule’s selected billing groups; no selection applies to all groups. Only customer token charges increase; base prices and upstream account costs stay the same.",
     "model": "Billing model / prefix rule",
     "multiplier": "Billing multiplier",
     "remove": "Remove rule",
     "add": "Add model (default 10×)",
-    "matchHint": "Matches the model used for pricing. Use an exact name or a trailing * prefix wildcard. Exact names take precedence, then the longest prefix; rules never compound. Multipliers range from 1 to 1000.",
+    "matchHint": "Matches the model used for pricing. Use an exact name or a trailing * prefix wildcard. Filter by the current billing group first, then prefer exact names and the longest prefix; rules never compound. Multipliers range from 1 to 1000.",
     "example": "Example: group 0.2× × model 10× = 2× base token prices, before existing account and peak multipliers. Unmatched models keep their current charges; per-request fees and search surcharges are not multiplied. Changes take effect within about 15 seconds.",
     "invalid": "Enter 1–100 unique model rules with multipliers from 1 to 1000. Only exact model names or a trailing * wildcard are supported."
   },

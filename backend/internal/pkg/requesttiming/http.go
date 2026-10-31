@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/util/transportdiag"
 )
 
 type attemptKey struct{}
@@ -46,7 +48,7 @@ func startAttempt(req *http.Request, accountID, proxyID int64, kind string, pare
 		return req, nil
 	}
 	idx := len(c.data.Attempts)
-	c.data.Attempts = append(c.data.Attempts, Attempt{Kind: kind, Parent: parent, Number: idx + 1, AccountID: accountID, ProxyID: proxyID, StartMS: c.offset(time.Now()), RequestBytes: req.ContentLength, Events: map[string]float64{}})
+	c.data.Attempts = append(c.data.Attempts, Attempt{Route: transportdiag.HTTPRoute(req), Kind: kind, Parent: parent, Number: idx + 1, AccountID: accountID, ProxyID: proxyID, StartMS: c.offset(time.Now()), RequestBytes: req.ContentLength, Events: map[string]float64{}})
 	c.mu.Unlock()
 	t := &Trace{c: c, index: idx}
 	ctx := context.WithValue(req.Context(), attemptKey{}, t)
@@ -92,6 +94,7 @@ func (t *Trace) Response(resp *http.Response, err error) {
 		}
 		if resp != nil {
 			a.Status = resp.StatusCode
+			a.Route.ResponseFormat = transportdiag.ResponseFormat(resp.Header)
 			a.Events["response_headers"] = t.c.offset(time.Now())
 		}
 		if err != nil || resp == nil || resp.Body == nil {
@@ -170,4 +173,67 @@ func ResponseContext(ctx context.Context, resp *http.Response) context.Context {
 		}
 	}
 	return ctx
+}
+
+// Stage records the first observation at a streaming boundary, scoped to the
+// physical attempt and its parents. Missing boundaries stay absent.
+func Stage(ctx context.Context, name string) {
+	t, _ := ctx.Value(attemptKey{}).(*Trace)
+	if t == nil {
+		return
+	}
+	t.c.mu.Lock()
+	defer t.c.mu.Unlock()
+	if t.c.finished {
+		return
+	}
+	now := t.c.offset(time.Now())
+	for index := t.index; index >= 0; {
+		a := &t.c.data.Attempts[index]
+		if _, ok := a.Events[name]; !ok {
+			a.Events[name] = now
+		}
+		index = a.Parent - 1
+	}
+}
+
+type stageBody struct {
+	io.ReadCloser
+	ctx  context.Context
+	name string
+	once sync.Once
+}
+
+func (b *stageBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.once.Do(func() { Stage(b.ctx, b.name) })
+	}
+	return n, err
+}
+func WrapStage(ctx context.Context, body io.ReadCloser, name string) io.ReadCloser {
+	if body == nil || From(ctx) == nil {
+		return body
+	}
+	return &stageBody{ReadCloser: body, ctx: ctx, name: name}
+}
+
+// Encoding is observed before manual decompression removes response headers.
+// net/http automatic decompression has already consumed the wire encoding.
+func Encoding(ctx context.Context, resp *http.Response) {
+	t, _ := ctx.Value(attemptKey{}).(*Trace)
+	if t == nil || resp == nil {
+		return
+	}
+	encoding := resp.Header.Get("Content-Encoding")
+	if resp.Uncompressed {
+		encoding = "gzip"
+	}
+	if encoding == "" {
+		encoding = "identity"
+	}
+	if len(encoding) > 128 {
+		encoding = encoding[:128]
+	}
+	t.update(func(a *Attempt) { a.ContentEncoding = encoding; a.AutoDecompressed = resp.Uncompressed })
 }

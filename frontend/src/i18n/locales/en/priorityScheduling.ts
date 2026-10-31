@@ -1,6 +1,34 @@
 export default {
+  errorRate: "Attempt error rate",
+  error_rate_weight: "Error penalty weight (%)",
+  error_rate_window_minutes: "Error window (minutes)",
+  error_rate_prior_samples: "Error smoothing prior (success samples)",
+  errorAttempts: "Failures / valid attempts",
+  errorInsufficientSamples: "Insufficient samples",
+  errorObservedAt: "Error evidence read",
+  errorWindow: "Error window",
+  noCandidates: "No candidate accounts in this snapshot.",
+  errorPenalty: "Score multiplier",
+  baseScore: "Base score",
+  errorNoSamples: "No attempt samples",
+  errorLocalScope: "This instance · HTTP attempts",
+  errorRateHint: "Recent attempts are scoped to account, routing model and endpoint. Score = base score × max(0.1, 1 − weight/100 × failures/(successes + failures + prior)). A prior softens small samples; minute buckets expire. No samples are neutral. Positive weight replaces the legacy account-wide error penalty; zero retains legacy behavior. Each HTTP retry counts once; client cancellation, invalid input, auth, balance and quota rejections are excluded. Independent instances, restarts, evictions and unsupported transports can show different or unknown evidence. The candidate error column is live evidence read during snapshot refresh (its read time is shown); candidates, configuration and load still come from the selection snapshot, so re-evaluation does not reconstruct the original routing decision.",
+
+  experienceP90: 'Experience P90',
+  recovery_exploration_percent: "Recovery exploration (%)",
+  windowEnd: "Window end",
+  configRevision: "Config revision",
+  lowSamples: "Low sample count",
+  measurementHint: "Attributed samples measure the final physical HTTP attempt to first semantic output. Upload, earlier attempts and downstream writes are excluded; missing or ambiguous evidence stays unknown. Experience P90 measures server-observed first visible output, not client receipt. Semantic and visible events differ; WebSocket and uninstrumented paths remain unknown. The sample threshold is compatible with older settings and does not guarantee tail confidence.",
+  attributedV1: "Attributed HTTP attempt (v1)",
+  legacyForward: "Legacy forward TTFT",
+  latencyMeasurement: "Measurement",
+  latencyPercentile: "Latency percentile",
   latency_penalty_minutes: 'Latency penalty (minutes)',
-  latencyPenaltyHint: 'Defaults to 10 minutes; 0 retains ongoing demotion. Above-target P90 starts the clock at the latest valid first-token sample. After expiry, only accounts with passing quality, a passing latest test and no error, loss or congestion risk qualify for limited recovery exploration. Healthy accounts stay preferred and latency still reduces recovery weights. New samples with an above-target P90 restart the clock.',
+  latencyPenaltyHint: "Defaults to 10 minutes; 0 minutes retains an ongoing penalty: demotion in soft mode, restricted admission with bounded availability fallback in stop mode. Only new above-target samples renew the penalty. Fast traffic and refreshes do not extend it. Recovery exploration defaults to 0%; when enabled (up to 10%), passing quality, a passing latest test and no error, loss or congestion risk are required. Unknown-quality exploration and new high-risk policies are deferred.",
+  latencyPenaltyMode: 'Latency penalty action',
+  latencyPenaltyModes: { deprioritize: 'Prefer lower latency', stop: 'Stop scheduling' },
+  latencyPenaltyModeHint: 'Prefer lower latency keeps slow accounts as overflow. Stop scheduling prefers healthy accounts in the same model and group. If all otherwise eligible accounts are stopped, open 2–5 accounts from the lowest measured latency band (use the actual count below 2; never exceed 5). Pending or unavailable history uses bounded degraded admission; unknown ranks after valid measurements, without zero samples or changed penalty deadlines. Bound continuations proceed only if their original owner meets the same admission rule; otherwise they are temporarily unavailable. Existing output completes. Measured triggers are unchanged.',
   latencyPenaltyUntil: 'Latency penalty ends',
 
   oauthQuotaPriority: 'Consume OAuth quota first; move trailing API keys to standby',
@@ -28,14 +56,32 @@ export default {
   scopeNote: 'Applies to freely routed OpenAI text requests. Session/task ownership, protocol compatibility, model permissions, rate limits and profit gates still apply. Images, video and other platforms keep their existing scheduling.',
   modes: { experience: 'Experience first', balanced: 'Balanced', profit: 'Profit first', custom: 'Custom' },
   strategy: 'Scheduling strategy', weights: 'Score weights', quality_weight: 'Quality', latency_weight: 'Latency', load_weight: 'Available capacity', cost_weight: 'Profit / cost',
-  thresholds: 'Experience targets and observation window', target_ttft_ms: 'P90 first-token target (ms)', max_load_percent: 'Concurrency threshold (%)', min_quality_percent: 'Quality pass target (%)', window_minutes: 'Usage window (minutes)', min_samples: 'Minimum latency / profit samples', quality_max_age_hours: 'Quality freshness (hours)',
+  thresholds: 'Experience targets and observation window', target_ttft_ms: 'Selected first-token target (ms)', max_load_percent: 'Concurrency threshold (%)', min_quality_percent: 'Quality pass target (%)', window_minutes: 'Usage window (minutes)', min_samples: 'Minimum latency / profit samples', quality_max_age_hours: 'Quality freshness (hours)',
   groupIds: 'Group IDs', groupHint: 'Comma-separated; empty means all groups.', models: 'Models', modelHint: 'One exact requested model name per line; empty means all models.',
   rule: 'Avoid known quality, error and loss risks, then prefer lower projected concurrency and RPM utilization. A small profit advantage cannot keep sending work to busy accounts when lower-load peers exist. Similar-capacity peers share traffic by experience tier, priority and weights; OAuth accounts bound to fewer groups get more preference. Safe new accounts receive limited exploration. Movable sessions may temporarily spill over while retaining their binding.',
   costHint: 'Profit = user charges − estimated cost. Estimated cost = account statistics price or base cost summed for the same group and model × the current account cost multiplier. Set it in account editing (default 0.1). When following is enabled, successful upstream probes update the same value. Turn it off to retain a manual cost; failures or expiry keep the saved value. Account and user billing remain independent. Changes re-estimate recent profit without rewriting usage logs. Margin = profit / user charges.',
   save: 'Save configuration', saving: 'Saving…', saved: 'Configuration saved', loading: 'Loading…', retry: 'Retry', error: 'Could not load or save. Please retry.', invalid: 'Check group IDs and parameter ranges',
   recent: 'Latest candidate scores', refresh: 'Refresh scores', empty: 'No scores yet. Eligible requests requiring free routing generate scores after enabling.', historyPending: 'History is not ready; live capacity balancing remains active. Missing history stays unknown and refreshes in the background.',
-  snapshotHint: 'Shows this instance’s latest pool, up to 100 accounts. Refresh asynchronously reads history and re-evaluates scores; candidates, configuration and load remain those observed at selection time. Re-evaluated scores do not describe the original routing decision. Rows are ordered by risk, projected utilization band and preference. Similar-capacity peers use weighted selection; row order is not a fixed allocation. Live candidates remain visible while history is loading.',
-  model: 'Model', group: 'Group', account: 'Account', score: 'Score', tier: 'Status', latency: 'P90 first token', load: 'Concurrency', rate: 'Cost rate', quality: 'Quality passed', samples: 'samples', unknown: 'Unknown',
+  snapshotHint: 'Shows this instance’s latest pool, up to 100 accounts. Refresh asynchronously reads history and re-evaluates scores; candidates, configuration and load remain those observed at selection time. Re-evaluated scores do not describe the original routing decision. Rows are ordered by risk, projected utilization band and preference. Similar-capacity peers use weighted selection; selection weight is not a global probability; row order is not a fixed allocation. Live candidates remain visible while history is loading.',
+  model: 'Model', group: 'Group', account: 'Account', score: 'Score', tier: 'Status', latency: "Selected first token", load: 'Concurrency', rate: 'Cost rate', quality: 'Quality passed', samples: 'samples', unknown: 'Unknown',
   tiers: { eligible: 'Targets met', insufficient: 'Insufficient data', degraded: 'Targets missed' },
-  reasons: { latency_recovery: 'Latency penalty expired; awaiting recovery samples', quality_below_target: 'Quality below target', quality_unknown: 'No fresh quality result', latency_above_target: 'Latency above target', latency_insufficient: 'Insufficient latency samples', busy: 'High concurrency or queueing', load_unknown: 'Concurrency unknown', cost_unknown: 'Cost unknown', recent_errors: 'Elevated recent errors', historical_loss: 'Recent charges below theoretical cost', profit_insufficient: 'Insufficient profit samples' }
+  reasons: { latency_recovery: 'Latency penalty expired; awaiting recovery samples', quality_below_target: 'Quality below target', quality_unknown: 'No fresh quality result', latency_above_target: 'Latency above target', latency_insufficient: 'Insufficient latency samples', busy: 'High concurrency or queueing', load_unknown: 'Concurrency unknown', cost_unknown: 'Cost unknown', recent_errors: 'Elevated recent errors', historical_loss: 'Recent charges below theoretical cost', profit_insufficient: 'Insufficient profit samples' },
+  latencyPanel: {
+    title: 'Latency analysis', refresh: 'Refresh', hint: 'Uses the last observed candidate pool. P50/P90/P99 are first-token milliseconds; errors are deduplicated upstream error events; slow requests exceed the target first-token threshold. Summary uses the priority history window; heat cells use the selected window above, in 5-minute buckets.',
+    account: 'Account', samples: 'Samples', p50: 'P50 first token', p90: 'P90 first token', p99: 'P99 first token', errors: 'Errors', slow: 'Slow', errorRate: 'Error rate',
+    empty: 'No latency samples', error: 'Could not load latency analysis. Please retry.', window: 'Window'
+  },
+  recompute: {
+    action: 'Recompute diff', running: 'Recomputing…', title: 'Recompute diff (no account write-back)',
+    hint: 'Forces a fresh history read and compares the latest candidate pool by rank, score and selection weight. Pool and concurrency remain those observed at the last selection; clear the affected accounts’ sticky sessions to apply the new ranking.',
+    clearChanged: 'Clear changed accounts’ sticky sessions', timedOut: 'History refresh timed out; showing the current available result.', noChange: 'Recomputed with no rank or score changes.', error: 'Recompute failed. Please retry.', scope: 'Recompute scope: model {model}, group {group}, changed accounts {accounts}.',
+    account: 'Account', rank: 'Rank', score: 'Score', weight: 'Selection weight', tier: 'Status', p90: 'P90 first token', errors: 'Errors'
+  },
+  sticky: {
+    title: 'Session stickiness', group: 'Group', refresh: 'Count', clearAll: 'Clear all', clear: 'Clear', count: 'Bindings',
+    total: '{count} session bindings', empty: 'No session bindings in this group', loadHint: 'Choose a group and click Count to load session bindings.',
+    hint: 'Deletes session-hash bindings only; response continuation and owner bindings are preserved. Sessions will re-select accounts and may incur one upstream cache cold start.',
+    confirmAll: 'Clear all {count} session bindings in group {group}?', confirmAccount: 'Clear {count} session bindings for account {account} in group {group}?', confirmSome: 'Clear session bindings for the {count} changed accounts in group {group}?',
+    cleared: 'Cleared {count} session bindings.', error: 'Could not read session bindings.', clearError: 'Could not clear session bindings.', invalidGroup: 'Group ID must be a positive integer.', scopeAccount: 'Sticky scope: group {group}; accounts {accounts}.'
+  }
 }

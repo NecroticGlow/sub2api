@@ -1,5 +1,6 @@
 <template>
-  <PelicanRecordsDashboard v-if="dashboardOpen" :accounts="props.accounts || []" :account="props.account" :manual-record="records[0] || null" @close="dashboardOpen = false" />
+  <PelicanRecordsDashboard v-if="recordsView" :key="recordsView" :accounts="props.accounts || []" :account="props.account" :manual-record="records[0] || null"
+    :account-only="recordsView === 'account'" @show-all="recordsView = 'all'" @close="recordsView = null" />
   <BaseDialog :show="show" :title="t('admin.accounts.pelicanTest.title')" width="full" :fullscreen="viewingScheduled && testMode === 'question'" @close="handleClose">
     <div class="space-y-5">
       <div v-if="account" class="flex flex-col items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-800/60 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between">
@@ -34,7 +35,7 @@
           :class="testMode === mode ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-700 dark:text-primary-300' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
           @click="selectMode(mode)"
         >
-          {{ t(mode === 'probe' ? 'admin.accounts.pelicanTest.modeProbe' : 'admin.accounts.pelicanTest.modeQuestion') }}
+          {{ t(mode === 'modeltrace' ? 'modelTrace.tab' : mode === 'probe' ? 'admin.accounts.pelicanTest.modeProbe' : 'admin.accounts.pelicanTest.modeQuestion') }}
         </button>
       </div>
 
@@ -122,6 +123,10 @@
         </div>
       </div>
 
+      <template v-else-if="testMode === 'modeltrace'">
+        <ModelTracePanel v-if="show && account" :key="account.id" v-model:model-id="modelId" :account="account"
+          :model-options="modelOptions" :reasoning-levels="reasoningLevels" @running="running = $event" />
+      </template>
       <template v-else>
       <div>
         <label class="input-label mb-1.5 block">{{ t('admin.accounts.pelicanTest.question') }}</label>
@@ -185,7 +190,8 @@
             type="button"
             class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
             :class="activeTab === 'history' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-700'"
-            @click="dashboardOpen = true"
+            data-testid="open-records"
+            @click="recordsView = 'account'"
           >
             {{ t('admin.accounts.pelicanTest.history') }}<span v-if="records.length" class="ml-1">({{ records.length }})</span>
           </button>
@@ -278,7 +284,7 @@
             <Icon v-else name="play" size="sm" />
             {{ running ? t('admin.accounts.pelicanTest.probe.probing') : t('admin.accounts.pelicanTest.probe.start') }}
           </button>
-          <button v-else-if="activeTab !== 'schedule'" type="button" class="btn btn-primary flex items-center gap-2" :disabled="running || !canStart" @click="startTest">
+          <button v-else-if="testMode === 'question' && activeTab !== 'schedule'" type="button" class="btn btn-primary flex items-center gap-2" :disabled="running || !canStart" @click="startTest">
             <Icon v-if="running" name="refresh" size="sm" class="animate-spin" />
             <Icon v-else name="play" size="sm" />
             {{ running ? t('admin.accounts.pelicanTest.generating') : t('admin.accounts.pelicanTest.start') }}
@@ -307,6 +313,7 @@ import type { Account, AccountListItem, PelicanTestConfig, ScheduledTestResult }
 import ScheduledTestsPanel from './ScheduledTestsPanel.vue'
 import PelicanRecordsDashboard from './PelicanRecordsDashboard.vue'
 import TestModelSelect from './TestModelSelect.vue'
+import ModelTracePanel from './ModelTracePanel.vue'
 
 const { t } = useI18n()
 
@@ -314,8 +321,8 @@ const PROBE_CONTROLLER_KEY = 'state-probe'
 const PROBE_RESULT_LIMIT = 5
 const PROBE_FAILURE_KINDS = new Set(['unsupported', 'account_error', 'rate_limited', 'model_unsupported', 'upstream_error', 'network_error', 'stream_error', 'no_ticket', 'cancelled'])
 
-type TestMode = 'question' | 'probe'
-const testModes: TestMode[] = ['question', 'probe']
+type TestMode = 'question' | 'probe' | 'modeltrace'
+const testModes: TestMode[] = ['question', 'probe', 'modeltrace']
 
 const props = defineProps<{ show: boolean; account: Account | null; accounts?: AccountListItem[] }>()
 const emit = defineEmits<{ (event: 'close'): void }>()
@@ -344,7 +351,8 @@ const parallelCount = ref<string | number>(1)
 const activeTab = ref<'results' | 'history' | 'schedule'>('results')
 const running = ref(false)
 const viewingScheduled = ref(false)
-const dashboardOpen = ref(false)
+// Test records open as this account's window over the dialog; every account's page is one step further.
+const recordsView = ref<'account' | 'all' | null>(null)
 const runs = ref<TestRun[]>([])
 const records = ref<TestRecord[]>([])
 const historyError = ref('')
@@ -699,7 +707,7 @@ watch(() => [props.show, props.account?.id] as const, ([show]) => {
   running.value = false
   records.value = []
   historyError.value = ''
-  dashboardOpen.value = false
+  recordsView.value = null
   if (show) {
     readRecords()
     activeTab.value = 'results'

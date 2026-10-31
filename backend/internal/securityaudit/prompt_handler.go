@@ -3,12 +3,14 @@ package securityaudit
 import (
 	"context"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,7 +27,10 @@ type PromptAdminService interface {
 	DeleteByFilter(context.Context, DeleteByFilterRequest, int64) (*DeleteResult, error)
 }
 
-type PromptAdminHandler struct{ service PromptAdminService }
+type PromptAdminHandler struct {
+	service   PromptAdminService
+	penalties *service.SecurityPenaltyService
+}
 
 func NewPromptAdminHandler(service PromptAdminService) *PromptAdminHandler {
 	return &PromptAdminHandler{service: service}
@@ -89,6 +94,10 @@ func (h *PromptAdminHandler) ListEvents(c *gin.Context) {
 	pageSize, err := positiveIntQuery(c, "page_size", 20, 100)
 	if err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if page > math.MaxInt/pageSize {
+		response.ErrorFrom(c, infraerrors.BadRequest("prompt_audit_invalid_pagination", "分页参数无效"))
 		return
 	}
 	filter, err := eventFilterFromQuery(c)

@@ -133,11 +133,23 @@ backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
+user-traffic-pending/
 docs/*
 !docs/clinepass-usage.md
+!docs/stream-timing.md
+!docs/user-traffic.md
+!docs/typesafe-content-audit.md
+!docs/multi-host-session-owner.md
+!docs/security-penalties.md
+!docs/ip-risk-control.md
+!docs/docker-trusted-proxies.md
+!docs/anonymous-api-guard.md
+!docs/registration-email-alias-block.md
 !docs/openai-ws-sse-acceleration.md
 !docs/openai-outbound-identity.md
 !docs/openai-2fa-dual-oauth.md
+!docs/openai-siwc.md
+!docs/admin-api-keys.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
@@ -148,8 +160,11 @@ docs/*
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/quality-bps-observation.md
+!docs/modeltrace-tests.md
 !docs/cyber-session-blocking.md
 !docs/request-capture.md
+!docs/gateway-transport-diagnostics.md
+!docs/chat-responses-bridge-recovery.md
 !docs/codex-credits.md
 !docs/account-token-guard.md
 !docs/priority-scheduling.md
@@ -178,6 +193,7 @@ issues/
 **/.credential-key-*
 !docs/credential-encryption.md
 !docs/new-api-upstream-probe.md
+!docs/minimax-h3-video-relay.md
 !docs/account-ops-notifications.md
 
 !docs/typesafe-jev.md

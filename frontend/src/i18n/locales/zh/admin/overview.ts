@@ -1109,6 +1109,7 @@ export default {
         description: '配置图片生成能力和图片基础单价，留空则使用默认价格',
         allowImageGeneration: '允许当前分组生图',
         allowBatchImageGeneration: '允许当前分组批量生图',
+        perImageBilling: '图片端点按张计费（显式 Token 定价优先）',
         independentMultiplier: '生图倍率独立',
         imageMultiplier: '生图独立倍率',
         batchDiscountMultiplier: '批量生图折扣倍率',
@@ -1121,6 +1122,16 @@ export default {
         notConfigured: '未配置'
       },
       videoPricing: {
+        h3Enable: '开启 MiniMax-H3 视频模型',
+        h3Mode: '计费方式',
+        h3PerSecond: '按秒',
+        h3PerRequest: '按次',
+        h3Seconds: '每次视频时长（1–15 秒）',
+        h3SecondPrice: '每秒单价（USD/秒）',
+        h3RequestPrice: '每次价格（USD/次）',
+        h3Hint: '统一美元定价，不区分分辨率。最终费用 = 基础费用 × 当前分组倍率。成功任务在查询结果时结算，失败任务不扣费。',
+        h3DurationHint: '按次计费仅接受这里配置的时长，其他时长会在提交上游前被拒绝。',
+        h3Preview: '当前分组倍率 {multiplier}，最终价格 {price}',
         title: '视频生成计费',
         description:
           '配置 Grok 视频生成的每秒单价（USD/秒），留空则使用默认每秒价（grok-imagine-video：480p $0.05/s、720p $0.07/s；video-1.5：480p $0.08/s、720p $0.14/s、1080p $0.25/s）',

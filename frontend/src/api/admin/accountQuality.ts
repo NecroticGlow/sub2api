@@ -66,3 +66,89 @@ export async function deleteQualityTemplate(id: number, deletePlans: boolean): P
   const { data } = await apiClient.delete(`/admin/account-quality-templates/${id}`, { params: { delete_plans: deletePlans ? 'true' : undefined } })
   return data
 }
+
+// Reusable configuration only; unlike QualityRuleTemplate, never distributes plans.
+export interface QualityRulePresetRequest {
+  name: string
+  model_id: string
+  cron_expression: string
+  enabled: boolean
+  max_results: number
+  pelican_config: PelicanTestConfig
+}
+export interface QualityRulePreset extends QualityRulePresetRequest {
+  id: number
+  created_at: string
+  updated_at: string
+}
+export async function listQualityPresets(): Promise<QualityRulePreset[]> {
+  const { data } = await apiClient.get<QualityRulePreset[]>('/admin/account-quality-presets')
+  return data ?? []
+}
+export async function createQualityPreset(body: QualityRulePresetRequest): Promise<QualityRulePreset> {
+  const { data } = await apiClient.post<QualityRulePreset>('/admin/account-quality-presets', body)
+  return data
+}
+
+export async function updateQualityPreset(id: number, body: QualityRulePresetRequest): Promise<QualityRulePreset> {
+  const { data } = await apiClient.put<QualityRulePreset>(`/admin/account-quality-presets/${id}`, body)
+  return data
+}
+
+export interface QualityOwnershipEntry {
+  kind: 'model' | 'group'
+  model?: string
+  group_id?: number
+  status: string
+  expected_present: boolean
+  current_present: boolean
+  expected_owner: string
+  current_owner: string
+  current_owner_rule_id?: number
+  expected_digest: string
+  current_digest: string
+  changed_fields: string[]
+  can_relinquish: boolean
+}
+export interface QualityModelRemoval {
+  model: string
+  isolation_model: string
+  ready: boolean
+  effect: string
+  blocked_reason?: string
+}
+export interface QualityOwnershipPreview {
+  model_removals?: QualityModelRemoval[]
+  plan_id: number
+  account_id: number
+  rule_version: string
+  account_version: string
+  fence: string
+  action: string
+  models: string[]
+  group_ids: number[]
+  entries: QualityOwnershipEntry[]
+  relinquishable_count: number
+  ownership_retained: boolean
+  restore_ready?: boolean
+  restore_blocked_reason?: string
+  restrictions_changed: boolean
+}
+export async function previewQualityOwnership(id: number): Promise<QualityOwnershipPreview> {
+  const { data } = await apiClient.get<QualityOwnershipPreview>(`/admin/account-quality-plans/${id}/ownership`)
+  return data
+}
+export async function reconcileQualityOwnership(id: number, fence: string): Promise<QualityOwnershipPreview> {
+  const { data } = await apiClient.post<QualityOwnershipPreview>(`/admin/account-quality-plans/${id}/ownership/reconcile`, { fence, confirm: true })
+  return data
+}
+
+export async function restoreQualityOwnership(id: number, fence: string): Promise<QualityOwnershipPreview> {
+  const { data } = await apiClient.post<QualityOwnershipPreview>(`/admin/account-quality-plans/${id}/ownership/restore`, { fence, confirm: true })
+  return data
+}
+
+export async function removeQualityOwnedModel(id: number, fence: string, model: string, reason_code: string): Promise<QualityOwnershipPreview> {
+  const { data } = await apiClient.post<QualityOwnershipPreview>(`/admin/account-quality-plans/${id}/ownership/remove-model`, { fence, model, reason_code, confirm: true })
+  return data
+}

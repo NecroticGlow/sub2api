@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,6 +15,134 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type typeSafeURLRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f typeSafeURLRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestContentModerationTypeSafeURLDefaults(t *testing.T) {
+	for _, raw := range []string{
+		`{}`, `{"engine":"typesafe"}`, `{"engine":"typesafe","typesafe":{}}`,
+		`{"engine":"typesafe","typesafe":{"base_url":"  "}}`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: raw}}
+			s := &ContentModerationService{settingRepo: repo}
+			view, err := s.GetConfig(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, typesafe.DefaultBaseURL, view.EngineConfigs["typesafe"].BaseURL)
+			require.Equal(t, typesafe.JevLatestModel, view.EngineConfigs["typesafe"].Model)
+			engine, blank := "typesafe", ""
+			view, err = s.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{Engine: &engine, BaseURL: &blank})
+			require.NoError(t, err)
+			require.Equal(t, typesafe.DefaultBaseURL, view.BaseURL)
+		})
+	}
+}
+
+func TestContentModerationTypeSafeURLSaveReloadAndRuntime(t *testing.T) {
+	ctx := context.Background()
+	cfg := defaultContentModerationConfig()
+	cfg.Engine = "typesafe"
+	cfg.TypeSafe = moderationEngineDefaults("typesafe")
+	cfg.TypeSafe.APIKeys = []string{"fixture-key"}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	repo := &contentModerationRuntimeSettingRepo{values: map[string]string{
+		SettingKeyRiskControlEnabled: "true", SettingKeyContentModerationConfig: string(raw),
+	}}
+	s := runtimeCacheTestService(repo, time.Hour)
+	old, err := s.loadRuntimeSnapshot(ctx)
+	require.NoError(t, err)
+	s.markAPIKeyError("fixture-key", "typesafe API status 401", 10, 401, "typesafe")
+	before := s.apiKeyStatuses([]string{"fixture-key"}, "typesafe")[0]
+	for _, base := range []string{"https://first.example/relay/v1/", "https://second.example/other/v1/systemone/"} {
+		view, err := s.UpdateConfig(ctx, UpdateContentModerationConfigInput{EngineConfigs: map[string]UpdateContentModerationEngineInput{"typesafe": {BaseURL: &base}}})
+		require.NoError(t, err)
+		require.Equal(t, strings.TrimRight(base, "/"), view.BaseURL)
+		// A new service reads only the persisted setting, without the old cache.
+		reloaded := &ContentModerationService{settingRepo: repo}
+		view, err = reloaded.GetConfig(ctx)
+		require.NoError(t, err)
+		require.Equal(t, strings.TrimRight(base, "/"), view.EngineConfigs["typesafe"].BaseURL)
+		snapshot, err := s.loadRuntimeSnapshot(ctx)
+		require.NoError(t, err)
+		require.Equal(t, view.BaseURL, snapshot.config.BaseURL)
+		require.Equal(t, []string{"fixture-key"}, snapshot.config.apiKeys())
+		expected := strings.TrimSuffix(strings.TrimRight(base, "/"), "/systemone")
+		expected = strings.TrimSuffix(expected, "/v1") + typesafe.SystemOnePath
+		calls := 0
+		s.httpClient = &http.Client{Transport: typeSafeURLRoundTripper(func(req *http.Request) (*http.Response, error) {
+			calls++
+			require.Equal(t, expected, req.URL.String())
+			return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(`{"detail":"fixture rejection"}`)), Header: make(http.Header)}, nil
+		})}
+		status := 0
+		result, err := s.callModerationOnceWithInput(ctx, snapshot.config, "fixture-key", "fixture text", &status)
+		require.ErrorContains(t, err, "status 401")
+		require.Nil(t, result)
+		require.Equal(t, 401, status)
+		require.Equal(t, 1, calls)
+		require.Equal(t, before, s.apiKeyStatuses([]string{"fixture-key"}, "typesafe")[0])
+	}
+	require.Equal(t, typesafe.DefaultBaseURL, old.config.BaseURL)
+}
+
+func TestContentModerationTypeSafeURLRejectsUnsafeSyntaxOnSave(t *testing.T) {
+	for _, base := range []string{"/v1", "ftp://relay.example", "https://user:fixture@relay.example", "https://relay.example?token=fixture", "https://relay.example#fragment"} {
+		t.Run(base, func(t *testing.T) {
+			repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: `{}`}}
+			s := &ContentModerationService{settingRepo: repo}
+			_, err := s.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{EngineConfigs: map[string]UpdateContentModerationEngineInput{"typesafe": {BaseURL: &base}}})
+			require.Error(t, err)
+			require.Equal(t, `{}`, repo.values[SettingKeyContentModerationConfig])
+		})
+	}
+}
+
+func TestContentModerationTypeSafeURL401StillFreezes(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	cfg.Engine = "typesafe"
+	cfg.BaseURL = "https://relay.example/relay/v1/"
+	cfg.APIKeys = []string{"fixture-key"}
+	cfg.RetryCount = 0
+	calls := 0
+	s := &ContentModerationService{httpClient: &http.Client{Transport: typeSafeURLRoundTripper(func(req *http.Request) (*http.Response, error) {
+		calls++
+		require.Equal(t, "https://relay.example/relay/v1/systemone", req.URL.String())
+		return &http.Response{StatusCode: 401, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"detail":"fixture rejection"}`))}, nil
+	})}}
+	result, err := s.callModeration(context.Background(), cfg, "fixture text")
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, 1, calls)
+	status := s.apiKeyStatuses(cfg.APIKeys, "typesafe")[0]
+	require.Equal(t, "frozen", status.Status)
+	require.Equal(t, 401, status.LastHTTPStatus)
+	require.Zero(t, status.SuccessCount)
+	require.NotNil(t, status.FrozenUntil)
+	require.InDelta(t, float64(10*time.Minute), float64(time.Until(*status.FrozenUntil)), float64(5*time.Second))
+}
+
+func TestContentModerationTypeSafeURLDoesNotRevalidateOtherProfile(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	// Preserve the other engine's existing URL policy when selecting TypeSafe.
+	cfg.BaseURL = "https://openai.example?fixture=legacy"
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: string(raw)}}
+	s := &ContentModerationService{settingRepo: repo}
+	engine, base := "typesafe", "https://relay.example/v1"
+	view, err := s.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{Engine: &engine, BaseURL: &base})
+	require.NoError(t, err)
+	require.Equal(t, base, view.BaseURL)
+	require.Equal(t, cfg.BaseURL, view.EngineConfigs["openai"].BaseURL)
+	engine = "openai"
+	view, err = s.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{Engine: &engine})
+	require.NoError(t, err)
+	require.Equal(t, cfg.BaseURL, view.BaseURL)
+	require.Equal(t, base, view.EngineConfigs["typesafe"].BaseURL)
+}
+
 func TestContentModerationEngineProfilesPreserveLegacy(t *testing.T) {
 	repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: `{"enabled":true,"mode":"pre_block","api_key":"old-openai-key","base_url":"https://openai.example","model":"omni","thresholds":{"sexual":0.65},"auto_ban_enabled":true}`}}
 	s := &ContentModerationService{settingRepo: repo}
@@ -20,7 +150,7 @@ func TestContentModerationEngineProfilesPreserveLegacy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "openai", view.Engine)
 	require.Equal(t, 1, view.APIKeyCount)
-	require.Equal(t, ContentModerationDefaultThresholds(), view.EngineConfigs["typesafe"].Thresholds)
+	require.Equal(t, ContentModerationDefaultThresholds("typesafe"), view.EngineConfigs["typesafe"].Thresholds)
 	engine := "typesafe"
 	base := "https://typesafe.example"
 	model := "jev-test"
@@ -58,10 +188,14 @@ func TestContentModerationEngineProfilesPreserveLegacy(t *testing.T) {
 func TestContentModerationEngineThresholdDefaultsAreIndependent(t *testing.T) {
 	openai := moderationEngineDefaults(ContentModerationEngineOpenAI)
 	typeSafe := moderationEngineDefaults(ContentModerationEngineTypeSafe)
-	require.Equal(t, openai.Thresholds, typeSafe.Thresholds)
+	require.Len(t, openai.Thresholds, 13)
+	require.Len(t, typeSafe.Thresholds, 15)
+	for category, threshold := range openai.Thresholds {
+		require.Equal(t, threshold, typeSafe.Thresholds[category])
+	}
 	typeSafe.Thresholds["sexual"] = 0.8
 	require.Equal(t, 0.65, openai.Thresholds["sexual"])
-	require.Equal(t, openai.Thresholds, moderationEngineDefaults(ContentModerationEngineTypeSafe).Thresholds)
+	require.Equal(t, ContentModerationDefaultThresholds("typesafe"), moderationEngineDefaults(ContentModerationEngineTypeSafe).Thresholds)
 }
 
 func TestContentModerationTypeSafeAllCategoriesAndImages(t *testing.T) {
@@ -72,9 +206,9 @@ func TestContentModerationTypeSafeAllCategoriesAndImages(t *testing.T) {
 		var request typesafe.Request
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 		require.Equal(t, "需要审核的文字", request.State)
-		require.Len(t, request.Questions, 13)
+		require.Len(t, request.Questions, 15)
 		answers := map[string]any{}
-		for _, category := range ContentModerationCategories() {
+		for _, category := range ContentModerationCategories("typesafe") {
 			q, ok := request.Questions[category]
 			require.True(t, ok)
 			require.NotEmpty(t, q.Instructions)
@@ -95,9 +229,9 @@ func TestContentModerationTypeSafeAllCategoriesAndImages(t *testing.T) {
 	result, err := s.callModeration(context.Background(), cfg, content.ModerationInput())
 	require.NoError(t, err)
 	require.Equal(t, int32(1), calls.Load())
-	require.Len(t, result.CategoryScores, 13)
-	require.Equal(t, &ContentModerationEngineMeta{Engine: "typesafe", Model: "jev-fixed", RulesVersion: TypeSafeModerationRulesVersion, SkippedImages: 1}, result.EngineMeta)
-	trial := buildContentModerationTestAuditResult(result, cfg.Thresholds)
+	require.Len(t, result.CategoryScores, 15)
+	require.Equal(t, &ContentModerationEngineMeta{Engine: "typesafe", Model: "jev-fixed", RulesVersion: TypeSafeModerationRulesVersion, SkippedImages: 1, CategorySettings: mergeModerationCategorySettings("typesafe", nil, nil)}, result.EngineMeta)
+	trial := buildContentModerationTestAuditResult(result, cfg)
 	require.Equal(t, result.EngineMeta, trial.EngineMeta)
 	_, err = s.callModeration(context.Background(), cfg, ContentModerationInput{Images: content.Images}.ModerationInput())
 	require.ErrorContains(t, err, "no text to audit")
@@ -137,7 +271,7 @@ func TestContentModerationTypeSafeTestDoesNotSwitchActiveEngine(t *testing.T) {
 		require.Equal(t, "Bearer typesafe-key", r.Header.Get("Authorization"))
 		require.Equal(t, "/v1/systemone", r.URL.Path)
 		answers := map[string]any{}
-		for _, k := range ContentModerationCategories() {
+		for _, k := range ContentModerationCategories("typesafe") {
 			answers[k] = map[string]any{"type": "noul", "noul": 0.4}
 		}
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"model": "jev-test", "answers": answers}))

@@ -167,6 +167,7 @@ type AccountTestService struct {
 	bpsProbeMu                sync.Mutex
 	bpsProbeAccounts          map[int64]struct{}
 	stateProbeAccounts        sync.Map
+	modelTraceAccounts        sync.Map
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -389,6 +390,12 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
 	bindAccountTestPlatform(c, account)
+	if expected, ok := ctx.Value(modelTraceContextKey{}).(modelTraceEnvironment); ok {
+		actual, err := modelTraceEnvironmentForAccount(account, modelID)
+		if err != nil || actual != expected {
+			return s.sendErrorAndEnd(c, "ModelTrace account route is unsupported or changed during the test")
+		}
+	}
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
 		if options.testChannel == "bps" {
 			model := strings.TrimSpace(modelID)
@@ -643,7 +650,11 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
+	if account.IsAnthropicStripClaudeCodeIdentityEnabled() {
+		payloadBytes = stripAnthropicClaudeCodeIdentityFromBody(payloadBytes)
+	}
 
 	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -669,6 +680,10 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	} else {
 		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
 		setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetAnthropicProtocolBaseURL())
+	}
+
+	if account.IsAnthropicStripClaudeCodeIdentityEnabled() {
+		stripAnthropicClaudeCodeIdentityFromHeaders(req.Header)
 	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
@@ -890,6 +905,15 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		}
 	}
 
+	if account.IsSIWCEnabled() {
+		if s.openaiGatewayService == nil {
+			return s.sendErrorAndEnd(c, "SIWC gateway is unavailable")
+		}
+		if mode == AccountTestModeBPSTools || isOpenAIImageModel(account.GetMappedModel(strings.TrimSpace(modelID))) {
+			return s.sendErrorAndEnd(c, "This test mode is not supported by SIWC")
+		}
+		return s.testResponsesGatewayAccountConnection(c, account, modelID, prompt)
+	}
 	// Excel/BPS accounts must use the same gateway path as user Responses
 	// requests. The legacy account-test probe hard-codes ChatGPT Codex and
 	// silently bypasses the account's protocol toggle, producing misleading
@@ -921,8 +945,16 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
 
-	// Route to image generation test if an image model is selected
-	if isOpenAIImageModel(testModelID) {
+	// Extra models are an API-key Images grant, never a native Codex tool model.
+	extraImage := account.AllowsExtraImageModel(modelID) || account.AllowsExtraImageModel(testModelID)
+	if extraImage {
+		parsed := &OpenAIImagesRequest{Endpoint: openAIImagesGenerationsEndpoint, Model: firstNonEmptyString(modelID, testModelID)}
+		if err := parsed.ValidateAccountModels(account, ""); err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
+	}
+	// Route to image generation test if an image model is selected.
+	if isOpenAIImageModel(testModelID) || extraImage {
 		imagePrompt := strings.TrimSpace(prompt)
 		if imagePrompt == "" {
 			imagePrompt = defaultOpenAIImageTestPrompt
@@ -1002,6 +1034,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
 		payload = createPelicanOpenAIPayload(upstreamTestModelID, isOAuth, options.prompt, options.reasoningEffort)
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 	ctx, payloadBytes, overdraftInjected := s.prepareCodexQuotaOverdraftTestRequest(ctx, account, payloadBytes)
 
@@ -1109,6 +1142,10 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 }
 
 func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
+	return s.testResponsesGatewayAccountConnection(c, account, modelID, prompt)
+}
+
+func (s *AccountTestService) testResponsesGatewayAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
 	model := strings.TrimSpace(modelID)
 	if model == "" {
 		model = openai.DefaultTestModel
@@ -1177,13 +1214,13 @@ func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, accou
 		}
 	}
 	if result == nil || result.ClientDisconnect {
-		return s.sendErrorAndEnd(c, "Excel BPS test response was interrupted")
+		return s.sendErrorAndEnd(c, "Responses gateway test response was interrupted")
 	}
 	if !completed {
-		return s.sendErrorAndEnd(c, "Excel BPS test response ended before completion")
+		return s.sendErrorAndEnd(c, "Responses gateway test response ended before completion")
 	}
 	if strings.TrimSpace(answer.String()) == "" {
-		return s.sendErrorAndEnd(c, "Excel BPS returned empty output")
+		return s.sendErrorAndEnd(c, "Responses gateway returned empty output")
 	}
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
@@ -2393,6 +2430,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	if options, ok := pelicanTestOptionsFromContext(ctx); ok && options.reasoningEffort != "" {
 		payload["reasoning_effort"] = options.reasoningEffort
 	}
+	applyModelTracePayload(ctx, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2622,6 +2660,12 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 		return
 	}
 
+	// A relayed ChatGPT quota window is not the API key's own quota. Manual
+	// tests must not turn it into a persistent key-wide scheduling block.
+	if !account.IsOpenAIOAuthLike() {
+		return
+	}
+
 	persistOpenAI429PlanType(ctx, s.accountRepo, account, body)
 
 	var resetAt *time.Time
@@ -2652,6 +2696,14 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 	}
 }
 
+// geminiDefaultTestModel 返回 Gemini 连接测试未指定模型时使用的模型；Google One 账号只能使用其保守模型集。
+func geminiDefaultTestModel(account *Account) string {
+	if account.IsGeminiGoogleOne() {
+		return geminicli.GoogleOneModels[0].ID
+	}
+	return geminicli.DefaultTestModel
+}
+
 // testGeminiAccountConnection tests a Gemini account's connection
 func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
@@ -2659,7 +2711,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	// Determine the model to use
 	testModelID := modelID
 	if testModelID == "" {
-		testModelID = geminicli.DefaultTestModel
+		testModelID = geminiDefaultTestModel(account)
 	}
 
 	// For static upstream credentials with model mapping, map the model
@@ -3101,7 +3153,11 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 	// that stopped early is reported with the reason instead of as a success.
 	pelican := pelicanTestRequested(c)
 	stopReason, refusalCategory := "", ""
+	messageStopped := false
 	complete := func() error {
+		if modelTraceRequested(c.Request.Context()) && (!messageStopped || stopReason != "end_turn") {
+			return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+		}
 		if pelican {
 			if failure := pelicanClaudeStopFailure(stopReason, refusalCategory); failure != "" {
 				return s.sendErrorAndEnd(c, failure)
@@ -3155,6 +3211,7 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 				}
 			}
 		case "message_stop":
+			messageStopped = true
 			return complete()
 		case "error":
 			errorMsg := "Unknown error"
@@ -3201,6 +3258,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
+			if modelTraceRequested(c.Request.Context()) && !seenFinish {
+				return s.sendErrorAndEnd(c, "ModelTrace generation ended without a finish reason")
+			}
 			s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
@@ -3240,6 +3300,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
+				if modelTraceRequested(c.Request.Context()) && finishReason != "stop" {
+					return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+				}
 				seenFinish = true
 			}
 		}
@@ -3294,6 +3357,13 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			if modelTraceRequested(c.Request.Context()) {
+				if responseData, ok := data["response"].(map[string]any); ok {
+					if status, _ := responseData["status"].(string); status != "" && status != "completed" {
+						return s.sendErrorAndEnd(c, "ModelTrace generation did not finish normally")
+					}
+				}
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":

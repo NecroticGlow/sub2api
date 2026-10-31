@@ -1,6 +1,34 @@
 export default {
+  errorRate: "上游尝试错误率",
+  error_rate_weight: "错误惩罚权重（%）",
+  error_rate_window_minutes: "错误窗口（分钟）",
+  error_rate_prior_samples: "错误平滑先验（成功样本）",
+  errorAttempts: "失败 / 有效尝试",
+  errorInsufficientSamples: "样本不足",
+  errorObservedAt: "错误统计读取",
+  errorWindow: "错误窗口",
+  noCandidates: "当前快照没有候选账号。",
+  errorPenalty: "得分乘数",
+  baseScore: "基础得分",
+  errorNoSamples: "无尝试样本",
+  errorLocalScope: "当前实例 · HTTP 尝试",
+  errorRateHint: "按账号、路由模型和端点统计近期尝试。得分 = 基础得分 × max(0.1, 1 − 权重/100 × 失败数/(成功数 + 失败数 + 先验))。先验缓和小样本，分钟桶到期清除旧错误，无样本中性。正权重替换原账号级错误惩罚；零权重沿用旧行为。每次真实 HTTP 重试单独统计，排除客户端取消、无效输入、鉴权、余额及配额拒绝。各实例独立，重启、淘汰和未接入协议可能显示不同证据或无样本。候选表错误列是刷新快照时读取的实时证据（标注读取时刻），选号候选、配置和负载仍取自快照时间；重算不能还原当时实际选路。",
+
+  experienceP90: '体验 P90',
+  recovery_exploration_percent: "恢复探索（%）",
+  windowEnd: "窗口截止",
+  configRevision: "配置版本",
+  lowSamples: "低样本",
+  measurementHint: "归因样本测量最终物理 HTTP 尝试至首语义输出；排除上传、前序尝试和下游写出，缺失或歧义证据保持未知。体验 P90 是服务端观察的首可见输出，不代表客户端收到。语义与可见事件不同；WebSocket 与未采集路径保持未知。兼容样本门槛不保证尾延迟可信度。",
+  attributedV1: "可归因 HTTP 尝试（v1）",
+  legacyForward: "旧版 Forward 首 token",
+  latencyMeasurement: "测量口径",
+  latencyPercentile: "延迟分位数",
   latency_penalty_minutes: '延迟惩罚时长（分钟）',
-  latencyPenaltyHint: '默认 10 分钟，0 保持原有持续降档。P90 超标时，从最近一次有效首字延迟样本开始计时；到期后仅质量达标、最新检测通过且没有错误、亏损或拥堵风险的账号可进入少量恢复探索。正常账号优先，恢复账号保留延迟权重惩罚；新样本仍超标会重新计时。',
+  latencyPenaltyHint: "默认惩罚 10 分钟；0 分钟表示持续惩罚（软模式持续降档，停止模式持续限制新准入并保留全池兜底）。只有新近超目标样本才续罚，快速流量和刷新不延长惩罚。恢复探索默认 0%，显式启用后（最多 10%）仍要求质量达标、最新检测通过且无错误、亏损和拥堵风险。未知质量探索和新增高风险策略留待后续实现。",
+  latencyPenaltyMode: '延迟惩罚方式',
+  latencyPenaltyModes: { deprioritize: '延迟优先调度', stop: '停止调度' },
+  latencyPenaltyModeHint: '延迟优先调度：保留慢账号作为后备。停止调度：同模型和分组中优先使用健康账号；其它资格过滤后全池停调时，开放最低有效延迟档 2–5 个账号（不足 2 个用实际数量，最多 5 个）。历史未就绪或不可用时有界降级，未知排在有效测量之后，不补零、不改惩罚截止。绑定续接仅在原账号满足同一准入规则时继续，否则暂不可用；已有输出继续完成。沿用原测量门槛。',
   latencyPenaltyUntil: '延迟惩罚截止',
 
   oauthQuotaPriority: '优先消耗 OAuth 额度，末位 API Key 自动后备',
@@ -33,7 +61,7 @@ export default {
   weights: '评分权重',
   quality_weight: '质量', latency_weight: '延迟', load_weight: '并发余量', cost_weight: '利润 / 成本',
   thresholds: '体验目标与统计窗口',
-  target_ttft_ms: '首 token P90 目标（毫秒）', max_load_percent: '并发占用上限（%）', min_quality_percent: '质量通过率目标（%）',
+  target_ttft_ms: '选定首 token 目标（毫秒）', max_load_percent: '并发占用上限（%）', min_quality_percent: '质量通过率目标（%）',
   window_minutes: '使用记录窗口（分钟）', min_samples: '延迟 / 利润最少样本数', quality_max_age_hours: '质量结果有效期（小时）',
   groupIds: '生效分组 ID', groupHint: '逗号分隔；留空表示所有分组。',
   models: '生效模型', modelHint: '每行一个请求模型名，精确匹配；留空表示所有模型。',
@@ -42,8 +70,26 @@ export default {
   save: '保存配置', saving: '保存中…', saved: '配置已保存', loading: '加载中…', retry: '重试', error: '读取或保存失败，请重试', invalid: '请检查分组 ID 和参数范围',
   recent: '最近一次候选评分', refresh: '刷新评分', empty: '暂无评分。启用后，符合范围且需要自由选路的请求会生成评分。',
   historyPending: '历史统计尚未就绪，先按实时容量均衡；缺失历史按未知处理，后台继续刷新。',
-  snapshotHint: '展示当前实例最近一次候选池，最多 100 个账号。刷新会异步读取历史并重算评分；候选、配置与并发占用仍取自该次选号，顶部时间不会改变，重算结果不代表当时实际选路。按风险、预计占用档位及分流偏好展示；占用接近的候选会加权抽样，表格不是固定选取顺序或流量比例。历史未就绪也会展示实时容量候选。',
-  model: '模型', group: '分组', account: '账号', score: '得分', tier: '状态', latency: 'P90 首 token', load: '并发占用', rate: '成本倍率', quality: '质量通过', samples: '条样本', unknown: '未知',
+  snapshotHint: '展示当前实例最近一次候选池，最多 100 个账号。刷新会异步读取历史并重算评分；候选、配置与并发占用仍取自该次选号，顶部时间不会改变，重算结果不代表当时实际选路。按风险、预计占用档位及分流偏好展示；占用接近的候选会加权抽样，分流权重不是全局概率，表格不是固定选取顺序或流量比例。历史未就绪也会展示实时容量候选。',
+  model: '模型', group: '分组', account: '账号', score: '得分', tier: '状态', latency: "选定首 token", load: '并发占用', rate: '成本倍率', quality: '质量通过', samples: '条样本', unknown: '未知',
   tiers: { eligible: '体验达标', insufficient: '数据不足', degraded: '体验未达标' },
-  reasons: { latency_recovery: '延迟惩罚到期，等待恢复样本', quality_below_target: '质量低于目标', quality_unknown: '无有效质量结果', latency_above_target: '延迟超过目标', latency_insufficient: '延迟样本不足', busy: '并发偏高或有排队', load_unknown: '并发数据未知', cost_unknown: '成本未知', recent_errors: '近期错误偏多', historical_loss: '近期用户扣费低于理论成本', profit_insufficient: '利润样本不足' }
+  reasons: { latency_recovery: '延迟惩罚到期，等待恢复样本', quality_below_target: '质量低于目标', quality_unknown: '无有效质量结果', latency_above_target: '延迟超过目标', latency_insufficient: '延迟样本不足', busy: '并发偏高或有排队', load_unknown: '并发数据未知', cost_unknown: '成本未知', recent_errors: '近期错误偏多', historical_loss: '近期用户扣费低于理论成本', profit_insufficient: '利润样本不足' },
+  latencyPanel: {
+    title: '延迟分析', refresh: '刷新', hint: '按下单次选号的候选池统计：P50/P90/P99 为首 token 毫秒，错误为上游错误事件去重数，慢请求为超过目标首字阈值的请求数。汇总取优先调度历史窗口，热力格取上方所选窗口、每 5 分钟一格。',
+    account: '账号', samples: '样本', p50: 'P50 首字', p90: 'P90 首字', p99: 'P99 首字', errors: '错误', slow: '慢请求', errorRate: '错误率',
+    empty: '暂无延迟样本', error: '读取延迟分析失败，请重试。', window: '时间窗口'
+  },
+  recompute: {
+    action: '重算对比', running: '重算中…', title: '重算对比（不写回账号）',
+    hint: '强制读取最新历史信号，对比最近一次候选池的排名、得分和分流权重。候选池与并发占用仍取自最近一次选号；要应用新排名，请清理对应账号的会话粘性。',
+    clearChanged: '清理变化账号的粘性', timedOut: '历史统计刷新超时，展示的是当前可用结果。', noChange: '重算完成，排名与得分没有变化。', error: '重算失败，请稍后重试。', scope: '重算范围：模型 {model}，分组 {group}，变化账号 {accounts}。',
+    account: '账号', rank: '排名', score: '得分', weight: '分流权重', tier: '状态', p90: 'P90 首字', errors: '错误'
+  },
+  sticky: {
+    title: '会话粘性', group: '分组', refresh: '统计', clearAll: '全部清除', clear: '清除', count: '绑定数',
+    total: '当前 {count} 个会话绑定', empty: '该分组当前没有会话绑定', loadHint: '选择分组并点击“统计”查看当前会话绑定。',
+    hint: '只删除 session-hash 绑定，保留 response 续链和 owner 绑定。清除后会话会重新选号，可能造成一次上游缓存冷启动。',
+    confirmAll: '确认清除分组 {group} 的全部 {count} 个会话粘性？', confirmAccount: '确认清除分组 {group} 中账号 {account} 的 {count} 个会话粘性？', confirmSome: '确认清除分组 {group} 中变化的 {count} 个账号会话粘性？',
+    cleared: '已清除 {count} 个会话粘性。', error: '读取会话粘性失败。', clearError: '清除会话粘性失败。', invalidGroup: '分组 ID 必须是正整数。', scopeAccount: '粘性作用域：分组 {group}；账号 {accounts}。'
+  }
 }

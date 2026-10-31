@@ -85,6 +85,7 @@ export const useAuthStore = defineStore('auth', () => {
   const pendingAuthSession = ref<PendingAuthSessionSummary | null>(null)
   let refreshIntervalId: ReturnType<typeof setInterval> | null = null
   let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
+  let authSessionGeneration = 0
 
   // ==================== Computed ====================
 
@@ -110,6 +111,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Also starts auto-refresh and immediately fetches latest user data
    */
   function checkAuth(): void {
+    authSessionGeneration += 1
     const savedToken = localStorage.getItem(AUTH_TOKEN_KEY)
     const savedUser = localStorage.getItem(AUTH_USER_KEY)
     const savedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
@@ -200,10 +202,12 @@ export const useAuthStore = defineStore('auth', () => {
    * Schedule proactive token refresh before expiry (based on expires_in seconds)
    * @param expiresInSeconds - Token expiry time in seconds from now
    */
-  function scheduleTokenRefresh(expiresInSeconds: number): void {
+  function scheduleTokenRefresh(expiresInSeconds: number, persistExpiry = true): void {
     const expiresAtMs = Date.now() + expiresInSeconds * 1000
     tokenExpiresAt.value = expiresAtMs
-    localStorage.setItem(TOKEN_EXPIRES_AT_KEY, String(expiresAtMs))
+    if (persistExpiry) {
+      localStorage.setItem(TOKEN_EXPIRES_AT_KEY, String(expiresAtMs))
+    }
     scheduleTokenRefreshAt(expiresAtMs)
   }
 
@@ -211,19 +215,40 @@ export const useAuthStore = defineStore('auth', () => {
    * Perform the actual token refresh
    */
   async function performTokenRefresh(): Promise<void> {
-    if (!refreshTokenValue.value) {
+    const refreshTokenSnapshot = refreshTokenValue.value
+    const userIDSnapshot = user.value?.id
+    const sessionGeneration = authSessionGeneration
+    if (!refreshTokenSnapshot || userIDSnapshot == null) {
       return
     }
 
     try {
       const response = await authAPI.refreshToken()
 
+      let storedUserID: number | null = null
+      try {
+        const storedUser = localStorage.getItem(AUTH_USER_KEY)
+        storedUserID = storedUser ? (JSON.parse(storedUser) as User).id : null
+      } catch {
+        return
+      }
+      if (
+        authSessionGeneration !== sessionGeneration ||
+        refreshTokenValue.value !== refreshTokenSnapshot ||
+        user.value?.id !== userIDSnapshot ||
+        storedUserID !== userIDSnapshot ||
+        localStorage.getItem(AUTH_TOKEN_KEY) !== response.access_token ||
+        localStorage.getItem(REFRESH_TOKEN_KEY) !== response.refresh_token
+      ) {
+        return
+      }
+
       // Update state
       token.value = response.access_token
       refreshTokenValue.value = response.refresh_token
 
-      // Schedule next refresh (this also updates tokenExpiresAt and localStorage)
-      scheduleTokenRefresh(response.expires_in)
+      // The refresh coordinator owns persistence; the store only updates memory and its timer.
+      scheduleTokenRefresh(response.expires_in, false)
     } catch (error) {
       console.error('Token refresh failed:', error)
       // Don't clear auth here - the interceptor will handle 401 errors
@@ -300,6 +325,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Internal helper function
    */
   function setAuthFromResponse(response: AuthResponse): void {
+    authSessionGeneration += 1
     // Store token and user
     token.value = response.access_token
 
@@ -358,6 +384,7 @@ export const useAuthStore = defineStore('auth', () => {
    * @param newToken - 后端签发的 JWT access token
    */
   async function setToken(newToken: string): Promise<User> {
+    authSessionGeneration += 1
     // Clear any previous state first (avoid mixing sessions)
     // Note: Don't clear localStorage here as OAuth callback may have set refresh_token
     stopAutoRefresh()
@@ -417,6 +444,9 @@ export const useAuthStore = defineStore('auth', () => {
    * Clears all authentication state and persisted data
    */
   async function logout(): Promise<void> {
+    authSessionGeneration += 1
+    stopAutoRefresh()
+    stopTokenRefresh()
     try {
       // Call API logout (revokes refresh token on server)
       await authAPI.logout()
@@ -466,6 +496,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Internal helper function
    */
   function clearAuth(options?: { preservePendingAuthSession?: boolean }): void {
+    authSessionGeneration += 1
     // Stop auto-refresh
     stopAutoRefresh()
     // Stop token refresh

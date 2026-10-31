@@ -12,6 +12,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Check deployment scripts
         run: |
           /bin/bash -n deploy/install.sh deploy/install-mihomo-codex.sh deploy/migrate-mihomo-managed.sh
@@ -26,8 +28,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Check Docker Compose simple mode environment
         run: /bin/sh deploy/tests/docker-compose-simple-mode-env-test.sh
+      - name: Check Docker Compose trusted proxy environment
+        run: /bin/sh deploy/tests/docker-compose-trusted-proxies-env-test.sh
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -36,7 +42,57 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.2'
+          go version | grep -q 'go1.27.3'
+      - name: Install Redis for isolated snapshot adapter checks
+        run: |
+          if ! command -v redis-server >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends redis-server
+          fi
+          redis-server --version
+      - name: Verify scope conflict regression against original handlers
+        if: github.head_ref == 'fix/quality-template-switch-conflicts' || github.ref_name == 'fix/quality-template-switch-conflicts'
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=backend/internal/handler/admin/scheduled_test_handler.go
+          cp "$target" "$RUNNER_TEMP/quality-current-handler.go"
+          trap 'cp "$RUNNER_TEMP/quality-current-handler.go" "$target"' EXIT
+          git fetch --no-tags --depth=1 origin 9fcfe25d600a331abcc28a1788e597e5542d4cd3
+          git show 9fcfe25d600a331abcc28a1788e597e5542d4cd3:"$target" > "$target"
+          set +e
+          (cd backend && go test ./internal/handler/admin -run '^TestQualityScopeConflictsUse409ForUpdateAndDelete$' -count=1) > "$RUNNER_TEMP/quality-red.log" 2>&1
+          result=$?
+          set -e
+          cat "$RUNNER_TEMP/quality-red.log"
+          test "$result" -ne 0
+          grep -q 'FAIL: TestQualityScopeConflictsUse409ForUpdateAndDelete' "$RUNNER_TEMP/quality-red.log"
+          grep -Eq 'actual.*(400|500)' "$RUNNER_TEMP/quality-red.log"
+      - name: Verify user enable reason regression against original handler
+        if: github.head_ref == 'fix/moderation-user-quick-enable' || github.ref_name == 'fix/moderation-user-quick-enable'
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=backend/internal/handler/admin/user_handler.go
+          cp "$target" "$RUNNER_TEMP/user-enable-current-handler.go"
+          trap 'cp "$RUNNER_TEMP/user-enable-current-handler.go" "$target"' EXIT
+          git fetch --no-tags --depth=1 origin bccac61c757f2c04a2360063c4057db2b270c856
+          git show bccac61c757f2c04a2360063c4057db2b270c856:"$target" > "$target"
+          set +e
+          (cd backend && go test -tags=unit ./internal/handler/admin -run '^TestUserQuickEnableReasonLimit$' -count=1) > "$RUNNER_TEMP/user-enable-red.log" 2>&1
+          result=$?
+          set -e
+          cat "$RUNNER_TEMP/user-enable-red.log"
+          test "$result" -ne 0
+          grep -q 'FAIL: TestUserQuickEnableReasonLimit' "$RUNNER_TEMP/user-enable-red.log"
+          grep -q 'actual.*200' "$RUNNER_TEMP/user-enable-red.log"
+      - name: Verify user enable regressions
+        if: github.head_ref == 'fix/moderation-user-quick-enable' || github.ref_name == 'fix/moderation-user-quick-enable'
+        working-directory: backend
+        run: go test -tags=unit ./internal/handler/admin ./internal/server/middleware ./internal/service ./internal/repository -run 'TestUserQuickEnable|TestAdminService_UserQuickEnable|TestModerationRecoveryUnbanDoesNotClaimOtherDisable' -count=1 -v
+      - name: Usage trend local bucket regressions
+        working-directory: backend
+        run: go test -tags=integration ./internal/repository -run '^TestUsageTrendAggregateTimezone' -count=1 -v
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -48,6 +104,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -55,7 +113,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install frontend dependencies
@@ -68,6 +126,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -76,7 +136,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.2'
+          go version | grep -q 'go1.27.3'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -88,6 +148,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -96,12 +158,28 @@ jobs:
       - run: bash -n .github/release-tools/release-images.sh
       - run: bash -n deploy/upgrade-k3s.sh
       - run: python -m unittest discover -s deploy/tests -p 'test_upgrade_k3s.py'
+      - name: Install checksum-pinned Kustomize for offline gateway rendering
+        run: |
+          mkdir -p "$RUNNER_TEMP/sub2api-kustomize"
+          curl --fail --show-error --silent --location \
+            https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.7.1/kustomize_v5.7.1_linux_amd64.tar.gz \
+            --output "$RUNNER_TEMP/sub2api-kustomize/kustomize.tar.gz"
+          printf '%s  %s\n' 'ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8' \
+            "$RUNNER_TEMP/sub2api-kustomize/kustomize.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/sub2api-kustomize/kustomize.tar.gz" -C "$RUNNER_TEMP/sub2api-kustomize" kustomize
+          echo "$RUNNER_TEMP/sub2api-kustomize" >> "$GITHUB_PATH"
+      - run: python -m unittest discover -s deploy/tests -p 'test_gateway_render*.py'
+      - name: Offline multi-host contract checks
+        run: python -m unittest discover -s deploy/tests -p 'test_multihost_preflight.py'
       - run: python -m unittest discover -s deploy/tests -p 'test_migrate_reauth_managed.py'
+      - run: python -m unittest discover -s deploy/connection-diagnostics -p 'test_collect.py'
 
   prism-adapter:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'

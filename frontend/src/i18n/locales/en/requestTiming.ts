@@ -30,6 +30,18 @@ export default {
   "timeout": "Timeout",
   "transport_error": "Transport error",
   "fields": {
+    "content_encoding": "Upstream Content-Encoding",
+    "auto_decompressed": "HTTP client auto-decoded (pre-decode timing unavailable)",
+    "raw_body_first": "First pre-decode body data (request offset)",
+    "decoded_body_first": "First decoded body data (request offset)",
+    "sse_parsed_first": "First complete SSE data JSON (request offset)",
+    "sse_visible_first": "First visible event before conversion (request offset)",
+    "tool_converted_first": "First event after tool conversion (request offset)",
+    "tool_visible_first": "First visible event after tool conversion (request offset)",
+    "decode_wait": "First-data decode interval (includes read waits)",
+    "sse_wait": "Decoded data to first SSE data interval",
+    "tool_wait": "First-visible-event conversion interval",
+
     "first_semantic": "First semantic event from request start",
     "first_visible": "First visible output from request start",
     "first_output_flush": "First output flush (application)",

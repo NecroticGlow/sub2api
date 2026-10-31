@@ -1,3 +1,6 @@
+vi.mock('@/api/admin/upstreamChannels', () => ({ listUpstreamChannels: vi.fn(), readChannelBindings: vi.fn(), bindChannelAccounts: vi.fn() }))
+import { readChannelBindings, listUpstreamChannels } from '@/api/admin/upstreamChannels'
+import UpstreamChannelSelector from '../UpstreamChannelSelector.vue'
 
 vi.mock('@/api/admin/credentialEncryption', () => ({
   getCredentialEncryption: vi.fn().mockResolvedValue({ configured: true, source: 'server_config' }),
@@ -268,6 +271,23 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       credentials: expect.objectContaining({ base_url: 'https://api.cline.bot/api/v1', clinepass_usage_enabled: enabled })
     }))
   })
+  it('saves extra image models only for OpenAI API-key accounts', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.find('[data-testid="extra-image-models"]').exists()).toBe(false)
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Images example')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('[data-testid="extra-image-model-ids"]').setValue(' my-nai, my-nai ')
+    await wrapper.get('[data-testid="extra-image-model-prefixes"]').setValue('nai-diffusion-')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'openai', type: 'apikey',
+      extra: expect.objectContaining({ extra_image_models: ['my-nai'], extra_image_model_prefixes: ['nai-diffusion-'] })
+    }))
+  })
+
   it('offers WS SSE acceleration for OpenAI OAuth even while WS mode is off', async () => {
     const wrapper = mountModal()
     expect(wrapper.find('[data-testid="create-openai-ws-sse-acceleration"]').exists()).toBe(false)
@@ -1468,4 +1488,30 @@ describe('CreateAccountModal Vertex API key auth', () => {
     expect(wrapper.find('[data-testid="vertex-auth-mode-apikey"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="vertex-api-key-input"]').exists()).toBe(false)
   })
+})
+
+describe('explicit upstream channel on account creation', () => {
+ it('confirms selected ownership, sends immutable entity ID and verifies binding without duplicating after a failed readback', async () => {
+  const w = mountModal(); await selectButtonByText(w, 'admin.accounts.claudeConsole')
+  await w.get('form#create-account-form input[type="text"]').setValue('owned account')
+  await w.get('form#create-account-form input[type="password"]').setValue('fixture-only-key')
+  createAccountMock.mockResolvedValue({ id: 700, name: 'owned account', platform: 'anthropic', type: 'apikey' })
+  w.getComponent(UpstreamChannelSelector).vm.$emit('update:modelValue', 7); await flushPromises()
+  await w.get('form#create-account-form').trigger('submit.prevent'); await flushPromises(); expect(createAccountMock).not.toHaveBeenCalled()
+  await w.get('[data-testid="confirm-create-channel"]').setValue(true)
+  vi.mocked(readChannelBindings).mockRejectedValueOnce(new Error('offline'))
+  await w.get('form#create-account-form').trigger('submit.prevent'); await flushPromises()
+  expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({ upstream_channel_id: 7, confirm_upstream_channel_binding: true }))
+  expect(w.emitted('created')).toBeUndefined()
+  vi.mocked(readChannelBindings).mockResolvedValue([{ account_id: 700, account_name: 'owned account', channel_id: 7, revision: 1, deleted: false }])
+  await w.get('form#create-account-form').trigger('submit.prevent'); await flushPromises()
+  expect(createAccountMock).toHaveBeenCalledTimes(1); expect(w.emitted('created')).toHaveLength(1)
+ })
+ it('supports paging a channel catalog and selecting an entity regardless of account URL', async () => {
+  vi.mocked(listUpstreamChannels).mockResolvedValue({ items: [{ id: 7, code: 'supplier', name: '渠道', remark: '', revision: 1, members: 0 }], total: 21 })
+  const w = mountModal(); const selector = w.getComponent(UpstreamChannelSelector)
+  await selector.get('[data-testid="upstream-channel-select"]').trigger('focus'); await flushPromises()
+  await selector.get('[data-testid="upstream-channel-select"]').setValue('7')
+  expect(w.find('[data-testid="confirm-create-channel"]').exists()).toBe(true)
+ })
 })

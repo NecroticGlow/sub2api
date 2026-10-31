@@ -94,3 +94,22 @@ it('loads observer timings only from the own-usage endpoint', async () => {
   expect(mocks.get).not.toHaveBeenCalled()
   wrapper.unmount()
 })
+
+it('shows encoding and boundary gaps while leaving absent pre-decode data unknown', async () => {
+  mocks.get.mockResolvedValue({ retention_days: 30, traces: [{
+    trace_id: 'boundaries', started_at: '2026-10-29', total_ms: 5000, status: 200,
+    body_bytes: 0, body_complete: true, body_read_ms: 0, downstream_bytes: 100,
+    downstream_write_ms: 1, events: {}, spans: [],
+    attempts: [{ kind: 'http', number: 1, account_id: 1, proxy_id: 0, start_ms: 0, end_ms: 5000,
+      status: 200, reused: true, body_eof: true, content_encoding: 'gzip', auto_decompressed: true,
+      events: { decoded_body_first: 100, sse_parsed_first: 300, sse_visible_first: 500, tool_visible_first: 2500 } }]
+  }] })
+  const wrapper = mount(UsageTimingDialog, { props: { record: row(1) }, ...options })
+  await flushPromises()
+  const field = (key: string) => wrapper.findAll('div').find(n => n.element.children.length === 2 && n.element.children[0]?.textContent === `requestTiming.fields.${key}`)?.text()
+  expect(field('content_encoding')).toContain('gzip')
+  expect(field('decode_wait')).toContain('requestTiming.missing')
+  expect(field('sse_wait')).toContain('200')
+  expect(field('tool_wait')).toContain('2.00s')
+  wrapper.unmount()
+})

@@ -218,6 +218,7 @@ type APIKeyAuthCacheInvalidator interface {
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
 	Name             string   `json:"name"`
+	GroupIDs         []int64  `json:"group_ids"`
 	GroupID          *int64   `json:"group_id"`
 	FallbackGroupID  *int64   `json:"fallback_group_id"`
 	CustomKey        *string  `json:"custom_key"`   // 可选的自定义key
@@ -245,6 +246,7 @@ type UpdateAPIKeyRequest struct {
 	IPWhitelist        *[]string `json:"ip_whitelist"`      // IP 白名单（nil 不修改，空数组清空）
 	IPBlacklist        *[]string `json:"ip_blacklist"`      // IP 黑名单（nil 不修改，空数组清空）
 	ConcurrencyLimit   *int      `json:"concurrency_limit"` // nil = no change, 0 = no additional limit
+	GroupIDs           *[]int64  `json:"group_ids"`
 
 	// Quota fields
 	Quota           *float64   `json:"quota"`       // Quota limit in USD (nil = no change, 0 = unlimited)
@@ -296,10 +298,13 @@ type RateLimitCacheInvalidator interface {
 }
 
 type APIKeyService struct {
+	balanceRejectionNotifier  BalanceRejectionNotifier
 	localAuth                 *RegionalAuthReader
 	regionalAuthRuntime       *regionalSchedulerRuntime
 	apiKeyRepo                APIKeyRepository
 	userRepo                  UserRepository
+	groupRouter               APIKeyGroupRouter
+	securityPenalties         *SecurityPenaltyService
 	groupRepo                 GroupRepository
 	userSubRepo               UserSubscriptionRepository
 	userGroupRateRepo         UserGroupRateRepository
@@ -321,6 +326,7 @@ type APIKeyService struct {
 	authInvalidationCancel    context.CancelFunc
 	authInvalidationWG        sync.WaitGroup
 	authInvalidationConnected atomic.Bool
+	authCacheL1Epoch          atomic.Uint64
 	authInvalidationFailures  atomic.Uint64
 	lastUsedTouchL1           sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF           singleflight.Group
@@ -555,6 +561,16 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
+	groupIDs, err := normalizeAPIKeyGroupIDs(req.GroupID, req.GroupIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateAPIKeyGroups(ctx, user, groupIDs); err != nil {
+		return nil, err
+	}
+	if len(groupIDs) > 0 {
+		req.GroupID = &groupIDs[0]
+	}
 	var primaryGroup *Group
 	// 验证分组权限（如果指定了分组）
 	if req.GroupID != nil {
@@ -618,6 +634,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		UserID:           userID,
 		Key:              key,
 		Name:             html.EscapeString(req.Name),
+		GroupIDs:         groupIDs,
 		GroupID:          req.GroupID,
 		FallbackGroupID:  req.FallbackGroupID,
 		ConcurrencyLimit: req.ConcurrencyLimit,
@@ -701,11 +718,7 @@ func paginateAPIKeys(keys []APIKey, params pagination.PaginationParams) []APIKey
 		return []APIKey{}
 	}
 	limit := params.Limit()
-	page := params.Page
-	if page < 1 {
-		page = 1
-	}
-	offset := (page - 1) * limit
+	offset := params.Offset()
 	if offset >= len(keys) {
 		return []APIKey{}
 	}
@@ -939,20 +952,38 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		fields.Name = true
 	}
 
-	if req.GroupID != nil || req.FallbackGroupIDSet {
+	if req.GroupID != nil || req.GroupIDs != nil || req.FallbackGroupIDSet {
 		user, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
 			return nil, fmt.Errorf("get user: %w", err)
 		}
-
+		if req.GroupID != nil || req.GroupIDs != nil {
+			var requested []int64
+			if req.GroupIDs != nil {
+				requested = *req.GroupIDs
+			}
+			ids, err := normalizeAPIKeyGroupIDs(req.GroupID, requested)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.validateAPIKeyGroups(ctx, user, ids); err != nil {
+				return nil, err
+			}
+			apiKey.GroupIDs = ids
+			apiKey.GroupID = nil
+			apiKey.Group = nil
+			if len(ids) > 0 {
+				apiKey.GroupID = &ids[0]
+			}
+			fields.GroupID = true
+		}
 		primaryGroup := apiKey.Group
-		if req.GroupID != nil {
-			primaryGroup, err = s.loadBindableAPIKeyGroup(ctx, user, *req.GroupID)
+		if apiKey.GroupID != nil {
+			primaryGroup, err = s.loadBindableAPIKeyGroup(ctx, user, *apiKey.GroupID)
 			if err != nil {
 				return nil, err
 			}
 		}
-
 		fallbackGroup := apiKey.FallbackGroup
 		if req.FallbackGroupIDSet {
 			fallbackGroup = nil
@@ -966,11 +997,7 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		if err := validateAPIKeyFallbackGroup(primaryGroup, fallbackGroup); err != nil {
 			return nil, err
 		}
-		if req.GroupID != nil {
-			apiKey.GroupID = req.GroupID
-			apiKey.Group = primaryGroup
-			fields.GroupID = true
-		}
+		apiKey.Group = primaryGroup
 		if req.FallbackGroupIDSet {
 			apiKey.FallbackGroupID = req.FallbackGroupID
 			apiKey.FallbackGroup = fallbackGroup

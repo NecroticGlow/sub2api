@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -232,6 +233,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	pricingAt := openAIUsagePricingAt(input)
 	multiplier, imageMultiplier := computePeakAwareMultipliers(apiKey, baseMultiplier, pricingAt)
 	videoMultiplier := resolveVideoRateMultiplier(apiKey, baseMultiplier)
+	if result.MiniMaxH3BaseCost != nil && apiKey.Group != nil {
+		videoMultiplier = math.Max(0, apiKey.Group.RateMultiplier)
+	}
 
 	var cost *CostBreakdown
 	billingModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
@@ -259,7 +263,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
 	}
 	longContextBillingGate := openAILongContextBillingGate(billingAccount)
-	modelLongContextExempt := openAIGPT61SolLongContextExempt(billingAccount, result)
+	modelLongContextExempt := openAIGPT61SolLongContextExempt(billingAccount, result, tokens)
 	cost, err = s.calculateOpenAIRecordUsageCost(
 		ctx,
 		result,
@@ -403,6 +407,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		// Keep the image cache split in the existing usage_logs JSONB payload.
 		imageSizeBreakdown["image_cache_read_tokens"] = result.Usage.ImageCacheReadTokens
 	}
+	if result.AuthConnectionID != "" && s.excelOAuthReauth != nil {
+		s.excelOAuthReauth.recordConnectionUsage(ctx, account.ID, apiKey.ID, result.AuthConnectionID, requestID)
+	}
 	usageLog := &UsageLog{
 		UserID:                   user.ID,
 		APIKeyID:                 apiKey.ID,
@@ -437,6 +444,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
 		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))
+		if result.MiniMaxH3BaseCost != nil {
+			usageLog.VideoResolution = optionalTrimmedStringPtr(result.VideoResolution)
+		}
 		videoDurationSeconds := NormalizeVideoBillingDurationSecondsOrDefault(result.VideoDurationSeconds)
 		usageLog.VideoDurationSeconds = &videoDurationSeconds
 	}
@@ -545,11 +555,13 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}, s.billingDeps(), s.usageBillingRepo)
 
 	if billingErr != nil {
-		usageLog.ActualCost = 0
-		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 		return billingErr
 	}
-	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+	if !s.DurableUsageBillingEnabled() {
+		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
+	} else {
+		recordDurableUsageTiming(ctx, s.usageLogRepo, usageLog)
+	}
 
 	return nil
 }
@@ -584,39 +596,36 @@ func openAILongContextBillingGate(account *Account) *bool {
 	return &enabled
 }
 
-// openAIGPT61SolLongContextExempt 按实际上游凭据和最终发送模型判断是否豁免
-// 官方模型价卡的长上下文附加费。
+// openAIGPT61SolSubscriptionLongContextThreshold 是订阅凭据的长上下文门槛。
+// API 价卡仍是 272,000；订阅账号在该值及以下不套用 272k 附加费，超过才算长上下文。
+const openAIGPT61SolSubscriptionLongContextThreshold = 500_000
+
+// openAIGPT61SolLongContextExempt 按实际上游凭据、最终发送模型和输入 token
+// 判断是否豁免官方模型价卡的长上下文附加费。
 //
-// GPT-6.1 Sol（IsGPT61SolModelSpelling）在 OpenAI OAuth、Setup Token 和 API Key
-// 账号上都不收取该附加费。其它模型保持原价卡阶梯，不因账号类型被一并豁免。
+// 只豁免 OpenAI 订阅凭据（OAuth、Setup Token）上的 GPT-6.1 Sol，且计入长上下文
+// 判断的输入 token 不超过 500,000。超过 500,000 时不再豁免，沿用价卡倍率
+// （输入 ×2、输出 ×1.5，缓存侧与价卡一致）。API Key 不豁免，仍按价卡的
+// 272,000 阶梯。其它模型、其它平台和 upstream 透传不因这次规则被豁免。
+//
 // 该标志只关闭官方模型长上下文阶梯（DisableModelLongContextPricing），
-// 分组自定义区间价格不受影响。
+// 分组自定义区间价格不受影响。token 口径与 shouldApplySessionLongContextPricing
+// 相同：普通输入 + 缓存创建 + 缓存读取。
 //
 // 使用发送模型（UpstreamModel，空则回退 Model），避免客户别名、渠道计费模型
-// 或响应模型计费切换改变规则。
-func openAIGPT61SolLongContextExempt(account *Account, result *OpenAIForwardResult) bool {
-	if result == nil || !openAIAccountSkipsGPT61SolLongContext(account) {
+// 或响应模型计费切换改变规则。账号统计成本与用户扣费共用这次判断。
+func openAIGPT61SolLongContextExempt(account *Account, result *OpenAIForwardResult, tokens UsageTokens) bool {
+	if result == nil || !account.IsOpenAIOAuthLike() {
 		return false
 	}
 	model := strings.TrimSpace(result.UpstreamModel)
 	if model == "" {
 		model = result.Model
 	}
-	return openai.IsGPT61SolModelSpelling(model)
-}
-
-// openAIAccountSkipsGPT61SolLongContext 限定豁免凭据：OpenAI 的 OAuth、
-// Setup Token，以及 API Key。其它平台和其它账号类型（例如 upstream 透传）不豁免。
-func openAIAccountSkipsGPT61SolLongContext(account *Account) bool {
-	if account == nil || !account.IsOpenAI() {
+	if !openai.IsGPT61SolModelSpelling(model) {
 		return false
 	}
-	switch account.Type {
-	case AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey:
-		return true
-	default:
-		return false
-	}
+	return longContextBillableInputTokens(tokens) <= openAIGPT61SolSubscriptionLongContextThreshold
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
@@ -635,6 +644,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	pricingAt time.Time,
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
+	if result != nil && result.MiniMaxH3BaseCost != nil && result.VideoCount > 0 {
+		return s.calculateOpenAIVideoCost(ctx, billingModel, apiKey, result, videoMultiplier), nil
+	}
 	if result != nil && result.WebSearchCalls > 0 {
 		// Codex alpha/search 网页搜索按次计费：上游不返回 usage/token 字段，单价只取
 		// 分组覆盖价（nil 时默认 0.01 = 官方 $10/1000 次），不参与渠道级模型定价。
@@ -663,7 +675,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	}
 
 	if result != nil && result.ImageCount > 0 {
-		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
+		// Explicit group/channel token pricing keeps precedence, including when
+		// count billing is enabled for image fallback. Mixed requests also retain
+		// their token path; the switch cannot replace text usage with image fees.
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
 			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
 		}
@@ -691,7 +705,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 				modelLongContextExempt,
 			)
 			if err == nil {
-				applyModelBillingMultiplier(cost, s.settingService.modelBillingConfigForUsage(ctx), candidate)
+				applyModelBillingMultiplier(cost, s.settingService.modelBillingConfigForUsage(ctx), candidate, apiKey.GroupID)
 				tokenCost = cost
 				break
 			}
@@ -869,6 +883,9 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 	result *OpenAIForwardResult,
 	multiplier float64,
 ) *CostBreakdown {
+	if result.MiniMaxH3BaseCost != nil {
+		return &CostBreakdown{TotalCost: *result.MiniMaxH3BaseCost, ActualCost: *result.MiniMaxH3BaseCost * multiplier, BillingMode: string(BillingModeVideo)}
+	}
 	videoCount := result.VideoCount
 	if videoCount <= 0 {
 		videoCount = 1
@@ -1091,7 +1108,7 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 		return nil
 	}
 
-	snapshot.UpdatedAt = time.Now().Format(time.RFC3339)
+	snapshot.UpdatedAt = time.Now().Format(time.RFC3339Nano)
 	return snapshot
 }
 
@@ -1151,7 +1168,7 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 	if snapshot.PrimaryOverSecondaryPercent != nil {
 		updates["codex_primary_over_secondary_percent"] = *snapshot.PrimaryOverSecondaryPercent
 	}
-	updates["codex_usage_updated_at"] = baseTime.Format(time.RFC3339)
+	updates["codex_usage_updated_at"] = baseTime.Format(time.RFC3339Nano)
 
 	// 归一化到 5h/7d 规范字段
 	if normalized := snapshot.Normalize(); normalized != nil {

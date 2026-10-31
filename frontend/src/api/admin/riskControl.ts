@@ -2,11 +2,14 @@ import { apiClient } from '../client'
 
 export type ModerationMode = 'off' | 'observe' | 'pre_block'
 export type ModerationEngine = 'openai' | 'typesafe'
+export type ModerationCategorySettings = Record<string, { enabled: boolean }>
 export interface ModerationEngineMeta {
   engine: ModerationEngine
   model: string
   rules_version: string
   skipped_images: number
+  category_settings?: ModerationCategorySettings
+  matched_categories?: string[]
 }
 export type KeywordBlockingMode = 'keyword_only' | 'keyword_and_api' | 'api_only'
 export type ContentModerationModelFilterType = 'all' | 'include' | 'exclude'
@@ -34,6 +37,7 @@ export interface ContentModerationConfig {
   all_groups: boolean
   group_ids: number[]
   record_non_hits: boolean
+  category_settings?: ModerationCategorySettings
   thresholds: Record<string, number>
   worker_count: number
   queue_size: number
@@ -56,6 +60,7 @@ export interface ContentModerationConfig {
 export type ContentModerationAPIKeyStatusValue = 'unknown' | 'ok' | 'error' | 'frozen'
 
 export interface ContentModerationAPIKeyStatus {
+  base_url?: string
   index: number
   key_hash: string
   masked: string
@@ -73,6 +78,7 @@ export interface ContentModerationAPIKeyStatus {
 
 export interface TestContentModerationAPIKeysPayload {
   engine?: ModerationEngine
+  category_settings?: ModerationCategorySettings
   thresholds?: Record<string, number>
   api_keys?: string[]
   base_url?: string
@@ -91,12 +97,14 @@ export interface TestContentModerationAPIKeysResponse {
 }
 
 export interface ContentModerationTestAuditResult {
+  matched_categories?: string[]
   engine_meta?: ModerationEngineMeta
   flagged: boolean
   highest_category: string
   highest_score: number
   composite_score: number
   category_scores: Record<string, number>
+  category_settings?: ModerationCategorySettings
   thresholds: Record<string, number>
 }
 
@@ -119,6 +127,7 @@ export interface UpdateContentModerationConfig {
   all_groups?: boolean
   group_ids?: number[]
   record_non_hits?: boolean
+  category_settings?: ModerationCategorySettings
   thresholds?: Record<string, number>
   worker_count?: number
   queue_size?: number
@@ -186,6 +195,7 @@ export interface ContentModerationAPIKeyLoad {
 }
 
 export interface ContentModerationLog {
+  evidence_status?: string
   engine_meta?: ModerationEngineMeta | null
   id: number
   request_id: string
@@ -219,7 +229,7 @@ export interface ContentModerationLog {
 
 export type UpdateModerationEngineConfig = Pick<UpdateContentModerationConfig,
   'base_url' | 'model' | 'proxy_id' | 'api_keys' | 'api_keys_mode' | 'delete_api_key_hashes' |
-  'clear_api_key' | 'timeout_ms' | 'retry_count' | 'thresholds'>
+  'clear_api_key' | 'timeout_ms' | 'retry_count' | 'thresholds' | 'category_settings'> & { key_url_updates?: Array<{ key_hash: string; base_url: string; expected_base_url: string }> }
 
 export interface ListContentModerationLogsParams {
   page?: number
@@ -287,10 +297,50 @@ export async function listLogs(
   return data
 }
 
-export async function unbanUser(userID: number): Promise<ContentModerationUnbanUserResponse> {
-  const { data } = await apiClient.post<ContentModerationUnbanUserResponse>(
-    `/admin/risk-control/users/${userID}/unban`
-  )
+export interface ModerationUserState {
+  user_id: number
+  version: number
+  generation: number
+  auto_ban_exempt: boolean
+  keyword_exempt: boolean
+  api_audit_exempt: boolean
+  email_exempt: boolean
+  owned_disable: boolean
+  status: string
+  current_count: number
+  reason: string
+  actor_id: number | null
+  updated_at: string | null
+}
+
+export interface ModerationUserAction {
+  action: 'unban' | 'reset' | 'exemption'
+  version: number
+  reason: string
+  confirm: boolean
+  auto_ban_exempt?: boolean
+  keyword_exempt?: boolean
+  api_audit_exempt?: boolean
+  email_exempt?: boolean
+}
+
+export async function getModerationUser(userID: number): Promise<ModerationUserState> {
+  const { data } = await apiClient.get<ModerationUserState>(`/admin/risk-control/users/${userID}`)
+  return data
+}
+
+export async function manageModerationUser(userID: number, payload: ModerationUserAction): Promise<ModerationUserState> {
+  const { data } = await apiClient.post<ModerationUserState>(`/admin/risk-control/users/${userID}/actions`, payload)
+  return data
+}
+
+export async function listModerationUsers(params: { page: number; page_size: number; state: 'all' | 'exempt' | 'enforced' | 'auto_ban_exempt' | 'keyword_exempt' | 'api_audit_exempt' | 'email_exempt'; user_id?: number }): Promise<{ items: ModerationUserState[]; total: number }> {
+  const { data } = await apiClient.get<{ items: ModerationUserState[]; total: number }>('/admin/risk-control/users', { params })
+  return data
+}
+
+export async function unbanUser(userID: number, payload: Omit<ModerationUserAction, 'action'>): Promise<ModerationUserState> {
+  const { data } = await apiClient.post<ModerationUserState>(`/admin/risk-control/users/${userID}/unban`, payload)
   return data
 }
 
@@ -313,6 +363,9 @@ export const riskControlAPI = {
   testAPIKeys,
   listLogs,
   unbanUser,
+  getModerationUser,
+  manageModerationUser,
+  listModerationUsers,
   deleteFlaggedHash,
   clearFlaggedHashes,
 }

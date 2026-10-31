@@ -53,6 +53,9 @@ func codexAccountIdentitySource(c *gin.Context, fallback *Account) *Account {
 // otherwise falls back only to a persistent fingerprint seed: local row IDs are
 // deployment-relative and must never become upstream identity.
 func codexAccountIdentityNamespace(account *Account) string {
+	if account != nil && account.AuthConnectionID != "" {
+		return "connection:" + account.AuthConnectionID
+	}
 	if account == nil || !account.IsOpenAIOAuthLike() {
 		return ""
 	}

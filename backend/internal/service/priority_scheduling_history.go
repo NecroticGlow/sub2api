@@ -2,43 +2,58 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	priorityHistoryTTL         = 30 * time.Second
-	priorityHistoryMaxAge      = 2 * time.Minute
-	priorityHistoryRetry       = 5 * time.Second
-	priorityHistoryMaxScopes   = 32
-	priorityHistoryMaxAccounts = 2000
+	priorityHistoryTTL          = 30 * time.Second
+	priorityHistoryColdTTL      = 5 * time.Second
+	priorityHistoryLaunchWindow = time.Second
+	priorityHistoryMaxAge       = 2 * time.Minute
+	priorityHistoryRetry        = 5 * time.Second
+	priorityHistoryMaxScopes    = 32
+	priorityHistoryMaxAccounts  = 2000
 )
 
 type prioritySignalEntry struct {
+	windowEnd                              time.Time
 	signals                                map[int64]PrioritySchedulingSignal
 	accounts                               map[int64]time.Time
 	expires, observed, lastUsed, attempted time.Time
 	refreshing                             bool
 	failure                                string
+	generation                             uint64
+	recomputeGeneration                    uint64
+	requiredReadGeneration                 uint64
+	completedReadGeneration                uint64
 }
 
 type prioritySchedulingState struct {
 	mu          sync.Mutex
 	entries     map[string]*prioritySignalEntry
+	launches    [2]time.Time
+	launchIndex int
 	active      int
 	latestInput *prioritySnapshotInput
 }
 
 type priorityHistoryResult struct {
-	signals    map[int64]PrioritySchedulingSignal
-	status     string
-	observed   *time.Time
-	failure    string
-	refreshing bool
+	entry                   *prioritySignalEntry
+	completedReadGeneration uint64
+	windowEnd               *time.Time
+	signals                 map[int64]PrioritySchedulingSignal
+	status                  string
+	observed                *time.Time
+	failure                 string
+	refreshing              bool
 }
 
 func (h priorityHistoryResult) ready() bool { return h.status == "ready" || h.status == "stale" }
@@ -71,7 +86,7 @@ func (s *OpenAIGatewayService) priorityHistory(req OpenAIAccountScheduleRequest,
 	if !ok {
 		return priorityHistoryResult{status: "unavailable"}
 	}
-	if len(accounts) == 0 || len(accounts) > priorityHistoryMaxAccounts || len(req.RequestedModel) > 200 {
+	if len(accounts) == 0 || len(accounts) > priorityHistoryMaxAccounts || len(priorityHistoryModel(req)) > 200 || len(req.RequestedModel) > 200 {
 		return priorityHistoryResult{status: "limited"}
 	}
 	wanted := make(map[int64]struct{}, len(accounts))
@@ -143,8 +158,8 @@ func (s *OpenAIGatewayService) priorityHistory(req OpenAIAccountScheduleRequest,
 			break
 		}
 	}
-	due := now.After(entry.expires) || (missing && entry.failure == "" && now.Sub(entry.attempted) >= time.Second)
-	if !entry.refreshing && due && state.active < 2 {
+	due := entry.requiredReadGeneration > entry.completedReadGeneration || now.After(entry.expires) || (missing && entry.failure == "" && now.Sub(entry.attempted) >= time.Second)
+	if !entry.refreshing && due && state.active < 2 && now.Sub(state.launches[state.launchIndex]) >= priorityHistoryLaunchWindow {
 		ids := make([]int64, 0, len(entry.accounts))
 		for id := range entry.accounts {
 			ids = append(ids, id)
@@ -156,9 +171,13 @@ func (s *OpenAIGatewayService) priorityHistory(req OpenAIAccountScheduleRequest,
 			value := *req.GroupID
 			group = &value
 		}
-		query := PrioritySchedulingQuery{AccountIDs: ids, Model: req.RequestedModel, GroupID: group, UsageSince: now.Add(-time.Duration(c.WindowMinutes) * time.Minute), QualitySince: now.Add(-time.Duration(c.QualityMaxAgeHours) * time.Hour)}
+		query := PrioritySchedulingQuery{LatencyPercentile: c.LatencyPercentile, LatencyMeasurement: c.LatencyMeasurement, TargetTTFTMs: c.TargetTTFTMs, AccountIDs: ids, Model: priorityHistoryModel(req), QualityModel: strings.TrimSpace(req.RequestedModel), GroupID: group, UsageUntil: now, UsageSince: now.Add(-time.Duration(c.WindowMinutes) * time.Minute), QualitySince: now.Add(-time.Duration(c.QualityMaxAgeHours) * time.Hour)}
+		state.launches[state.launchIndex] = now
+		state.launchIndex = (state.launchIndex + 1) % len(state.launches)
 		entry.refreshing = true
 		entry.attempted = now
+		entry.generation++
+		generation := entry.generation
 		state.active++
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -182,28 +201,65 @@ func (s *OpenAIGatewayService) priorityHistory(req OpenAIAccountScheduleRequest,
 			state.mu.Lock()
 			defer state.mu.Unlock()
 			state.active--
+			if state.entries[key] != entry || entry.generation != generation {
+				return
+			}
 			entry.refreshing = false
+			entry.completedReadGeneration = generation
 			if err != nil {
 				// Keep recent evidence, including known risk, through transient failures.
 				entry.failure = failure
 				entry.expires = time.Now().Add(priorityHistoryRetry)
 				return
 			}
-			entry.signals = make(map[int64]PrioritySchedulingSignal, len(ids))
+			// Validate the entire read before replacing any successful evidence.
+			// An omitted aggregate is incomplete, unlike an explicit zero row.
 			for _, id := range ids {
-				if _, tracked := entry.accounts[id]; tracked {
-					entry.signals[id] = signals[id]
+				if _, returned := signals[id]; !returned {
+					entry.failure = "incomplete"
+					entry.expires = time.Now().Add(priorityHistoryRetry)
+					return
 				}
 			}
+			nextSignals := make(map[int64]PrioritySchedulingSignal, len(entry.accounts))
+			// Candidates may join while SQL is running. Retain their prior evidence
+			// until a read that includes them can replace it.
+			for id, signal := range entry.signals {
+				if _, tracked := entry.accounts[id]; tracked {
+					nextSignals[id] = signal
+				}
+			}
+			for _, id := range ids {
+				if signal, returned := signals[id]; returned {
+					if _, tracked := entry.accounts[id]; tracked {
+						nextSignals[id] = signal
+					}
+				}
+			}
+			entry.signals = nextSignals
 			entry.failure = ""
+			entry.windowEnd = query.UsageUntil
 			entry.observed = time.Now()
-			entry.expires = entry.observed.Add(priorityHistoryTTL)
+			// A completed call may commit just after the previous read. Revisit
+			// cold accounts without billing hooks, synthetic samples or a query per
+			// completion. Two workers, 32 scopes and the global rolling launch budget bound SQL.
+			ttl := priorityHistoryTTL
+			for _, signal := range entry.signals {
+				if max(signal.Samples+signal.LatencyUnknownSamples, signal.ProfitSamples) < c.MinSamples {
+					ttl = priorityHistoryColdTTL
+					break
+				}
+			}
+			entry.expires = entry.observed.Add(ttl)
 		}()
 	}
-	h := priorityHistoryResult{signals: make(map[int64]PrioritySchedulingSignal, len(wanted)), status: "loading", failure: entry.failure, refreshing: entry.refreshing}
+	// Completion metadata and evidence belong to the same locked observation.
+	h := priorityHistoryResult{entry: entry, completedReadGeneration: entry.completedReadGeneration, signals: make(map[int64]PrioritySchedulingSignal, len(wanted)), status: "loading", failure: entry.failure, refreshing: entry.refreshing}
 	if !entry.observed.IsZero() && now.Sub(entry.observed) <= priorityHistoryMaxAge {
 		observed := entry.observed
 		h.observed = &observed
+		windowEnd := entry.windowEnd
+		h.windowEnd = &windowEnd
 		for id := range wanted {
 			if signal, exists := entry.signals[id]; exists {
 				h.signals[id] = signal
@@ -245,5 +301,14 @@ func (s *OpenAIGatewayService) cachedPriorityHistory(req OpenAIAccountScheduleRe
 }
 
 func priorityHistoryKey(req OpenAIAccountScheduleRequest, c PrioritySchedulingConfig) string {
-	return fmt.Sprintf("%q/%d/%t/%d/%d", req.RequestedModel, derefGroupID(req.GroupID), req.GroupID != nil, c.WindowMinutes, c.QualityMaxAgeHours)
+	// The action changes admission, not the measured population. Switching soft
+	// and stop must retain the exact same model/group/measurement evidence.
+	c.LatencyPenaltyMode = PriorityLatencyDeprioritize
+	return fmt.Sprintf("%q/%q/%d/%t/%d/%d", priorityHistoryModel(req), strings.TrimSpace(req.RequestedModel), derefGroupID(req.GroupID), req.GroupID != nil, c.WindowMinutes, c.QualityMaxAgeHours) + "/" + priorityConfigRevision(c)
+}
+
+// Include every scoring setting so stale scopes never mix targets or semantics.
+func priorityConfigRevision(c PrioritySchedulingConfig) string {
+	b, _ := json.Marshal(c)
+	return fmt.Sprintf("%x", sha256.Sum256(b))[:16]
 }

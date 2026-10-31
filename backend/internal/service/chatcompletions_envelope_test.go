@@ -54,7 +54,7 @@ func TestChatEnvelopeProtocolConversions(t *testing.T) {
 			var result *OpenAIForwardResult
 			var err error
 			if protocol == "responses" {
-				result, err = svc.bufferChatCompletionsAsResponses(c, resp, "deepseek-v4.1-flash", nil, nil, false, nil, "deepseek-v4.1-flash", "cline-pass/deepseek-v4.1-flash", nil, nil, false, time.Now(), false)
+				result, err = svc.bufferChatCompletionsAsResponses(c, resp, "deepseek-v4.1-flash", nil, nil, false, nil, "deepseek-v4.1-flash", "cline-pass/deepseek-v4.1-flash", nil, nil, false, time.Now(), false, nil)
 			} else {
 				result, err = svc.bufferChatCompletionsAsAnthropic(c, resp, "deepseek-v4.1-flash", "deepseek-v4.1-flash", "cline-pass/deepseek-v4.1-flash", nil, nil, time.Now())
 			}

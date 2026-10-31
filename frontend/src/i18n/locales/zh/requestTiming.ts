@@ -30,6 +30,18 @@ export default {
   "timeout": "超时",
   "transport_error": "传输错误",
   "fields": {
+    "content_encoding": "上游 Content-Encoding",
+    "auto_decompressed": "HTTP 客户端已自动解压（解压前计时不可用）",
+    "raw_body_first": "解压前首个正文数据（请求起点）",
+    "decoded_body_first": "解压后首个正文数据（请求起点）",
+    "sse_parsed_first": "首个完整 SSE 数据 JSON（请求起点）",
+    "sse_visible_first": "转换前首个可见事件（请求起点）",
+    "tool_converted_first": "工具转换后首个事件（请求起点）",
+    "tool_visible_first": "工具转换后首个可见事件（请求起点）",
+    "decode_wait": "解压前后首数据间隔（含等待读取）",
+    "sse_wait": "解压后到首个 SSE 数据间隔",
+    "tool_wait": "转换前后首个可见事件间隔",
+
     "first_semantic": "请求级首个语义事件",
     "first_visible": "请求级首个可见输出",
     "first_output_flush": "首次输出 Flush（应用侧）",

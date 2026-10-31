@@ -142,6 +142,9 @@ func (s *OpenAIGatewayService) GenerateExplicitSessionHash(c *gin.Context, body 
 
 	currentHash, legacyHash := deriveOpenAISessionHashes(sessionID)
 	attachOpenAILegacySessionHashToGin(c, legacyHash)
+	if c != nil {
+		c.Set("openai_auth_connection_session_hash", currentHash)
+	}
 	return currentHash
 }
 
@@ -181,6 +184,9 @@ func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context, body []byte) 
 
 	currentHash, legacyHash := deriveOpenAISessionHashes(sessionID)
 	attachOpenAILegacySessionHashToGin(c, legacyHash)
+	if c != nil {
+		c.Set("openai_auth_connection_session_hash", currentHash)
+	}
 	return currentHash
 }
 
@@ -217,6 +223,9 @@ func (s *OpenAIGatewayService) GenerateSessionHashWithFallback(c *gin.Context, b
 
 	currentHash, legacyHash := deriveOpenAISessionHashes(seed)
 	attachOpenAILegacySessionHashToGin(c, legacyHash)
+	if c != nil {
+		c.Set("openai_auth_connection_session_hash", currentHash)
+	}
 	return currentHash
 }
 

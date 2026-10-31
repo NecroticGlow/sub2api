@@ -61,6 +61,7 @@ it('adds supported and custom platforms, reorders them, and deletes only a disab
   const rows = () => wrapper.findAll('[data-testid="monitor-v2-platform-row"]').map((row) => row.attributes('data-platform'))
   expect(rows().slice(-2)).toEqual(['deepseek', 'custom_gw'])
   expect(wrapper.find('[data-platform="openai"]').find('[data-testid="monitor-v2-delete-platform"]').exists()).toBe(false)
+  expect(wrapper.get('[data-platform="openai"]').element.lastElementChild?.querySelector('[data-testid="monitor-v2-move-up"]')).toBeTruthy()
   expect(wrapper.get('[data-platform="custom_gw"]').get('[data-testid="monitor-v2-delete-platform"]').attributes('disabled')).toBeDefined()
 
   await wrapper.get('[data-platform="custom_gw"]').get('[data-testid="monitor-v2-move-up"]').trigger('click')
@@ -81,5 +82,43 @@ it('adds supported and custom platforms, reorders them, and deletes only a disab
   expect(saved.slice(0, 6)).toEqual(factory)
   expect(saved.at(-1)).toBe('deepseek')
   expect(saved).not.toContain('custom_gw')
+  expect(mocks.update.mock.calls[0][0].card_timeline_mode).toBe('windows')
+  wrapper.unmount()
+})
+
+it('moves groups inside one platform and saves that display order', async () => {
+  mocks.get.mockResolvedValue(config())
+  mocks.groups.mockResolvedValue([
+    { id: 3, name: 'Zed', platform: 'openai' },
+    { id: 8, name: 'Alpha', platform: 'openai' },
+    { id: 1, name: 'A', platform: 'anthropic' },
+  ])
+  mocks.update.mockImplementation(async (payload) => ({ ...payload, version: 4 }))
+  const wrapper = mount(MonitorSettingsPanel, { global: { stubs: { Toggle: true, Icon: true, RouterLink: true } } })
+  await flushPromises()
+  const section = (platform: string) => wrapper.get(`[data-testid="monitor-v2-group-platform"][data-platform="${platform}"]`)
+  const ids = () => section('openai').findAll('[data-testid="monitor-v2-group-row"]').map((row) => row.attributes('data-group-id'))
+  expect(ids()).toEqual(['8', '3'])
+  expect(section('openai').get('[data-testid="monitor-v2-group-row"]').element.lastElementChild?.querySelector('[data-testid="monitor-v2-group-move-up"]')).toBeTruthy()
+  await section('openai').findAll('[data-testid="monitor-v2-group-move-down"]')[0].trigger('click')
+  expect(ids()).toEqual(['3', '8'])
+  expect(section('anthropic').get('[data-testid="monitor-v2-group-row"]').attributes('data-group-id')).toBe('1')
+  await wrapper.get('header button.btn-primary').trigger('click')
+  await flushPromises()
+  expect(mocks.update.mock.calls[0][0].group_order).toEqual([1, 3, 8])
+  wrapper.unmount()
+})
+
+it('saves the admin card timeline mode and keeps an omitted value on time windows', async () => {
+  mocks.get.mockResolvedValue({ ...config(), card_timeline_mode: 'samples' })
+  mocks.groups.mockResolvedValue([])
+  mocks.update.mockImplementation(async (payload) => ({ ...payload, version: 4 }))
+  const wrapper = mount(MonitorSettingsPanel, { global: { stubs: { Toggle: true, Icon: true, RouterLink: true } } })
+  await flushPromises()
+  expect(wrapper.get('[data-testid="monitor-v2-card-timeline-samples"]').classes()).toContain('tab-active')
+  await wrapper.get('[data-testid="monitor-v2-card-timeline-windows"]').trigger('click')
+  await wrapper.get('header button.btn-primary').trigger('click')
+  await flushPromises()
+  expect(mocks.update.mock.calls[0][0].card_timeline_mode).toBe('windows')
   wrapper.unmount()
 })

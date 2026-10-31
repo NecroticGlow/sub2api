@@ -88,7 +88,18 @@ func (r *openAIOAuthReauthRepository) GetConfig(ctx context.Context, accountID i
 }
 
 func (r *openAIOAuthReauthRepository) CreateTask(ctx context.Context, accountID int64, expectedCredentialsHash string) (*service.OpenAIOAuthReauthTaskRecord, error) {
-	row := r.db.QueryRowContext(ctx, `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Manual Codex tasks serialize with budget recovery and automatic insertion.
+	// An account need not be monitored to receive an explicitly requested task.
+	var monitoredID int64
+	if err := tx.QueryRowContext(ctx, `SELECT account_id FROM account_token_guard_v2_accounts WHERE account_id=$1 FOR UPDATE`, accountID).Scan(&monitoredID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	row := tx.QueryRowContext(ctx, `
 		INSERT INTO openai_oauth_reauth_tasks (account_id, status, stage, expected_credentials_hash)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, account_id, status, stage, COALESCE(worker_id, ''),
@@ -104,7 +115,7 @@ func (r *openAIOAuthReauthRepository) CreateTask(ctx context.Context, accountID 
 		}
 		return nil, err
 	}
-	return record, nil
+	return record, tx.Commit()
 }
 
 func (r *openAIOAuthReauthRepository) GetLatestTask(ctx context.Context, accountID int64) (*service.OpenAIOAuthReauthTaskRecord, error) {
@@ -186,7 +197,7 @@ func (r *openAIOAuthReauthRepository) ClaimNextTaskForRuntime(ctx context.Contex
 					SELECT 1 FROM openai_oauth_reauth_configs AS config
 					WHERE config.account_id = openai_oauth_reauth_tasks.account_id AND config.credential_mode = $9
 				))
-				AND CASE WHEN oauth_profile = 'excel' THEN 'local_worker' ELSE COALESCE((SELECT CASE WHEN $11 <> '' THEN
+				AND CASE WHEN oauth_profile IN ('excel','siwc') THEN 'local_worker' ELSE COALESCE((SELECT CASE WHEN $11 <> '' THEN
 					CASE WHEN config.credential_mode = 'password_totp' THEN $11 ELSE 'local_worker' END
 					ELSE engine END FROM openai_oauth_reauth_configs AS config
 					WHERE config.account_id = openai_oauth_reauth_tasks.account_id), 'local_worker') END = ANY($10::text[])

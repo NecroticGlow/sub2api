@@ -29,6 +29,11 @@ func RegisterUserRoutes(
 		user := authenticated.Group("/user")
 		{
 			user.GET("/profile", h.User.GetProfile)
+			if h.Admin != nil && h.Admin.PromptAudit != nil {
+				user.GET("/security/summary", h.Admin.PromptAudit.MyPenaltySummary)
+				user.GET("/security/events", h.Admin.PromptAudit.MyPenaltyEvents)
+				user.GET("/security/events/:id", h.Admin.PromptAudit.MyPenaltyEvent)
+			}
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)
 			user.GET("/aff", h.User.GetAffiliate)
@@ -102,6 +107,8 @@ func RegisterUserRoutes(
 		usage.Use(panelRateLimiter.Heavy())
 		{
 			usage.GET("", h.Usage.List)
+			usage.GET("/traffic", h.Usage.Traffic)
+			usage.GET("/traffic/keys", h.Usage.TrafficKeys)
 			usage.GET("/errors", h.Usage.ListErrors)
 			usage.GET("/errors/:id", h.Usage.GetErrorDetail)
 			usage.GET("/:id", h.Usage.GetByID)

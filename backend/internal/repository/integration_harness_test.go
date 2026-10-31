@@ -38,6 +38,8 @@ var (
 	integrationDB        *sql.DB
 	integrationEntClient *dbent.Client
 	integrationRedis     *redisclient.Client
+	// Container-only connection string for tests that need a separate database.
+	integrationPostgresDSN string
 
 	redisNamespaceSeq uint64
 )
@@ -75,10 +77,11 @@ func TestMain(m *testing.M) {
 	}
 	defer func() { _ = pgContainer.Terminate(ctx) }()
 
-	redisContainer, err := tcredis.Run(
-		ctx,
-		redisImageTag,
-	)
+	redisImage := os.Getenv("SUB2API_TEST_REDIS_IMAGE")
+	if redisImage == "" {
+		redisImage = redisImageTag
+	}
+	redisContainer, err := tcredis.Run(ctx, redisImage)
 	if err != nil {
 		log.Printf("failed to start redis container: %v", err)
 		os.Exit(1)
@@ -90,6 +93,7 @@ func TestMain(m *testing.M) {
 		log.Printf("failed to get postgres dsn: %v", err)
 		os.Exit(1)
 	}
+	integrationPostgresDSN = dsn
 
 	integrationDB, err = openSQLWithRetry(ctx, dsn, 30*time.Second)
 	if err != nil {
@@ -341,7 +345,7 @@ func (h prefixHook) prefixCmd(cmd redisclient.Cmder) {
 	}
 
 	switch strings.ToLower(cmd.Name()) {
-	case "get", "set", "setnx", "setex", "psetex", "incr", "decr", "incrby", "expire", "pexpire", "ttl", "pttl",
+	case "get", "getset", "set", "setnx", "setex", "psetex", "incr", "decr", "incrby", "expire", "pexpire", "ttl", "pttl",
 		"hgetall", "hget", "hset", "hdel", "hincrbyfloat", "exists",
 		"zadd", "zcard", "zrange", "zrangebyscore", "zrem", "zremrangebyscore", "zrevrange", "zrevrangebyscore", "zscore":
 		prefixOne(1)

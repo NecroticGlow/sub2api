@@ -4,7 +4,7 @@
 
 # Sub2API
 
-[![Go](https://img.shields.io/badge/Go-1.27.2-00ADD8.svg)](https://golang.org/)
+[![Go](https://img.shields.io/badge/Go-1.27.3-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
@@ -46,10 +46,10 @@ Sub2API は、AI 製品のサブスクリプションから API クォータを�
 
 | コンポーネント | 技術 |
 |-----------|------------|
-| バックエンド | Go 1.27.2, Gin, Ent |
+| バックエンド | Go 1.27.3, Gin, Ent |
 | フロントエンド | Vue 3.4+, Vite 5+, TailwindCSS |
 | データベース | PostgreSQL 15+ |
-| キャッシュ/キュー | Redis 7+ |
+| キャッシュ/キュー | Redis 6.0+ |
 
 ---
 
@@ -75,7 +75,7 @@ GitHub Releases からビルド済みバイナリをダウンロードするワ�
 
 - Linux サーバー（amd64 または arm64）
 - PostgreSQL 15+（インストール済みかつ稼働中）
-- Redis 7+（インストール済みかつ稼働中）
+- Redis 6.0+（インストール済みかつ稼働中）
 - root 権限
 
 #### インストール手順
@@ -328,7 +328,7 @@ cd sub2api/deploy
 - Go 1.21+
 - Node.js 18+
 - PostgreSQL 15+
-- Redis 7+
+- Redis 6.0+
 
 #### ビルド手順
 

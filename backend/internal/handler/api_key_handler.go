@@ -37,6 +37,7 @@ type CreateAPIKeyRequest struct {
 	Name             string   `json:"name" binding:"required"`
 	GroupID          *int64   `json:"group_id"` // nullable
 	FallbackGroupID  *int64   `json:"fallback_group_id"`
+	GroupIDs         []int64  `json:"group_ids"`
 	CustomKey        *string  `json:"custom_key"`      // 可选的自定义key
 	IPWhitelist      []string `json:"ip_whitelist"`    // IP 白名单
 	IPBlacklist      []string `json:"ip_blacklist"`    // IP 黑名单
@@ -81,6 +82,7 @@ type UpdateAPIKeyRequest struct {
 	ExpiresAt        *string       `json:"expires_at"`   // 过期时间 (ISO 8601)
 	ResetQuota       *bool         `json:"reset_quota"`  // 重置已用配额
 	ConcurrencyLimit *int          `json:"concurrency_limit" binding:"omitempty,gte=0"`
+	GroupIDs         *[]int64      `json:"group_ids"`
 
 	// Rate limit fields (nil = no change, 0 = unlimited)
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
@@ -222,13 +224,15 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	}
 
 	svcReq := service.CreateAPIKeyRequest{
-		Name:            req.Name,
-		GroupID:         req.GroupID,
-		FallbackGroupID: req.FallbackGroupID,
-		CustomKey:       req.CustomKey,
-		IPWhitelist:     req.IPWhitelist,
-		IPBlacklist:     req.IPBlacklist,
-		ExpiresInDays:   req.ExpiresInDays,
+		ConcurrencyLimit: req.ConcurrencyLimit,
+		Name:             req.Name,
+		GroupIDs:         req.GroupIDs,
+		GroupID:          req.GroupID,
+		CustomKey:        req.CustomKey,
+		IPWhitelist:      req.IPWhitelist,
+		IPBlacklist:      req.IPBlacklist,
+		ExpiresInDays:    req.ExpiresInDays,
+		FallbackGroupID:  req.FallbackGroupID,
 	}
 	if req.Quota != nil {
 		svcReq.Quota = *req.Quota
@@ -292,6 +296,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	if req.Name != "" {
 		svcReq.Name = &req.Name
 	}
+	svcReq.GroupIDs = req.GroupIDs
 	svcReq.GroupID = req.GroupID
 	if req.Status != "" {
 		svcReq.Status = &req.Status

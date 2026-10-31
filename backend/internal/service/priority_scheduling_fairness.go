@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"math"
+	"slices"
 	"sort"
 	"time"
 )
@@ -34,7 +35,7 @@ func (s *OpenAIGatewayService) balancesPriorityProtocols(req OpenAIAccountSchedu
 		return false
 	}
 	cfg := s.prioritySchedulingRuntimeConfig()
-	return cfg.BalanceProtocols && cfg.applies(req.GroupID, req.RequestedModel)
+	return cfg.BalanceProtocols && priorityApplies(cfg, req)
 }
 
 // Count distinct bindings, not group price/name or an inferred account class.
@@ -105,7 +106,7 @@ func (s *defaultOpenAIAccountScheduler) shouldRebalancePrioritySticky(ctx contex
 		return false
 	}
 	cfg := s.service.prioritySchedulingRuntimeConfig()
-	if !cfg.applies(req.GroupID, req.RequestedModel) {
+	if !priorityApplies(cfg, req) {
 		return false
 	}
 	balanceProtocols := cfg.BalanceProtocols
@@ -194,8 +195,8 @@ func (s *defaultOpenAIAccountScheduler) shouldRebalancePrioritySticky(ctx contex
 			continue
 		}
 		candidate := openAIAccountCandidateScore{account: account, loadKnown: true, loadInfo: load}
-		applyPriorityCandidate(cfg, &candidate, history.signals[account.ID], now)
-		if candidate.priorityUnhealthy {
+		score := applyPriorityCandidate(cfg, &candidate, history.signals[account.ID], now)
+		if candidate.priorityUnhealthy || slices.Contains(score.Reasons, "latency_above_target") {
 			continue
 		}
 		if rpm, ok := accountRPMStateFromContext(ctx, account); ok && rpm.Enabled && rpm.Limit > 0 && rpm.Current >= rpm.Limit {
@@ -250,11 +251,13 @@ func buildPrioritySelectionOrder(pool []openAIAccountCandidateScore, req OpenAIA
 	// for safe unknown accounts at that same explicit priority. Known degraded
 	// accounts, busy accounts, protocol partitions and hard bindings cannot use
 	// this lane; the ordinary eligibility/profit/slot checks still follow.
-	if len(choices) > 1 && int(choices[0].candidate.score/200) == 2 && rng.nextFloat64() < priorityExplorationShare {
+	explorationRoll := rng.nextFloat64()
+	if len(choices) > 1 && int(choices[0].candidate.score/200) == 2 && explorationRoll < priorityExplorationShare {
 		best := -1
 		for i := 1; i < len(choices); i++ {
 			candidate := choices[i].candidate
 			if int(candidate.score/200) == 1 && candidate.priorityExploration &&
+				(!candidate.priorityLatencyRecovery || explorationRoll < float64(candidate.priorityRecoveryExplorationPercent)/100) &&
 				!candidate.priorityUnhealthy && choices[i].band <= choices[0].band &&
 				candidate.account.Priority == choices[0].candidate.account.Priority &&
 				(best < 0 || choices[i].key < choices[best].key) {

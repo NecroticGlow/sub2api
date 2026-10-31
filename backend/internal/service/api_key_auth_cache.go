@@ -7,6 +7,7 @@ type APIKeyAuthSnapshot struct {
 	Version          int                      `json:"version"`
 	APIKeyID         int64                    `json:"api_key_id"`
 	UserID           int64                    `json:"user_id"`
+	GroupIDs         []int64                  `json:"group_ids,omitempty"`
 	GroupID          *int64                   `json:"group_id,omitempty"`
 	FallbackGroupID  *int64                   `json:"fallback_group_id,omitempty"`
 	Name             string                   `json:"name"`
@@ -75,6 +76,7 @@ type APIKeyAuthGroupSnapshot struct {
 	MonthlyLimitUSD                 *float64                      `json:"monthly_limit_usd,omitempty"`
 	AllowImageGeneration            bool                          `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool                          `json:"allow_batch_image_generation"`
+	ImageCountBilling               bool                          `json:"image_count_billing"`
 	ImageRateIndependent            bool                          `json:"image_rate_independent"`
 	ImageRateMultiplier             float64                       `json:"image_rate_multiplier"`
 	ImagePrice1K                    *float64                      `json:"image_price_1k,omitempty"`

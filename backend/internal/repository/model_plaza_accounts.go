@@ -17,7 +17,8 @@ func (r *accountRepository) ListModelPlazaAccounts(ctx context.Context) ([]servi
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT a.id, a.platform, a.type,
 			jsonb_build_object('model_mapping', a.credentials->'model_mapping', 'oauth_type', a.credentials->'oauth_type'),
-			jsonb_build_object('openai_passthrough', a.extra->'openai_passthrough', 'openai_oauth_passthrough', a.extra->'openai_oauth_passthrough'),
+			jsonb_build_object('openai_passthrough', a.extra->'openai_passthrough', 'openai_oauth_passthrough', a.extra->'openai_oauth_passthrough',
+				'plaza_group_allowed_models', jsonb_object_agg(ag.group_id::text, COALESCE(ag.allowed_models, '[]'::jsonb))),
 			jsonb_agg(ag.group_id ORDER BY ag.group_id)
 		FROM accounts a
 		JOIN account_groups ag ON ag.account_id = a.id
@@ -45,6 +46,19 @@ func (r *accountRepository) ListModelPlazaAccounts(ctx context.Context) ([]servi
 			if err := json.Unmarshal(field.data, field.target); err != nil {
 				return nil, fmt.Errorf("decode model catalog configuration: %w", err)
 			}
+		}
+		// Include only non-secret model permissions in this public-directory
+		// projection, so defaults cannot restore models blocked by a binding.
+		permissionsJSON, err := json.Marshal(account.Extra["plaza_group_allowed_models"])
+		if err != nil {
+			return nil, err
+		}
+		var permissions map[int64][]string
+		if err := json.Unmarshal(permissionsJSON, &permissions); err != nil {
+			return nil, err
+		}
+		for groupID, models := range permissions {
+			account.AccountGroups = append(account.AccountGroups, service.AccountGroup{AccountID: account.ID, GroupID: groupID, AllowedModels: models})
 		}
 		accounts = append(accounts, account)
 	}

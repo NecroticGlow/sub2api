@@ -93,6 +93,26 @@ func isOpenAIAccount(account *Account) bool {
 // handleOpenAIAccountUpstreamError expects canonicalModel to be the model used
 // for scheduling after applying account mapping exactly once.
 func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, canonicalModel ...string) bool {
+	if isOpenAIUpstreamSessionBlocked(responseBody) {
+		return false
+	}
+	// Apply the same exemption before access-state and custom cooldown fast
+	// paths, which can otherwise block the credential before the shared handler.
+	if isOpenAIRequestScoped403(account, statusCode, responseBody) {
+		return false
+	}
+	if account != nil && account.AuthConnectionID != "" && !isOpenAIHTTPUpstreamAccessStateError(statusCode, "", responseBody) && statusCode != http.StatusTooManyRequests {
+		if (statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden || statusCode >= 500) && s != nil && s.excelOAuthReauth != nil {
+			stateCtx, cancel := openAIAccountStateContext(ctx)
+			defer cancel()
+			_ = s.excelOAuthReauth.FailAuthConnection(stateCtx, account, statusCode)
+		}
+		return false
+	}
+	// SIWC has independent credentials and limits. Never revoke or relogin the primary Codex grant on its errors.
+	if account.IsSIWCEnabled() && account.AuthConnectionID == "" {
+		return false
+	}
 	// Observe other HTTP responses before request/model-scoped policies return.
 	// The shared handler below skips this reset to keep one observation per response.
 	if s != nil && s.rateLimitService != nil && !isOpenAIIPUnauthorizedResponse(statusCode, responseBody) {
@@ -108,7 +128,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	// Capacity shedding describes this request, not account health. Keep the
 	// account schedulable while the request-local retry budget handles recovery.
-	if account != nil && account.Platform == PlatformOpenAI && isOpenAIRequestScopedCapacityShed("", responseBody) {
+	if account != nil && account.Platform == PlatformOpenAI && isOpenAIRequestScopedCapacityResponse(statusCode, headers, responseBody) {
 		return false
 	}
 	stateCtx, cancel := openAIAccountStateContext(ctx)

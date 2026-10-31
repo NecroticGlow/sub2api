@@ -88,6 +88,7 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		UserID:             k.UserID,
 		Key:                k.Key,
 		Name:               k.Name,
+		GroupIDs:           k.ConfiguredGroupIDs(),
 		GroupID:            k.GroupID,
 		FallbackGroupID:    k.FallbackGroupID,
 		Status:             k.Status,
@@ -202,6 +203,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		LongContextPricingEnabled:       g.LongContextPricingEnabled,
 		AllowImageGeneration:            g.AllowImageGeneration,
 		AllowBatchImageGeneration:       g.AllowBatchImageGeneration,
+		ImageCountBilling:               g.ImageCountBilling,
 		ImageRateIndependent:            g.ImageRateIndependent,
 		ImageRateMultiplier:             g.ImageRateMultiplier,
 		BatchImageDiscountMultiplier:    g.BatchImageDiscountMultiplier,
@@ -359,8 +361,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		}
 	}
 
-	// 提取账号配额限制（apikey / bedrock 类型有效）
-	if a.IsAPIKeyOrBedrock() {
+	// 提取账号配额限制（apikey / bedrock / service_account 类型有效）
+	if a.SupportsAccountQuota() {
 		if limit := a.GetQuotaLimit(); limit > 0 {
 			out.QuotaLimit = &limit
 			used := a.GetQuotaUsed()
@@ -484,7 +486,8 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		return nil
 	}
 	return &AccountListItem{
-		ID: a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
+		UpstreamChannelBinding: a.UpstreamChannelBinding,
+		ID:                     a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
 		Credentials: a.Credentials, CredentialsStatus: a.CredentialsStatus, Extra: a.Extra,
 		ExcelBPSCredentialState: a.ExcelBPSCredentialState,
 		OllamaCloudUsage:        a.OllamaCloudUsage, CodexTurnTickets: a.CodexTurnTickets,
@@ -774,11 +777,29 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 // UsageLogFromService converts a service UsageLog to DTO for regular users.
 // It excludes admin-only account/upstream internals while keeping user billing and request metadata.
 func UsageLogFromService(l *service.UsageLog) *UsageLog {
+	return UsageLogFromServiceForUser(l, false)
+}
+
+// UsageLogFromServiceForUser converts a usage log for an end user.
+// showUpstreamResponseModel reveals only the model declared by the upstream
+// response. Mapped request models, mismatch flags, and account internals stay hidden.
+func UsageLogFromServiceForUser(l *service.UsageLog, showUpstreamResponseModel bool) *UsageLog {
 	if l == nil {
 		return nil
 	}
 	u := usageLogFromServiceUser(l)
+	if showUpstreamResponseModel {
+		u.UpstreamResponseModel = visibleUpstreamResponseModel(l.UpstreamResponseModel)
+	}
 	return &u
+}
+
+func visibleUpstreamResponseModel(value *string) *string {
+	trimmed := strings.TrimSpace(derefString(value))
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 // UsageLogFromServiceAdmin converts a service UsageLog to DTO for admin users.

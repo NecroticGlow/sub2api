@@ -66,6 +66,9 @@ func plazaAccountModels(g *Group, accounts []*Account, noChannelModels bool) []P
 		matchedAccount = true
 		mapping := account.GetModelMapping()
 		addAccountModel := func(name string) {
+			if !account.IsModelSupportedInGroup(&g.ID, name) {
+				return
+			}
 			if bridge {
 				prefix := "gemini"
 				if g.Platform == PlatformAnthropic {

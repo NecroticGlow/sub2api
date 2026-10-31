@@ -3,9 +3,12 @@ export interface TimingSpan { name: string; start_ms: number; end_ms: number; at
 export interface TimingAttempt {
   kind: string; parent?: number; number: number; account_id: number; proxy_id: number; start_ms: number; end_ms: number | null
   status: number; error?: string; terminal?: string; cleanup_canceled?: boolean; reused: boolean | null; request_bytes: number; response_bytes: number
+  content_encoding?: string; auto_decompressed?: boolean
   body_eof: boolean; events: Record<string, number>
 }
 export interface RequestTiming {
+  identity_source?: string
+  auth_rejection?: string
   outcome?: string; client_disconnect: boolean; version: number; trace_id: string; started_at: string; total_ms: number; status: number; canceled: boolean
   truncated: boolean; body_bytes: number; body_expected: number; body_complete: boolean; body_read_ms: number
   downstream_bytes: number; downstream_write_ms: number; downstream_error: boolean; ttft_mode?: string; terminal?: string

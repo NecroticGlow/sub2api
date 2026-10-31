@@ -36,7 +36,7 @@ func (s *geminiAlways429Upstream) DoWithTLS(req *http.Request, proxyURL string, 
 func TestGeminiForwardPreservesExhaustedAccount429MarkerOnFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &geminiAlways429Upstream{}
-	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{Gateway: config.GatewayConfig{MaxSameAccountRetriesGemini: 1}}}
 	retryCount := 1
 	account := &Account{
 		ID:       901,
@@ -60,5 +60,5 @@ func TestGeminiForwardPreservesExhaustedAccount429MarkerOnFailover(t *testing.T)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.True(t, failoverErr.Account429RetryExhausted)
-	require.Equal(t, geminiMaxRetries+retryCount, upstream.calls, "透明预算只增加一次，随后仍执行官方 Gemini 重试")
+	require.Equal(t, svc.geminiMaxAttemptsPerAccount()+retryCount, upstream.calls, "透明预算只增加一次，随后仍执行配置的 Gemini 重试")
 }

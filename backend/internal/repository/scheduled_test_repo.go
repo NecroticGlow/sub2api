@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -30,6 +29,9 @@ type planRowQuerier interface {
 
 // insertScheduledTestPlan is shared with group rules, which insert inside their own transaction.
 func insertScheduledTestPlan(ctx context.Context, q planRowQuerier, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
+	if err := validateQualityGroupReferences(ctx, q, plan.PelicanConfig); err != nil {
+		return nil, err
+	}
 	row := q.QueryRowContext(ctx, `
 		INSERT INTO scheduled_test_plans (account_id, model_id, cron_expression, enabled, max_results, auto_recover, next_run_at, created_at, updated_at, pelican_config)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8)
@@ -77,7 +79,7 @@ func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.
 	const query = `
 		UPDATE scheduled_test_plans
 		SET model_id = $2, cron_expression = $3, enabled = $4, max_results = $5, auto_recover = $6, next_run_at = $7, updated_at = NOW(), pelican_config = $8
-		WHERE id = $1
+		WHERE id = $1 AND COALESCE(pelican_config->'quality'->>'action','') <> 'openai_two_fa_admission'
 		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, pelican_config, running_until
 	`
 	args := []any{plan.ID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt, marshalPelicanConfig(plan.PelicanConfig)}
@@ -95,7 +97,9 @@ func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.
 	if err != nil {
 		return nil, err
 	}
-	if updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil &&
+	// Importing configuration cannot implicitly undo account restrictions or
+	// discard their ownership. Incompatible live isolation still rejects below.
+	if !plan.PreserveQualityState && updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil &&
 		updated.PelicanConfig.Quality.Action == service.QualityActionIsolateModels &&
 		(state.Action == "remove_groups" || state.Action == "disable_scheduling") {
 		if err = restoreQualityAccountActionForIsolation(ctx, tx, updated, &state); err != nil {
@@ -105,7 +109,28 @@ func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.
 	if err = checkQualityIsolationScope(updated, &state); err != nil {
 		return nil, err
 	}
-	if updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil && updated.PelicanConfig.Quality.Action == service.QualityActionObserveOnly {
+	if hasQualityCooldownOwnership(&state) {
+		account := &service.Account{}
+		var credentials, extra []byte
+		// Use the persisted account ID, never the caller's copy. This follows
+		// detection's plan -> account lock order and fences concurrent remapping.
+		if err = tx.QueryRowContext(ctx, `SELECT platform,type,COALESCE(credentials,'{}'::jsonb),COALESCE(extra,'{}'::jsonb) FROM accounts WHERE id=$1 FOR UPDATE`, updated.AccountID).Scan(&account.Platform, &account.Type, &credentials, &extra); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(credentials, &account.Credentials); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(extra, &account.Extra); err != nil {
+			return nil, err
+		}
+		if err = checkQualityCooldownTargets(updated, account, &state); err != nil {
+			return nil, err
+		}
+	}
+	if err = validateQualityGroupReferences(ctx, tx, updated.PelicanConfig); err != nil {
+		return nil, err
+	}
+	if !plan.PreserveQualityState && updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil && updated.PelicanConfig.Quality.Action == service.QualityActionObserveOnly {
 		if _, err = tx.ExecContext(ctx, `DELETE FROM account_quality_states WHERE plan_id=$1`, plan.ID); err != nil {
 			return nil, err
 		}
@@ -133,9 +158,35 @@ func (r *scheduledTestPlanRepository) Delete(ctx context.Context, id int64) erro
 	if err != nil {
 		return err
 	}
-	if state.Action == service.QualityActionIsolateModels {
-		return fmt.Errorf("restore this rule's isolated models and groups before deleting it")
+	if state.Action == service.QualityActionIsolateModels || state.Models != nil || state.Groups != nil {
+		return service.QualityScopeConflict("restore this rule's isolated models and groups before deleting it")
 	}
+	if hasQualityCooldownOwnership(&state) {
+		return service.QualityScopeConflict("restore this rule's cooled models and concurrency before deleting it")
+	}
+	// Revalidate live ownership as well as durable snapshots. A stale/cleared
+	// snapshot must not let deletion leave a marker pointing at a missing rule.
+	var liveIsolation, liveCooldowns []byte
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(extra->'quality_model_isolation','{}'::jsonb),COALESCE(extra->'model_rate_limits','{}'::jsonb) FROM accounts WHERE id=(SELECT account_id FROM scheduled_test_plans WHERE id=$1) FOR UPDATE`, id).Scan(&liveIsolation, &liveCooldowns)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	for _, live := range [][]byte{liveIsolation, liveCooldowns} {
+		if len(live) == 0 {
+			continue
+		}
+		var entries map[string]json.RawMessage
+		if json.Unmarshal(live, &entries) != nil {
+			return service.QualityScopeConflict("review unreadable model ownership before deleting this rule")
+		}
+		for _, raw := range entries {
+			owner, _ := qualityEntryOwner(raw, id)
+			if owner == "this_rule" {
+				return service.QualityScopeConflict("review remaining model ownership before deleting this rule")
+			}
+		}
+	}
+
 	if _, err = tx.ExecContext(ctx, `DELETE FROM scheduled_test_plans WHERE id=$1`, id); err != nil {
 		return err
 	}
@@ -346,7 +397,9 @@ func (r *scheduledTestPlanRepository) ClaimPelican(ctx context.Context, plan *se
 }
 
 func (r *scheduledTestPlanRepository) FinishPelican(ctx context.Context, id int64, until, finished time.Time) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_test_plans SET running_until = NULL, last_run_at = $3
+	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_test_plans SET running_until = NULL, last_run_at = $3,
+ next_run_at=CASE WHEN pelican_config->'quality'->>'action'='openai_two_fa_admission'
+ THEN $3::timestamptz+make_interval(secs => (pelican_config->'quality'->'admission'->>'wait_seconds')::int) ELSE next_run_at END
  WHERE id = $1 AND running_until = $2`, id, until, finished)
 	return err
 }
@@ -394,7 +447,8 @@ func (r *scheduledTestResultRepository) GetResult(ctx context.Context, planID, r
 
 // ListPelicanHistory lists every retained output, including failures and paused plans.
 // Cursor pagination is independent of account-table filters or pages. Bodies are lazy-loaded.
-func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, beforeID int64, limit int) ([]*service.PelicanHistoryResult, error) {
+// A non-zero accountID narrows the same history to that account's plans.
+func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, beforeID int64, limit int, accountID int64) ([]*service.PelicanHistoryResult, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT r.id, r.plan_id, r.status, r.error_message,
  r.latency_ms, r.started_at, r.finished_at, r.created_at, r.pelican_config, a.id, a.name
  FROM scheduled_test_results r
@@ -402,7 +456,8 @@ func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, 
  JOIN accounts a ON a.id = p.account_id
  WHERE p.pelican_config IS NOT NULL AND p.pelican_config->'quality' IS NULL AND a.deleted_at IS NULL
  AND ($1::bigint = 0 OR r.id < $1)
- ORDER BY r.id DESC LIMIT $2`, beforeID, limit)
+ AND ($3::bigint = 0 OR p.account_id = $3)
+ ORDER BY r.id DESC LIMIT $2`, beforeID, limit, accountID)
 	if err != nil {
 		return nil, err
 	}

@@ -1,5 +1,8 @@
+import ipRisk from './ipRisk'
+
 export default {
     settings: {
+      ipRisk,
       title: '系统设置',
       description: '管理注册、邮箱验证、默认值和 SMTP 设置',
       tabs: {
@@ -146,7 +149,7 @@ export default {
           enabled: '启用风控中心',
           enabledHint: '关闭后管理员侧边栏入口隐藏，网关内容审计不会执行。',
           cyberSessionBlock: 'cyber 会话自动屏蔽',
-          cyberSessionBlockHint: '开启后，仅对携带明确会话 ID 且被上游网络安全策略(cyber_policy)拦截的会话，在 TTL 内执行本地屏蔽。同 Key 的不同会话互不影响。缺少会话 ID 时仍由上游审核，不根据 IP、客户端类型、缓存 key 或历史长度推断封锁。',
+          cyberSessionBlockHint: '开启后，对携带明确会话 ID 且被上游网络安全策略(cyber_policy)拦截的会话，在 TTL 内执行本地屏蔽。缺少会话 ID 时，会用请求中可见内容的指纹拦截完全相同的重试；其它请求仍由上游审核。不根据 IP、客户端类型、缓存 key 或历史长度推断封锁。',
           riskControlUserAllowlist: '风控白名单',
           riskControlUserAllowlistHint: '输入任意邮箱关键词进行模糊搜索。 白名单中的用户不会触发封号或本地屏蔽，但仍然无法突破上游拦截。该功能通常用于可信的下游中转站。',
           cyberSessionBlockTTL: '屏蔽时长(秒)',
@@ -225,6 +228,8 @@ export default {
           "仅允许使用指定域名的邮箱注册账号；留空则不限制（例如 {'@'}qq.com, {'@'}gmail.com, *.edu.cn）",
         emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
         emailSuffixWhitelistInputHint: '留空则不限制。使用 *.edu.cn 可匹配 edu.cn 及其子域名。',
+        emailAliasBlock: '屏蔽邮箱别名注册',
+        emailAliasBlockHint: '默认开启：拒绝 Gmail/Googlemail 用户名中带点号、邮箱中带 +标签、域名末尾带点号的地址注册（含第三方新用户注册）。其他域名用户名中的正常点号不受影响；已有账号仍可登录。关闭后仍会对同一邮箱的别名进行注册去重。',
         emailDomainQuota: '非白名单域名限量注册',
         emailDomainQuotaHint:
           '开启后，白名单非空时，其他可注册主域名各限注册一个账户；关闭时非白名单域名直接拒绝注册。白名单为空时本开关无效果',
@@ -243,6 +248,10 @@ export default {
           '请先在环境变量中配置 TOTP_ENCRYPTION_KEY。使用命令 openssl rand -hex 32 生成密钥。'
       },
       security: {
+        loginRateLimit: '登录限流',
+        registrationIPLimit: '同 IP 注册数量限制',
+        registrationIPLimitHint: '默认开启，同一 IP 最多注册 2 个账号（含邮箱和第三方登录注册）。共享网络可能导致正常用户受限。关闭仅取消此数量限制，不影响验证码、邮箱验证、请求限流和登录防护；保存后立即生效。已有计数不会清空，关闭期间不累计，重新开启后继续使用保留的计数。',
+        loginRateLimitHint: '默认开启。限制登录请求频率，15 分钟内验证失败 10 次后封禁 IP 1 小时。关闭后，密码、二次验证、Passkey 及第三方绑定登录将跳过频率限制和 IP 封禁；保存后立即生效，对管理员和普通用户均有效。已有封禁在重新开启后仍按原有效期生效。',
         passkey: 'Passkey 登录',
         passkeyHint: '当依赖方配置有效时，允许无密码登录及用户自行管理 Passkey。',
         passkeyConfigured: 'WebAuthn 依赖方配置有效。',
@@ -608,8 +617,8 @@ export default {
         antigravityUserAgentVersionPlaceholder: '1.23.2',
         antigravityUserAgentVersionHint: '留空时使用 ANTIGRAVITY_USER_AGENT_VERSION 或内置默认值 1.23.2；填写后后台设置优先。',
         openaiCodexUserAgent: 'OpenAI Codex UA',
-        openaiCodexUserAgentPlaceholder: 'codex-tui/0.146.1 (Ubuntu 22.4.0; x86_64) WindowsTerminal (codex-tui; 0.146.1)',
-        openaiCodexUserAgentHint: '出站统一使用的完整 Codex User-Agent，用于自定义 OS / 架构 / 终端指纹。留空则按下方版本号拼出标准 codex-tui 形态（推荐）。填写后首段和尾部的版本号仍会被下方版本号同步覆盖，避免这条 UA 停在填写时的旧版本——上游在容量紧张时按客户端身份分优先级降载，陈旧或非官方形态的身份会被优先丢弃并回 server_is_overloaded。',
+        openaiCodexUserAgentPlaceholder: 'codex_cli_rs/0.146.1 (Ubuntu 22.4.0; x86_64) WindowsTerminal',
+        openaiCodexUserAgentHint: '出站统一使用的完整 Codex User-Agent，用于自定义 OS / 架构 / 终端指纹。留空则按下方版本号拼出标准 codex_cli_rs 形态（推荐）。填写后首段和尾部的版本号仍会被下方版本号同步覆盖，避免这条 UA 停在填写时的旧版本——上游会根据客户端身份和版本进行风控分层，陈旧或非官方形态可能返回 server_is_overloaded。',
         openaiCodexClientVersion: 'Codex 客户端版本号',
         openaiCodexClientVersionPlaceholder: '留空则跟随自动同步',
         openaiCodexClientVersionHint: '网关对上游声明的 Codex 客户端版本号，User-Agent 与 version 头同源使用。留空表示使用自动同步到的官方最新稳定版；填写后固定为该版本，不再跟随同步。',
@@ -796,8 +805,12 @@ export default {
         title: '自定义菜单页面',
         description: '添加自定义 iframe 页面到侧边栏导航。每个页面可以设置为普通用户或管理员可见。',
         itemLabel: '菜单项 #{n}',
-        name: '菜单名称',
-        namePlaceholder: '如：帮助中心',
+        nameZh: '中文名称',
+        nameZhPlaceholder: '如：帮助中心',
+        nameEn: '英文名称',
+        nameEnPlaceholder: 'e.g. Help Center',
+        fallbackName: '旧版本名称回退',
+        fallbackNamePlaceholder: '留空时自动使用中文名称，其次使用英文名称',
         url: '页面 URL',
         urlPlaceholder: 'https://example.com/page',
         hideOpenButton: '隐藏“新窗口打开”按钮',
@@ -1397,6 +1410,10 @@ export default {
       cache_rate_to_users: {
         label: '向用户展示缓存率',
         description: '开启后，用户在自己的用量页也能看到单条请求的缓存率。默认关闭，仅管理端可见。',
+      },
+      upstream_response_model_to_users: {
+        label: '向用户展示上游实际响应模型',
+        description: '开启后，用户在用量记录中可以看到上游响应里声明的实际模型。默认关闭，仅管理端可见。不影响计费，也不会展示映射后的请求模型或账号信息。',
       },
       saveSettings: '保存设置',
       saving: '保存中...',

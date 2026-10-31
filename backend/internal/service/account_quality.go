@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -10,6 +11,24 @@ const QualityActionObserveOnly = "observe_only"
 const QualityActionRemoveModel = "remove_models"
 const QualityActionIsolateModels = "isolate_models"
 const QualityModelIsolationKey = "quality_model_isolation"
+
+// Quality cooldown deadlines schedule the next check, not permission to route
+// traffic. Recognize existing records too so upgrades do not reopen failed models.
+func IsQualityModelCooldown(entry any) bool {
+	value, _ := entry.(map[string]any)
+	reason, _ := value["reason"].(string)
+	if !strings.HasPrefix(reason, "quality_rule:") {
+		return false
+	}
+	owner := strings.TrimPrefix(reason, "quality_rule:")
+	id, err := strconv.ParseInt(owner, 10, 64)
+	return err == nil && id > 0 && strconv.FormatInt(id, 10) == owner
+}
+
+func (a *Account) hasQualityModelCooldown(model string) bool {
+	entries, _ := a.Extra["model_rate_limits"].(map[string]any)
+	return IsQualityModelCooldown(entries[model]) || IsQualityModelCooldown(entries[a.GetMappedModel(model)])
+}
 
 // QualityModels is the single source of truth for the models a policy manages.
 // Composite isolation always follows the tested models; legacy cooldown rules
@@ -27,12 +46,13 @@ func (q *QualityPolicy) UsesModelResults() bool {
 
 // QualityPolicy is opt-in. Legacy connectivity/HTML tests never modify membership.
 type QualityPolicy struct {
-	TriggerOnUpstream5xx bool                `json:"trigger_on_upstream_5xx"`
-	Judge                *QualityJudgeConfig `json:"judge,omitempty"`
-	ExpectedAnswer       string              `json:"expected_answer"`
-	Action               string              `json:"action"`
-	RemoveGroupIDs       []int64             `json:"remove_group_ids"`
-	RemoveModels         []string            `json:"remove_models,omitempty"`
+	Admission            *OpenAITwoFAAdmissionConfig `json:"admission,omitempty"`
+	TriggerOnUpstream5xx bool                        `json:"trigger_on_upstream_5xx"`
+	Judge                *QualityJudgeConfig         `json:"judge,omitempty"`
+	ExpectedAnswer       string                      `json:"expected_answer"`
+	Action               string                      `json:"action"`
+	RemoveGroupIDs       []int64                     `json:"remove_group_ids"`
+	RemoveModels         []string                    `json:"remove_models,omitempty"`
 	// RecoveryConcurrency is the temporary OAuth concurrency cap applied when
 	// this rule quarantines an account. Zero keeps the safe default of five.
 	RecoveryConcurrency int               `json:"recovery_concurrency,omitempty"`
@@ -45,9 +65,28 @@ func validateQualityPolicy(plan *ScheduledTestPlan) error {
 	if q == nil {
 		return nil
 	}
+	if q.Action == QualityActionOpenAITwoFAAdmission {
+		if q.Admission == nil || !q.Admission.Enabled || q.Admission.Validate() != nil || plan.PelicanConfig.QuestionKind != "candy" || plan.PelicanConfig.ParallelCount != 1 || plan.ModelID != q.Admission.ModelID || plan.PelicanConfig.ReasoningEffort != q.Admission.ReasoningEffort || plan.PelicanConfig.TestChannel == "bps" || q.AutoRestore || plan.AutoRecover || plan.PelicanConfig.Prompt != CandyPrompt {
+			return fmt.Errorf("invalid OpenAI 2FA admission plan")
+		}
+		return nil
+	}
+	q.Admission = nil
 	if j := q.Judge; j != nil {
-		if j.GroupID <= 0 || strings.TrimSpace(j.ModelID) == "" || len(j.ModelID) > 100 || strings.TrimSpace(j.Prompt) == "" || len(j.Prompt) > 16000 {
-			return fmt.Errorf("judge group, model and grading prompt are required (100/16000 byte limits)")
+		if strings.TrimSpace(j.Prompt) == "" || len(j.Prompt) > 16000 {
+			return fmt.Errorf("grading prompt must be 1-16000 bytes")
+		}
+		switch j.Kind {
+		case "", "llm":
+			if j.GroupID <= 0 || strings.TrimSpace(j.ModelID) == "" || len(j.ModelID) > 100 {
+				return fmt.Errorf("judge group, model and grading prompt are required (100/16000 byte limits)")
+			}
+		case "jev":
+			if j.GroupID != 0 || j.ModelID != "" {
+				return fmt.Errorf("jev grading reuses the audit profile; group and model must be empty")
+			}
+		default:
+			return fmt.Errorf("unsupported quality judge kind")
 		}
 	}
 	if plan.AutoRecover {
@@ -126,6 +165,25 @@ func validateQualityPolicy(plan *ScheduledTestPlan) error {
 // One completed wrong answer quarantines; restoration requires every probe to pass.
 // Transport errors alone are inconclusive, never evidence of degradation.
 // Multi-model rules pass only when every selected model/sample passed.
+func qualityPlanModelOutcomes(plan *ScheduledTestPlan, results []*ScheduledTestResult) map[string]string {
+	targets := QualityModels(plan)
+	if plan.PelicanConfig.Quality.Action != QualityActionRemoveModel || !isOpenAICodexStateProbePlan(plan.PelicanConfig) {
+		return qualityModelOutcomes(results, targets)
+	}
+	// A state probe measures the account, not the individual probe model. Apply
+	// its verdict to every configured cooldown target without running concurrent
+	// state probes. Unknown/partial rounds cannot restore existing restrictions.
+	outcome := "skipped"
+	if qualityRoundHasResults(results) {
+		outcome = qualityOutcome(results)
+	}
+	outcomes := make(map[string]string, len(targets))
+	for _, model := range targets {
+		outcomes[model] = outcome
+	}
+	return outcomes
+}
+
 func qualityModelOutcomes(results []*ScheduledTestResult, targets []string) map[string]string {
 	outcomes := make(map[string]string, len(targets))
 	for _, model := range targets {
@@ -156,6 +214,18 @@ func qualityRoundHasResults(results []*ScheduledTestResult) bool {
 }
 
 func qualityRoundOutcome(results []*ScheduledTestResult) string {
+	if len(results) == 1 && results[0] != nil {
+		r := results[0]
+		if r.PelicanConfig != nil && r.PelicanConfig.Quality != nil && r.PelicanConfig.Quality.Action == QualityActionOpenAITwoFAAdmission {
+			if r.Status == "success" && strings.TrimSpace(r.ResponseText) == "21" {
+				return "passed"
+			}
+			if r.Status == "failed" && r.ErrorMessage == "answer_mismatch" && strings.TrimSpace(r.ResponseText) == "29" {
+				return "answer_29"
+			}
+			return "inconclusive"
+		}
+	}
 	effective := make([]*ScheduledTestResult, 0, len(results))
 	for _, result := range results {
 		if result == nil || result.Status != "skipped" {
@@ -240,5 +310,5 @@ func (a *Account) IsQualityModelIsolated(model string) bool {
 // Only trusted internal account tests may probe through their own isolation.
 // Normal scheduler selection and every later WebSocket turn share this gate.
 func (a *Account) qualityModelBlocked(ctx context.Context, model string) bool {
-	return ctx.Value(qualityProbeContextKey{}) != true && a.IsQualityModelIsolated(model)
+	return ctx.Value(qualityProbeContextKey{}) != true && (a.IsQualityModelIsolated(model) || a.hasQualityModelCooldown(model))
 }

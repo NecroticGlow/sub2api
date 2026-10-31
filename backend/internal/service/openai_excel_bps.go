@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -31,6 +32,10 @@ var excelBPSCatalog basispoints.CatalogCache
 // Independently authorized Excel grants never quarantine the primary Codex
 // account. Legacy single-grant accounts retain their authentication policy.
 func (s *OpenAIGatewayService) handleExcelBPSUnauthorized(ctx context.Context, account *Account, status int, headers http.Header, raw []byte, tokens ...string) {
+	if account != nil && account.AuthConnectionID != "" {
+		s.handleOpenAIAccountUpstreamError(ctx, account, status, headers, raw)
+		return
+	}
 	if status != http.StatusUnauthorized || isQualityObservation(ctx) {
 		return
 	}
@@ -67,6 +72,9 @@ func (s *OpenAIGatewayService) handleExcelBPSUnauthorized(ctx context.Context, a
 }
 
 func (s *OpenAIGatewayService) moveExcelBPSOn403(ctx context.Context, account *Account) bool {
+	if account != nil && account.AuthConnectionID != "" {
+		return false
+	}
 	target, enabled := account.ExcelBPS403GroupTarget()
 	if !enabled || isQualityObservation(ctx) {
 		return false
@@ -89,6 +97,9 @@ func (s *OpenAIGatewayService) moveExcelBPSOn403(ctx context.Context, account *A
 }
 
 func (s *OpenAIGatewayService) disableExcelBPSOn403(ctx context.Context, account *Account) bool {
+	if account != nil && account.AuthConnectionID != "" {
+		return false
+	}
 	if !account.IsExcelBPSAutoDisableOn403Enabled() || isQualityObservation(ctx) {
 		return false
 	}
@@ -130,6 +141,13 @@ func (s *OpenAIGatewayService) excelBPSImageRelayForSettings(settings ExcelBPSIm
 		}
 		return nil, nil
 	}
+	origin := settings.BaseURL
+	if s.cfg != nil && s.cfg.Runtime.ImageRelayOwnerOrigin != "" {
+		if err := config.ValidateImageRelayOwnerOrigin(s.cfg.Runtime.ImageRelayOwnerOrigin); err != nil {
+			return nil, err
+		}
+		origin = strings.TrimRight(s.cfg.Runtime.ImageRelayOwnerOrigin, "/")
+	}
 	var err error
 	s.excelBPSImagesMu.Lock()
 	defer s.excelBPSImagesMu.Unlock()
@@ -138,13 +156,13 @@ func (s *OpenAIGatewayService) excelBPSImageRelayForSettings(settings ExcelBPSIm
 		if dataDir == "" {
 			dataDir = "./data"
 		}
-		s.excelBPSImages, err = basispoints.NewImageRelay(settings.BaseURL, filepath.Join(dataDir, "bps-images"))
-		if err == nil && s.settingService.Serverless != nil {
+		s.excelBPSImages, err = basispoints.NewImageRelay(origin, filepath.Join(dataDir, "bps-images"))
+		if err == nil && s.settingService != nil && s.settingService.Serverless != nil {
 			s.excelBPSImages.SetURLDecorator(s.settingService.Serverless.ImageOwnerURL)
 		}
 	}
 	if err == nil {
-		err = s.excelBPSImages.Configure(settings.BaseURL, settings.Limits)
+		err = s.excelBPSImages.Configure(origin, settings.Limits)
 	}
 	return s.excelBPSImages, err
 }
@@ -279,6 +297,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		return fail(400, "basispoints_request_invalid", "Invalid model request")
 	}
 	identity, transient := resolveExcelBPSIdentity(c, body, getAPIKeyIDFromContext(c), account.IsExcelBPSMihomoEnabled())
+	if account.AuthConnectionID != "" && identity != "" {
+		identity = isolateOpenAIUpstreamSessionID(getAPIKeyIDFromContext(c), account, identity)
+	}
+
 	if identity != "" {
 		body, err = sjson.SetBytes(body, "prompt_cache_key", identity)
 		if err != nil {
@@ -307,6 +329,9 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		}
 	}
 	scope := fmt.Sprintf("account:%d/key:%d/thread:%s", account.ID, getAPIKeyIDFromContext(c), identity)
+	if account.AuthConnectionID != "" {
+		scope += "/connection:" + account.AuthConnectionID
+	}
 	if transient {
 		scope = "transient:" + scope
 	}
@@ -386,6 +411,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	if err != nil {
 		if errors.Is(err, basispoints.ErrStateUnavailable) {
 			return fail(503, "basispoints_state_unavailable", basispoints.ErrStateUnavailable.Error())
+		}
+		var schemaErr *basispoints.ToolSchemaValidationError
+		if errors.As(err, &schemaErr) {
+			return fail(400, "basispoints_request_invalid", schemaErr.Error(), schemaErr.Path)
 		}
 		var contentErr *basispoints.ContentValidationError
 		if errors.As(err, &contentErr) {
@@ -585,7 +614,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			logger.LegacyPrintf("service.openai_excel_bps", "retrying invalid encrypted reasoning once: account_id=%d", account.ID)
 			c.Set("excel_bps_upstream_attempt", c.GetInt("excel_bps_upstream_attempt")+1)
 			// Do not re-enter proxy acquisition or transport retries after sending.
-			resp, err = s.httpUpstream.Do(retryReq, proxyURL, account.ID, account.Concurrency)
+			resp, err = s.doPriorityObservedHTTP(retryReq, proxyURL, account)
 			if err == nil {
 				s.guardExcelBPSProgress(requestCtx, resp)
 			}
@@ -611,6 +640,10 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			lease.ReportUpstreamFailure()
 		}
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+		if account.AuthConnectionID != "" {
+			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, raw, model)
+		}
+
 		observeBPSTestResponse(ctx, resp, model, token, gjson.GetBytes(raw, "error.code").String())
 		// BPS throttles its own endpoint. A BPS 429 must not write Codex
 		// quota/cooldown state; it cools only the BPS route and fails over.
@@ -684,6 +717,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if isControlledExperiment(ctx) {
 			return nil, errors.New("controlled experiment disables BPS tool repair submissions")
 		}
+		markPriorityAttemptFailure(repairCtx)
 		correctedBody, err := basispoints.BuildToolRepairRequest(upstreamBody, failed, validation)
 		if err != nil {
 			return nil, err
@@ -692,7 +726,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if err != nil {
 			return nil, err
 		}
-		repairResp, err := s.httpUpstream.Do(repairReq, proxyURL, account.ID, account.Concurrency)
+		repairResp, err := s.doPriorityObservedHTTP(repairReq, proxyURL, account)
 		if err == nil {
 			s.guardExcelBPSProgress(repairCtx, repairResp)
 		}
@@ -730,6 +764,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		upstreamBody = correctedBody
 		return basispoints.ReadToolRepairResponse(repairResp.Body)
 	}, func(repairCtx context.Context) (io.ReadCloser, error) {
+		markPriorityAttemptFailure(repairCtx)
 		repairBody, err := basispoints.RepairRequest(upstreamBody)
 		if err != nil {
 			return nil, err
@@ -741,7 +776,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 		if isControlledExperiment(ctx) {
 			return nil, errors.New("controlled experiment disables BPS correction submissions")
 		}
-		repaired, err := s.httpUpstream.Do(retry, proxyURL, account.ID, account.Concurrency)
+		repaired, err := s.doPriorityObservedHTTP(retry, proxyURL, account)
 		if err == nil {
 			s.guardExcelBPSProgress(repairCtx, repaired)
 		}
@@ -797,6 +832,7 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 	}
 	var completed []byte
 	var upstreamFailure *basispoints.UpstreamFailure
+	var bridgeFailure *basispoints.BridgeFailure
 	terminal := ""
 	terminalSuccessful := false
 	cacheCreationAsInput := account.IsExcelBPSCacheCreationAsInputEnabled()
@@ -822,7 +858,8 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 			}
 			switch kind {
 			case "response.completed", "response.failed", "response.cancelled", "response.incomplete", "error":
-				if kind != "response.completed" {
+				bridgeFailure = basispoints.ParseBridgeFailure(payload)
+				if kind != "response.completed" && bridgeFailure == nil {
 					s.rateLimitService.observeQualityStatus(ctx, account, openAIStreamFailureStatus(payload, extractOpenAISSEErrorMessage(payload)))
 				}
 				if kind == "response.completed" && lease != nil {
@@ -834,6 +871,22 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 				result.ResponseID = gjson.GetBytes(payload, "response.id").String()
 				result.UpstreamResponseModel = gjson.GetBytes(payload, "response.model").String()
 				upstreamFailure = basispoints.ParseUpstreamFailure(payload)
+				if bridgeFailure != nil {
+					markPriorityAttemptFailure(ctx)
+					setOpsUpstreamError(c, resp.StatusCode, "", "")
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+						ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+						UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
+						UpstreamURL: basispoints.ResponsesURL, Kind: "bridge_error", Stage: bridgeFailure.FailureStage,
+						Reason: bridgeFailure.RepairSkippedReason, Message: bridgeFailure.Message,
+					})
+					MarkOpsStreamErrorValue(c, OpsStreamError{
+						ErrType: "server_error", Code: "basispoints_protocol_error", Message: bridgeFailure.Message,
+						IntendedStatus: http.StatusBadGateway, CountTowardsSLA: true, NonStream: !stream,
+						BridgeFailure: bridgeFailure,
+					})
+				}
 				if upstreamFailure != nil {
 					// Preserve the actual HTTP status separately from the event's
 					// semantic status. An accepted generation is never replayed.
@@ -900,7 +953,17 @@ func (s *OpenAIGatewayService) forwardExcelBPS(ctx context.Context, c *gin.Conte
 				c.JSON(upstreamFailure.Status, gin.H{"error": upstreamFailure.Details()})
 			}
 		} else if terminal != "response.completed" {
-			c.JSON(502, gin.H{"error": gin.H{"code": "basispoints_protocol_error", "message": "Excel BPS did not complete the response"}})
+			message := "Excel BPS did not complete the response"
+			detail := map[string]any{"code": "basispoints_protocol_error", "message": message}
+			if bridgeFailure != nil {
+				detail = bridgeFailure.Details()
+				message = bridgeFailure.Message
+			}
+			if StopOpenAICompactSSEKeepaliveCommitted(c) {
+				writeOpenAICompactSSEFailureMessage(c, http.StatusBadGateway, "basispoints_protocol_error", message)
+			} else {
+				c.JSON(http.StatusBadGateway, gin.H{"error": detail})
+			}
 		} else {
 			c.Data(200, "application/json", completed)
 		}

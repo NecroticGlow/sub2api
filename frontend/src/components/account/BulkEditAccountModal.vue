@@ -6,6 +6,7 @@
     @close="handleClose"
   >
     <form id="bulk-edit-account-form" class="space-y-5" @submit.prevent="() => handleSubmit()">
+      <AccountUpstreamChannelBinding v-if="show" :account-ids="targetMode === 'selected' ? targetAccountIds : []" />
       <!-- Info -->
       <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
         <p class="text-sm text-blue-700 dark:text-blue-400">
@@ -17,7 +18,7 @@
               d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          {{ t('admin.accounts.bulkEdit.selectionInfo', { count: targetMode === 'filtered' ? targetPreviewCount : accountIds.length }) }}
+          {{ t('admin.accounts.bulkEdit.selectionInfo', { count: targetMode === 'filtered' ? targetPreviewCount : targetAccountIds.length }) }}
         </p>
       </div>
 
@@ -1659,6 +1660,7 @@ import type {
   OpenAIResponsesMode
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import AccountUpstreamChannelBinding from './AccountUpstreamChannelBinding.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
@@ -1697,6 +1699,7 @@ interface Props {
   selectedTypes: AccountType[]
   target?: {
     mode: 'selected' | 'filtered'
+    accountIds?: number[]
     filters?: Record<string, unknown>
     previewCount?: number
     selectedPlatforms?: AccountPlatform[]
@@ -1729,6 +1732,9 @@ const globalBpsEnabled = computed(() => appStore.cachedPublicSettings?.excel_bps
 
 // Platform awareness
 const targetMode = computed(() => props.target?.mode ?? 'selected')
+const targetAccountIds = computed(() => props.target?.mode === 'selected'
+  ? props.target.accountIds ?? props.accountIds
+  : props.accountIds)
 const targetPreviewCount = computed(() => props.target?.previewCount ?? props.accountIds.length)
 const targetSelectedPlatforms = computed(() => props.target?.selectedPlatforms ?? props.selectedPlatforms)
 const targetSelectedTypes = computed(() => props.target?.selectedTypes ?? props.selectedTypes)
@@ -2458,7 +2464,7 @@ const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise
 
 const handleSubmit = async () => {
   if (bpsDefaults.loading.value) return
-  if (targetMode.value === 'selected' && props.accountIds.length === 0) {
+  if (targetMode.value === 'selected' && targetAccountIds.value.length === 0) {
     appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
     return
   }
@@ -2571,7 +2577,7 @@ const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
         filters: props.target.filters,
         ...updates
       })
-      : await adminAPI.accounts.bulkUpdate(props.accountIds, updates)
+      : await adminAPI.accounts.bulkUpdate([...targetAccountIds.value], updates)
     const success = res.success || 0
     const failed = res.failed || 0
     const inherited = res.long_context_inherited_count || 0

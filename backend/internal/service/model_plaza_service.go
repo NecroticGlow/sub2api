@@ -74,6 +74,7 @@ type ModelPlazaService struct {
 	accountRepo     AccountRepository
 	usageRepo       UsageLogRepository
 	popularityCache plazaPopularityCache
+	gatewayService  *GatewayService
 }
 
 // NewModelPlazaService 创建模型广场服务。
@@ -85,6 +86,7 @@ func NewModelPlazaService(
 	resolver *ModelPricingResolver,
 	accountRepo AccountRepository,
 	usageRepo UsageLogRepository,
+	gatewayService *GatewayService,
 ) *ModelPlazaService {
 	return &ModelPlazaService{
 		channelRepo:    channelRepo,
@@ -94,6 +96,7 @@ func NewModelPlazaService(
 		resolver:       resolver,
 		accountRepo:    accountRepo,
 		usageRepo:      usageRepo,
+		gatewayService: gatewayService,
 	}
 }
 
@@ -211,11 +214,18 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	for _, gid := range order {
 		pg := byGroup[gid]
 		g := groupEnt[gid]
+		gatewayModels, err := s.accountModels(ctx, g)
+		if err != nil {
+			return nil, fmt.Errorf("list gateway models: %w", err)
+		}
+		for _, m := range gatewayModels {
+			pg.Models = append(pg.Models, PlazaModel{Name: m.Name, Platform: m.Platform})
+		}
 		// Direct groups and account mappings do not require a Channel entity.
 		if s.accountRepo != nil {
 			pg.Models = append(pg.Models, plazaAccountModels(g, accountsByGroup[gid], len(pg.Models) == 0)...)
 		}
-		pg.Models = mergePlazaGroupModels(pg.Models, g, s.pricingService)
+		pg.Models = mergePlazaGroupModels(pg.Models, g, s.pricingService, s.gatewayService == nil && len(accountsByGroup[gid]) == 0)
 		if len(pg.Models) == 0 {
 			continue
 		}
@@ -225,6 +235,7 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			}
 			return pg.Models[i].Platform < pg.Models[j].Platform
 		})
+
 		out = append(out, *pg)
 	}
 
@@ -253,10 +264,63 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 // mergePlazaGroupModels only uses explicit configuration, never the disabled
 // allowlist's UI defaults or a provider-wide price catalog as proof of support.
 // It does not create channels or change any routing/billing configuration.
-func mergePlazaGroupModels(existing []PlazaModel, g *Group, pricing *PricingService) []PlazaModel {
+// accountModels 使用网关的账号枚举和平台目录，不向上游发起模型发现请求。
+
+func (s *ModelPlazaService) accountModels(ctx context.Context, g *Group) ([]SupportedModel, error) {
+	if s.gatewayService == nil || s.gatewayService.accountRepo == nil {
+		return nil, nil
+	}
+	accounts, err := s.gatewayService.accountRepo.ListSchedulableByGroupID(ctx, g.ID)
+	if err != nil {
+		return nil, err
+	}
+	platforms := make(map[string]struct{})
+	for i := range accounts {
+		platform := accounts[i].Platform
+		if g.Platform != PlatformComposite {
+			if platform != g.Platform && !mixedListingAccountAllowed(g.Platform, &accounts[i]) {
+				continue
+			}
+			platform = g.Platform
+		}
+		platforms[platform] = struct{}{}
+	}
+	var out []SupportedModel
+	for platform := range platforms {
+		ids := s.gatewayService.GetAvailableModels(ctx, &g.ID, platform)
+		// 复用 /v1/models 对未映射账号的平台目录；CN 供应商仅枚举账号映射。
+		if len(ids) == 0 && (platform != PlatformOpenAI || ids == nil) && !IsMultiProtocolAPIKeyProvider(platform) {
+			ids = DefaultModelIDsForPlatform(platform)
+		}
+		if g.ModelAllowlistEnabled() {
+			source := ids
+			if !IsMultiProtocolAPIKeyProvider(platform) {
+				source = ModelListingSource(platform, ids, DefaultModelIDsForPlatform(platform))
+			}
+			ids = g.ModelAllowlist.FilterForListing(source)
+		}
+		for _, id := range ids {
+			// 默认目录及白名单展开仍须有账号能够在本分组服务该模型，
+			// 不能把空枚举或平台默认值当成账号分组限制的豁免。
+			for i := range accounts {
+				account := &accounts[i]
+				if account.Platform != platform && (!mixedListingAccountAllowed(platform, account) || !mixedListingModelAllowed(platform, id)) {
+					continue
+				}
+				if account.IsModelSupportedInGroup(&g.ID, id) {
+					out = append(out, SupportedModel{Name: id, Platform: platform})
+					break
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+func mergePlazaGroupModels(existing []PlazaModel, g *Group, pricing *PricingService, includeUnverifiedAllowlist bool) []PlazaModel {
 	configured := (&Channel{ModelPricing: g.ModelPricing}).SupportedModels()
 	if g.Platform != PlatformComposite {
-		if g.ModelAllowlist.Enabled {
+		if g.ModelAllowlist.Enabled && includeUnverifiedAllowlist {
 			for _, name := range g.ModelAllowlist.Models {
 				configured = append(configured, SupportedModel{Name: name, Platform: g.Platform})
 			}
@@ -313,6 +377,11 @@ func mergePlazaGroupModels(existing []PlazaModel, g *Group, pricing *PricingServ
 func (s *ModelPlazaService) fillDisplayPricing(ctx context.Context, m *PlazaModel, g *Group) {
 	if groupPricing := matchGroupModelPricing(g, m.Name); groupPricing != nil {
 		m.Pricing = groupPricing
+		// 分组模型级固定价就是实收价，不能再被分组图片兜底档位覆盖。
+		// 否则模型广场会显示 image_price_1k/2k/4k，而实际按 model_pricing 扣费。
+		if groupPricing.BillingMode == BillingModeImage || groupPricing.BillingMode == BillingModePerRequest {
+			return
+		}
 	}
 	if s.billingService != nil && s.resolver != nil {
 		sched, err := s.billingService.ResolveContextPricingSchedule(ctx, s.resolver, ContextPricingScheduleInput{

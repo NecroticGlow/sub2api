@@ -55,22 +55,23 @@ type AdminUser struct {
 }
 
 type APIKey struct {
-	ID          int64      `json:"id"`
-	UserID      int64      `json:"user_id"`
-	Key         string     `json:"key"`
-	Name        string     `json:"name"`
-	GroupID     *int64     `json:"group_id"`
-	FallbackGroupID *int64 `json:"fallback_group_id"`
-	Status      string     `json:"status"`
-	IPWhitelist []string   `json:"ip_whitelist"`
-	IPBlacklist []string   `json:"ip_blacklist"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	LastUsedIP  *string    `json:"last_used_ip"`
-	Quota       float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
-	QuotaUsed   float64    `json:"quota_used"` // Used quota amount in USD
-	ExpiresAt   *time.Time `json:"expires_at"` // Expiration time (nil = never expires)
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID              int64      `json:"id"`
+	UserID          int64      `json:"user_id"`
+	Key             string     `json:"key"`
+	Name            string     `json:"name"`
+	GroupIDs        []int64    `json:"group_ids"`
+	GroupID         *int64     `json:"group_id"`
+	FallbackGroupID *int64     `json:"fallback_group_id"`
+	Status          string     `json:"status"`
+	IPWhitelist     []string   `json:"ip_whitelist"`
+	IPBlacklist     []string   `json:"ip_blacklist"`
+	LastUsedAt      *time.Time `json:"last_used_at"`
+	LastUsedIP      *string    `json:"last_used_ip"`
+	Quota           float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
+	QuotaUsed       float64    `json:"quota_used"` // Used quota amount in USD
+	ExpiresAt       *time.Time `json:"expires_at"` // Expiration time (nil = never expires)
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 	// CurrentConcurrency is the real-time active request count for this API key.
 	CurrentConcurrency int `json:"current_concurrency"`
 
@@ -89,8 +90,8 @@ type APIKey struct {
 	Reset1dAt        *time.Time `json:"reset_1d_at,omitempty"`
 	Reset7dAt        *time.Time `json:"reset_7d_at,omitempty"`
 
-	User  *User  `json:"user,omitempty"`
-	Group *Group `json:"group,omitempty"`
+	User          *User  `json:"user,omitempty"`
+	Group         *Group `json:"group,omitempty"`
 	FallbackGroup *Group `json:"fallback_group,omitempty"`
 }
 
@@ -116,6 +117,7 @@ type Group struct {
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration         bool    `json:"allow_image_generation"`
 	AllowBatchImageGeneration    bool    `json:"allow_batch_image_generation"`
+	ImageCountBilling            bool    `json:"image_count_billing"`
 	ImageRateIndependent         bool    `json:"image_rate_independent"`
 	ImageRateMultiplier          float64 `json:"image_rate_multiplier"`
 	BatchImageDiscountMultiplier float64 `json:"batch_image_discount_multiplier"`
@@ -158,7 +160,7 @@ type Group struct {
 	RequirePrivacySet bool `json:"require_privacy_set"`
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制），设置后覆盖用户级 rpm_limit。
-	RPMLimit int `json:"rpm_limit"`
+	RPMLimit             int `json:"rpm_limit"`
 	UserConcurrencyLimit int `json:"user_concurrency_limit"`
 	// MaxReasoningEffort Anthropic/OpenAI 请求的推理强度上限，空字符串表示不限制。
 	MaxReasoningEffort string `json:"max_reasoning_effort"`
@@ -218,11 +220,12 @@ type AdminGroup struct {
 }
 
 type Account struct {
-	ID       int64   `json:"id"`
-	Name     string  `json:"name"`
-	Notes    *string `json:"notes"`
-	Platform string  `json:"platform"`
-	Type     string  `json:"type"`
+	UpstreamChannelBinding *service.UpstreamChannelBinding `json:"upstream_channel_binding,omitempty"`
+	ID                     int64                           `json:"id"`
+	Name                   string                          `json:"name"`
+	Notes                  *string                         `json:"notes"`
+	Platform               string                          `json:"platform"`
+	Type                   string                          `json:"type"`
 	// Credentials 经 RedactCredentials 处理后只含非敏感子键；敏感 token / api_key / 私钥
 	// 的存在性通过 CredentialsStatus（has_<key>）暴露，原始值不返回前端。
 	Credentials             map[string]any                    `json:"credentials"`
@@ -247,7 +250,7 @@ type Account struct {
 	CreatedAt               time.Time                         `json:"created_at"`
 	UpdatedAt               time.Time                         `json:"updated_at"`
 	OpenCodeGoUsage         *service.OpenCodeGoUsageState     `json:"opencode_go_usage,omitempty"`
-	RateLimit429RetryCount  int                            `json:"rate_limit_429_retry_count"`
+	RateLimit429RetryCount  int                               `json:"rate_limit_429_retry_count"`
 
 	Schedulable bool `json:"schedulable"`
 
@@ -340,6 +343,9 @@ type Account struct {
 
 	GroupIDs []int64  `json:"group_ids,omitempty"`
 	Groups   []*Group `json:"groups,omitempty"`
+
+	// 仅账号详情填充。列表和公共 mapper 不计算，避免把目录诊断扩散到调度响应。
+	GrokModelDiagnostics *service.GrokModelDiagnostics `json:"grok_model_diagnostics,omitempty"`
 }
 
 // AccountListItem is the compact representation returned by the admin account
@@ -348,11 +354,12 @@ type Account struct {
 // repeated account_groups and groups object graphs. Fetch /admin/accounts/:id
 // for the complete Account DTO when editing or inspecting an account.
 type AccountListItem struct {
-	ID       int64   `json:"id"`
-	Name     string  `json:"name"`
-	Notes    *string `json:"notes"`
-	Platform string  `json:"platform"`
-	Type     string  `json:"type"`
+	UpstreamChannelBinding *service.UpstreamChannelBinding `json:"upstream_channel_binding,omitempty"`
+	ID                     int64                           `json:"id"`
+	Name                   string                          `json:"name"`
+	Notes                  *string                         `json:"notes"`
+	Platform               string                          `json:"platform"`
+	Type                   string                          `json:"type"`
 
 	Credentials             map[string]any                    `json:"credentials,omitempty"`
 	ExcelBPSCredentialState *service.ExcelBPSCredentialState  `json:"excel_bps_credential_state,omitempty"`
@@ -683,6 +690,11 @@ type UsageLog struct {
 
 	// BillingMode 计费模式：token/image
 	BillingMode *string `json:"billing_mode,omitempty"`
+
+	// UpstreamResponseModel is the model declared by the upstream response.
+	// End-user payloads include it only when the admin visibility setting is on.
+	// Omitted otherwise so mapped models stay hidden by default.
+	UpstreamResponseModel *string `json:"upstream_response_model,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 

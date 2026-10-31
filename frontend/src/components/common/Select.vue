@@ -165,6 +165,7 @@ interface Props {
 }
 
 interface Emits {
+  (e: 'open'): void
   (e: 'update:modelValue', value: any): void
   (e: 'change', value: any, option: SelectOption | null): void
   (e: 'search', query: string): void
@@ -402,6 +403,7 @@ watch(() => props.disabled, (disabled) => {
 
 watch(isOpen, (open) => {
   if (open) {
+    emit('open')
     calculateDropdownPosition()
     // Reset focused index to current selection or first item
     if (filteredOptions.value.length === 0) {

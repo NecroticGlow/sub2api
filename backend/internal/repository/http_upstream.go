@@ -373,7 +373,15 @@ func doUpstreamRequest(client *http.Client, req *http.Request) (result *http.Res
 		cancel()
 		return resp, err
 	}
+	requesttiming.Encoding(req.Context(), resp)
+	if !resp.Uncompressed {
+		resp.Body = requesttiming.WrapStage(req.Context(), resp.Body, "raw_body_first")
+	}
 	decompressResponseBody(resp)
+	// A retained encoding means decompression was unsupported or failed.
+	if encoding := strings.TrimSpace(resp.Header.Get("Content-Encoding")); encoding == "" || strings.EqualFold(encoding, "identity") {
+		resp.Body = requesttiming.WrapStage(req.Context(), resp.Body, "decoded_body_first")
+	}
 	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
 	return resp, nil
 }

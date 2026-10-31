@@ -4,12 +4,6 @@
       <div v-for="index in 6" :key="index" class="h-72 animate-pulse rounded-3xl bg-gray-100 dark:bg-dark-800" />
     </div>
     <div v-else-if="!items.length" class="card py-16 text-center text-sm text-gray-500 dark:text-gray-400">{{ t('channelMonitorV2.empty.title') }}</div>
-    <div v-if="items.length" class="flex flex-wrap items-center justify-between gap-2" data-testid="card-timeline-mode">
-      <div class="tabs inline-flex shrink-0" role="group" :aria-label="t('channelMonitorV2.cards.timelineMode.label')">
-        <button type="button" class="tab !px-2.5 !py-1 text-xs" :class="timelineMode === 'windows' ? 'tab-active' : ''" data-testid="card-timeline-windows" @click="setTimelineMode('windows')">{{ t('channelMonitorV2.cards.timelineMode.windows') }}</button>
-        <button type="button" class="tab !px-2.5 !py-1 text-xs" :class="timelineMode === 'samples' ? 'tab-active' : ''" data-testid="card-timeline-samples" @click="setTimelineMode('samples')">{{ t('channelMonitorV2.cards.timelineMode.samples') }}</button>
-      </div>
-    </div>
     <section v-for="platform in platforms" :key="platform.name" class="space-y-3" :data-platform="platform.name">
       <h2 class="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
         <span class="grid h-7 w-7 place-items-center rounded-full bg-gray-100 dark:bg-dark-700"><ProviderIcon :provider="platform.name" :size="17" /></span>
@@ -54,7 +48,8 @@
             </template>
           </div>
 
-          <section v-if="candyHistories(row).length" class="mt-4 border-t border-gray-100 pt-3 dark:border-dark-700/70" data-testid="candy-history">
+          <section class="mt-4 border-t border-gray-100 pt-3 dark:border-dark-700/70" data-testid="candy-history">
+            <template v-if="candyHistories(row).length">
               <h4 class="text-xs font-medium text-gray-700 dark:text-gray-200">{{ t('channelMonitorV2.candy.title') }}</h4>
               <div v-for="(history, historyIndex) in candyHistories(row)" :key="`${history.model}-${history.reasoning_effort}-${historyIndex}`" class="mt-2" data-testid="candy-model-history">
                 <div class="flex items-center justify-between gap-2 text-xs">
@@ -75,6 +70,14 @@
                 <p v-if="!history.results.length" class="mt-3 text-[10px] text-gray-400">{{ t('channelMonitorV2.candy.waiting') }}</p>
               </div>
               <div class="mt-2 flex items-center justify-between gap-2 text-[9px] text-gray-500 dark:text-gray-400"><span>{{ t('channelMonitorV2.candy.legend') }}</span><span>{{ latestCandyTime(row) }}</span></div>
+            </template>
+            <template v-else>
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <h4 class="font-medium text-gray-700 dark:text-gray-200">{{ t('channelMonitorV2.candy.title') }}</h4>
+                <span class="flex items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400"><i class="h-2 w-2 rounded-full bg-gray-400" />{{ t('channelMonitorV2.candy.disabled') }}</span>
+              </div>
+              <p class="mt-2 text-[10px] leading-relaxed text-gray-500 dark:text-gray-400" data-testid="candy-not-configured">{{ t('channelMonitorV2.candy.disabledHint') }}</p>
+            </template>
           </section>
         </article>
       </div>
@@ -110,13 +113,13 @@ import type { MonitorCandyResult, MonitorCoverage, MonitorMatrixBucket, MonitorM
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { formatMonitorMs, formatMonitorPercent } from './monitorFormat'
-import { candyDisplayState, candyHistoryLimit, candyHistorySlots, hasMonitorSamples, MONITOR_CARD_SLOT_COUNT, monitorCandyHistories, monitorCardTimeline, type MonitorCardTimelineMode } from './monitorCards'
+import { candyDisplayState, candyHistoryLimit, candyHistorySlots, hasMonitorSamples, MONITOR_CARD_SLOT_COUNT, monitorCandyHistories, monitorCardTimeline, monitorCardTimelineMode, type MonitorCardTimelineMode } from './monitorCards'
 
-const props = defineProps<{ items: MonitorMatrixRow[]; coverage?: MonitorCoverage; countdown: number; loading: boolean; now: number; platformOrder?: string[] }>()
+const props = defineProps<{ items: MonitorMatrixRow[]; coverage?: MonitorCoverage; countdown: number; loading: boolean; now: number; platformOrder?: string[]; timelineMode?: MonitorCardTimelineMode }>()
 const { t, locale } = useI18n()
 type TrafficBar = ReturnType<typeof monitorCardTimeline>[number]
 type CardDetail = { kind: 'traffic'; row: MonitorMatrixRow; bar: TrafficBar } | { kind: 'candy'; row: MonitorMatrixRow; result: MonitorCandyResult; model: string; effort: string }
-const timelineMode = ref<MonitorCardTimelineMode>('windows')
+const timelineMode = computed(() => monitorCardTimelineMode(props.timelineMode))
 const tooltipId = useId()
 const detail = shallowRef<CardDetail | null>(null)
 const anchor = shallowRef<HTMLElement | null>(null)
@@ -174,10 +177,6 @@ function isTrafficDetail(row: MonitorMatrixRow, bar: TrafficBar) {
 function isCandyDetail(row: MonitorMatrixRow, result: MonitorCandyResult, model: string, effort: string) {
   return detail.value?.kind === 'candy' && detail.value.row === row && detail.value.model === model && detail.value.effort === effort && detail.value.result.checked_at === result.checked_at
 }
-function setTimelineMode(mode: MonitorCardTimelineMode) {
-  timelineMode.value = mode
-  closeDetail()
-}
 function timelineBars(row: MonitorMatrixRow) {
   return monitorCardTimeline(row, props.coverage, timelineMode.value)
 }
@@ -198,7 +197,7 @@ function latestCandyTime(row: MonitorMatrixRow) {
   }
   return Number.isFinite(latest) ? time(latest) : '—'
 }
-watch([() => props.items, () => props.coverage], closeDetail)
+watch([() => props.items, () => props.coverage, () => props.timelineMode], closeDetail)
 onMounted(() => {
   document.addEventListener('pointerdown', onOutsidePointer, true)
   document.addEventListener('keydown', onKeydown)

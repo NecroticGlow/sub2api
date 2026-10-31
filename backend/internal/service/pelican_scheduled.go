@@ -118,6 +118,8 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 	}
 	// Result-only metadata must not mutate the stored rule or shared plan config.
 	snapshot := *plan.PelicanConfig
+	snapshot.QualityRestoreDiagnostic = nil
+	plan.QualityRestoreDiagnostic = nil
 	snapshot.TriggerSource = plan.TriggerSource
 	if snapshot.TriggerSource == "" {
 		snapshot.TriggerSource = "scheduled"
@@ -177,7 +179,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 	var allowed []string
 	var catalogErr error
 	if plan.PelicanConfig.Quality != nil {
-		allowed, _, catalogErr = s.scheduledSvc.supportedQualityModels(runCtx, plan)
+		allowed, _, catalogErr = s.scheduledSvc.eligibleQualityModels(runCtx, plan)
 	}
 	var wg sync.WaitGroup
 	workers := len(results)
@@ -205,7 +207,10 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 				}
 				_, excluded := unsupported.Load(samplePlan.ModelID)
 				if plan.PelicanConfig.Quality != nil && (catalogErr != nil || excluded || !containsString(allowed, samplePlan.ModelID)) {
-					reason := "model_unsupported"
+					reason := "model_unavailable"
+					if excluded {
+						reason = "model_unsupported"
+					}
 					if catalogErr != nil {
 						reason = "model_catalog_unavailable"
 					}
@@ -234,7 +239,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 	saveCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stop()
 	if plan.PelicanConfig.Quality != nil && plan.PelicanConfig.Quality.UsesModelResults() {
-		plan.QualityModelOutcomes = qualityModelOutcomes(results, QualityModels(plan))
+		plan.QualityModelOutcomes = qualityPlanModelOutcomes(plan, results)
 	}
 	qualityAction := ""
 	if plan.PelicanConfig.Quality != nil {
@@ -243,7 +248,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 		if plan.TriggerSource == quality5xxSource && plan.TriggerObservedAt != nil && s.qualityTrigger != nil {
 			freshSignal = s.qualityTrigger.signalIsCurrent(plan.AccountID, *plan.TriggerObservedAt)
 		}
-		if applyTriggeredQuality && freshSignal && qualityRoundHasResults(results) {
+		if applyTriggeredQuality && freshSignal && (qualityRoundHasResults(results) || plan.PelicanConfig.Quality.Action == QualityActionOpenAITwoFAAdmission) {
 			var actionErr error
 			qualityAction, actionErr = s.planRepo.ApplyQualityOutcome(saveCtx, plan, until, qualityRoundOutcome(results))
 			if actionErr != nil {
@@ -258,6 +263,10 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 		if plan.PelicanConfig.Quality != nil {
 			result.QualityRoundID = until.Format(time.RFC3339Nano)
 			result.PelicanConfig.QualityModelOutcomes = plan.QualityModelOutcomes
+			result.PelicanConfig.QualityRestoreDiagnostic = nil
+			if qualityAction == "restore_conflict" {
+				result.PelicanConfig.QualityRestoreDiagnostic = plan.QualityRestoreDiagnostic
+			}
 			// A rejected transaction must never advertise uncommitted changes.
 			if qualityAction != "action_error" && qualityAction != "action_conflict" && qualityAction != "restore_conflict" && qualityAction != "stale_run" {
 				result.PelicanConfig.QualityModelActions = plan.QualityModelActions
@@ -324,7 +333,12 @@ func (s *ScheduledTestRunnerService) runPelicanSample(ctx context.Context, plan 
 	// 探针题型的结果自带 correct/incorrect/unknown 判定，不经过判题模型。
 	if plan.PelicanConfig.Quality != nil && result.Status == "success" && !isOpenAICodexStateProbePlan(plan.PelicanConfig) {
 		var judgment *QualityJudgment
-		if plan.TriggerSource == quality5xxSource && isBuiltinCandyPlan(plan.PelicanConfig) {
+		if plan.PelicanConfig.Quality.Action == QualityActionOpenAITwoFAAdmission {
+			judgment = &QualityJudgment{Verdict: "incorrect", Reason: "builtin_admission", AccountID: plan.AccountID}
+			if strings.TrimSpace(result.ResponseText) == "21" {
+				judgment.Verdict = "correct"
+			}
+		} else if plan.TriggerSource == quality5xxSource && isBuiltinCandyPlan(plan.PelicanConfig) {
 			judgment = &QualityJudgment{Verdict: "incorrect", Reason: "builtin_candy", AccountID: plan.AccountID}
 			if CandyAnswerCorrect(result.ResponseText) {
 				judgment.Verdict = "correct"
@@ -334,7 +348,9 @@ func (s *ScheduledTestRunnerService) runPelicanSample(ctx context.Context, plan 
 		}
 		applyQualityJudgment(result, judgment)
 		result.FinishedAt = time.Now()
-		result.LatencyMs = result.FinishedAt.Sub(result.StartedAt).Milliseconds()
+		if judgment == nil || judgment.Kind != "jev" {
+			result.LatencyMs = result.FinishedAt.Sub(result.StartedAt).Milliseconds()
+		}
 	}
 	return result
 }
