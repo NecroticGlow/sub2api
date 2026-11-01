@@ -1406,17 +1406,17 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 	return respBytes, nil
 }
 
-// mixedListingAccountAllowed mirrors the mixed-scheduling rule in
-// GeminiMessagesCompatService.listSchedulableAccountsOnce: a gemini group may be
-// served by antigravity accounts, so model listing must consider them too.
+// mixedListingAccountAllowed mirrors explicit cross-platform scheduling rules.
 func mixedListingAccountAllowed(groupPlatform string, account *Account) bool {
-	return groupPlatform == PlatformGemini && account.IsMixedSchedulingEnabled()
+	return (groupPlatform == PlatformGemini && account.IsMixedSchedulingEnabled()) ||
+		(groupPlatform == PlatformDeepseek && account != nil && account.IsOpenCodeGo())
 }
 
 // mixedListingModelAllowed limits what a mixed-scheduling account may advertise
-// on the group's platform: only gemini-* wire IDs are meaningful on a gemini group.
+// on the group's platform. Gemini accepts only gemini-* IDs; DeepSeek's OpenCode
+// bridge retains configured model IDs and the normal per-group permissions.
 func mixedListingModelAllowed(groupPlatform, model string) bool {
-	return groupPlatform == PlatformGemini && isAntigravityGeminiModel(model)
+	return groupPlatform == PlatformDeepseek || (groupPlatform == PlatformGemini && isAntigravityGeminiModel(model))
 }
 
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
@@ -1487,6 +1487,14 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		}
 		// 没有映射的账号默认支持全部模型；在本分组被限制时改为公布限制清单里的具体模型名。
 		if len(mapping) == 0 {
+			if platform == PlatformDeepseek && acc.IsOpenCodeGo() {
+				for _, model := range DefaultOpenCodeGoModelIDs() {
+					if acc.IsModelAllowedInGroup(groupID, model) {
+						modelSet[model] = struct{}{}
+						hasAnyMapping = true
+					}
+				}
+			}
 			for _, model := range groupAllowedConcreteModels(&acc, groupID) {
 				if platform != "" && acc.Platform != platform && !mixedListingModelAllowed(platform, model) {
 					continue

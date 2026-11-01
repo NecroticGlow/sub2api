@@ -302,8 +302,9 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 }
 
 // NormalizeOpenAICompatiblePlatform 保留走 OpenAI 网关的平台（openai、grok 与多协议
-// API Key 供应商，见平台清单）的原值，其他值一律归一为 openai。调度器据此对账号与请求做精确平台匹配：
-// kimi 分组请求只命中 kimi 账号，语义与 openai/grok 一致。
+// API Key 供应商，见平台清单）的原值，其他值一律归一为 openai。
+// 调度器通过 openAIAccountPlatformMatches 保留平台隔离，仅对 DeepSeek 分组
+// 额外允许已绑定的 OpenCode Go 账号；不要把账号本身的平台归一成 DeepSeek。
 // （upstream 曾将本函数改为未导出 normalizeOpenAICompatiblePlatform，本分支的
 // handler 调度入口仍需导出，保持导出名。）
 func NormalizeOpenAICompatiblePlatform(platform string) string {
@@ -416,7 +417,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 			return "account_model_not_owned"
 		}
 	}
-	if account.Platform != platform || !account.IsOpenAICompatible() {
+	if !openAIAccountPlatformMatches(account, platform) || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
 	if reason := openAIImageRequestRejection(ctx, account, requestedModel); reason != "" {
@@ -1701,6 +1702,31 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
+	accounts, err := s.listSchedulablePlatformAccounts(ctx, groupID, platform)
+	if err != nil || platform != PlatformDeepseek || groupID == nil || *groupID <= 0 {
+		return accounts, err
+	}
+	// Read the existing per-platform snapshot buckets separately. OpenCode's
+	// own account/quota events already maintain its bucket, so the bridge never
+	// relies on a second, stale copy in the DeepSeek snapshot.
+	openCode, err := s.listSchedulablePlatformAccounts(ctx, groupID, PlatformOpenCodeGo)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[int64]bool, len(accounts)+len(openCode))
+	for _, account := range accounts {
+		seen[account.ID] = true
+	}
+	for _, account := range openCode {
+		if !seen[account.ID] {
+			accounts = append(accounts, account)
+			seen[account.ID] = true
+		}
+	}
+	return accounts, nil
+}
+
+func (s *OpenAIGatewayService) listSchedulablePlatformAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
 	if accounts, handled, err := s.listCodexQuotaOverdraftSchedulableAccounts(ctx, groupID, platform); handled {
 		return accounts, err
 	}

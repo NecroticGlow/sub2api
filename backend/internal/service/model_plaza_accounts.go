@@ -56,11 +56,12 @@ func plazaAccountModels(g *Group, accounts []*Account, noChannelModels bool) []P
 	for _, account := range accounts {
 		platform := account.Platform
 		bridge := platform == PlatformAntigravity && (g.Platform == PlatformGemini || g.Platform == PlatformAnthropic)
+		openCodeBridge := platform == PlatformOpenCodeGo && g.Platform == PlatformDeepseek
 		if g.Platform == PlatformComposite {
 			if !isConcreteRequestPlatform(platform) {
 				continue
 			}
-		} else if platform != g.Platform && !bridge {
+		} else if platform != g.Platform && !bridge && !openCodeBridge {
 			continue
 		}
 		matchedAccount = true
@@ -80,7 +81,11 @@ func plazaAccountModels(g *Group, accounts []*Account, noChannelModels bool) []P
 				add(name, g.Platform)
 				return
 			}
-			add(name, platform)
+			if openCodeBridge {
+				add(name, g.Platform)
+			} else {
+				add(name, platform)
+			}
 		}
 		for name := range mapping {
 			addAccountModel(name)

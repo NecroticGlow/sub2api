@@ -35,6 +35,24 @@ describe('GroupSelector simple-mode binding policy', () => {
     expect(wrapper.text()).toContain('Composite')
   })
 
+  it('allows OpenCode accounts in DeepSeek groups without opening other provider bindings', () => {
+    const options = [
+      { id: 10, name: 'DeepSeek group', platform: 'deepseek', status: 'active' },
+      { id: 11, name: 'OpenCode group', platform: 'opencode_go', status: 'active' },
+      { id: 12, name: 'GPT group', platform: 'openai', status: 'active' },
+    ] as any
+    const wrapper = mount(GroupSelector, { props: { modelValue: [], groups: options, platform: 'opencode_go' },
+      global: { stubs: { GroupBadge: { props: ['name'], template: '<span>{{ name }}</span>' }, Icon: true } } })
+    expect(wrapper.text()).toContain('DeepSeek group')
+    expect(wrapper.text()).toContain('OpenCode group')
+    expect(wrapper.text()).not.toContain('GPT group')
+    wrapper.unmount()
+    const native = mount(GroupSelector, { props: { modelValue: [], groups: options, platform: 'deepseek' },
+      global: { stubs: { GroupBadge: { props: ['name'], template: '<span>{{ name }}</span>' }, Icon: true } } })
+    expect(native.text()).not.toContain('OpenCode group')
+    native.unmount()
+  })
+
   it('cleans hidden historical composite IDs while preserving visible selections', () => {
     authState.isSimpleMode = true
     const wrapper = mountSelector([1, 2])

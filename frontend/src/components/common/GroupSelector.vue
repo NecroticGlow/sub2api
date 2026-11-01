@@ -103,8 +103,9 @@ const filteredGroups = computed(() => {
         (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini' || g.platform === 'composite'
       )
     } else {
-      // 默认：只能选择同 platform 的分组；composite 分组可接收任意具体平台账号
-      result = result.filter((g) => g.platform === props.platform || g.platform === 'composite')
+      // OpenCode accounts retain their provider identity inside DeepSeek groups.
+      result = result.filter((g) => g.platform === props.platform || g.platform === 'composite'
+        || (props.platform === 'opencode_go' && g.platform === 'deepseek'))
     }
   }
   if (isSearchable.value && searchText.value) {

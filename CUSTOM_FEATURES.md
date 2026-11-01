@@ -29,6 +29,7 @@
 | 自定义首页 | 保留 Wanwu 首页、品牌和模型广场定制，不被上游首页覆盖。 | `frontend/src/components/home/WanwuHome.vue`、对应 tests、首页/模型广场入口 |
 | OpenCode 用户侧品牌 | 用户侧分组、平台徽章、模型广场、订阅及导出配置的 OpenCode 渠道显示为 DeepSeek，使用 DeepSeek 色和图标；账号管理仍保留真实 OpenCode 身份。仅展示别名，底层 platform、模型 ID、协议、调度、计费与账号配置不变；OpenCode 客户端导入选项不改名。 | `userPlatformColors.ts`、`UserPlatformIcon.vue`、`UserGroupBadge.vue`、用户侧入口与 branding tests |
 | OpenCode Go 用量 | 保留官方窗口查询、主动刷新/自动刷新、同 Key 组共享、活动防抖、超窗刷新、7d/1m 显示和 lite DTO 字段；账号更新不得清掉托管用量状态。 | OpenCode Go service、repository/DTO、AccountUsageCell 与对应 tests |
+| DeepSeek 兼容 OpenGo 账号 | DeepSeek 分组可调度明确绑定在该组的 OpenCode Go 账号，候选池合并各平台原有快照；粘性、负载均衡、最终复核使用一致的平台兼容规则。账号仍为 `opencode_go`，沿用原协议、会话头、用量和暂停限制；不反向开放其他平台分组。账号分组选择、模型目录及模型广场同步兼容，分组/用户白名单、账号模型权限仍生效。线上原 OpenGo 分组原地改为 DeepSeek，保留 ID、倍率、白名单、Key/账号绑定及历史。 | `deepseek_opencode.go`、OpenAI scheduler/gateway、model plaza、`GroupSelector.vue` 及相关 tests |
 | 账号 429 重试 | 账号配置的同账号重试预算（当前默认 5 次）作用于 HTTP/WS，预算按请求/账号共享；用尽后切换账号，不因包装响应丢失重试标记。禁止为了让旧测试通过而修改生产默认策略。 | `backend/internal/service/upstream_429_retry.go`、retry tests、Grok failover tests |
 | WS 握手超时 | 连接池每次握手遵守配置的 dial timeout，同时保留父请求更早的截止时间；不能因复用池的外层上下文而变成无界等待。 | `backend/internal/service/openai_ws_pool.go`、`TestOpenAIWSConnPool_DialConnUsesPerAttemptTimeout` |
 | Key 删除后的结算 | 进行中的请求仍结算用户余额/订阅；删除 Key 的自身配额及限速计数跳过，幂等保护保留。 | `backend/internal/repository/usage_billing_repo.go`、deleted-key unit/integration tests |

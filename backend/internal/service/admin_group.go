@@ -116,7 +116,7 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 			if !isConcreteRequestPlatform(acc.Platform) {
 				continue
 			}
-		} else if acc.Platform != platform {
+		} else if acc.Platform != platform && !mixedListingAccountAllowed(platform, &acc) {
 			continue
 		}
 		for model := range acc.GetModelMapping() {
