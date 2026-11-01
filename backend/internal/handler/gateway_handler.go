@@ -1155,7 +1155,14 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		}
 		defer release()
 	}
+	h.writeModelsCatalogue(c)
+}
 
+// writeModelsCatalogue shares model visibility rules without generation-slot
+// admission. The authenticated panel only reads metadata; Models retains its
+// existing API-key admission checks for gateway callers.
+func (h *GatewayHandler) writeModelsCatalogue(c *gin.Context) {
+	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 	var groupID *int64
 	var platform string
 

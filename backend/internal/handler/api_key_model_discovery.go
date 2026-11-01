@@ -45,5 +45,5 @@ func (h *GatewayHandler) PanelModels(c *gin.Context) {
 		h.AntigravityModels(c)
 		return
 	}
-	h.Models(c)
+	h.writeModelsCatalogue(c)
 }

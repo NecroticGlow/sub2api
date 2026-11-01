@@ -68,7 +68,7 @@
           <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
-      <LatencyObservabilityPanel v-if="!props.observerMode && activeTab === 'usage'" :start-date="startDate" :end-date="endDate" :model="filters.model" :user-id="filters.user_id" :api-key-id="filters.api_key_id" :account-id="filters.account_id" :group-id="filters.group_id" :refresh-token="connectionRefreshKey" />
+      <LatencyObservabilityPanel v-if="!props.observerMode && activeTab === 'usage' && showLatencyObservability" :start-date="startDate" :end-date="endDate" :model="filters.model" :user-id="filters.user_id" :api-key-id="filters.api_key_id" :account-id="filters.account_id" :group-id="filters.group_id" :refresh-token="connectionRefreshKey" />
       <!-- 明细区：tab 栏 + 筛选 + 内容收进同一张卡片，消除割裂感 -->
       <div class="card">
         <div class="flex flex-wrap items-center border-b border-gray-200 px-2 dark:border-dark-700 sm:px-4">
@@ -90,6 +90,10 @@
 
         <UsageFilters v-if="activeTab !== 'traffic'" v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
           <template #after-reset>
+            <label v-if="activeTab === 'usage' && !props.observerMode" class="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+              <input v-model="showLatencyObservability" type="checkbox" class="h-4 w-4 rounded" data-testid="usage-latency-toggle" />
+              {{ t('latencyObservability.title') }}
+            </label>
             <div v-if="activeTab === 'usage' || activeTab === 'errors'" class="relative" ref="columnDropdownRef">
               <button
                 data-testid="usage-column-settings"
@@ -236,6 +240,7 @@ type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
 const route = useRoute()
+const showLatencyObservability = ref(false)
 const usageStats = ref<AdminUsageStatsResponse | null>(null); const usageLogs = ref<AdminUsageLog[]>([]); const loading = ref(false); const exporting = ref(false)
 const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
 const modelDistributionMetric = ref<DistributionMetric>('tokens')

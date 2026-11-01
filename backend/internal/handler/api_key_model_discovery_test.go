@@ -65,3 +65,32 @@ func TestAPIKeyModelDiscoveryPreservesAntigravityCatalogueFiltering(t *testing.T
 	require.Len(t, body.Data, 1)
 	require.Equal(t, allowed, body.Data[0].ID)
 }
+
+func TestAPIKeyModelDiscoveryLimitedKeyReadsMetadataWithoutGenerationAdmission(t *testing.T) {
+	const groupID int64 = 42
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		groupID: {{ID: 1, Platform: service.PlatformOpenAI, Credentials: map[string]any{
+			"model_mapping": map[string]any{"ccs-visible-model": "ccs-visible-model", "ccs-denied-model": "ccs-denied-model"},
+		}}},
+	}})
+	key := &service.APIKey{ID: 7, ConcurrencyLimit: 2,
+		Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"ccs-visible-model", "ccs-denied-model"}}},
+		User:  &service.User{UserGroupDeniedModels: []string{"ccs-denied-model"}},
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set(string(middleware2.ContextKeyAPIKey), key); c.Next() })
+	router.GET("/panel/models", h.PanelModels)
+	router.GET("/v1/models", h.Models)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/panel/models", nil))
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	var body gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+	require.Equal(t, []string{"ccs-visible-model"}, modelIDsForTest(body.Data))
+	// Generation admission is deliberately unavailable in this fixture. The
+	// existing gateway endpoint must still enforce its key-level admission.
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Equal(t, 2, key.ConcurrencyLimit)
+}

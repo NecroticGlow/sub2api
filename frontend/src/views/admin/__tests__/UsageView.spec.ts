@@ -4,6 +4,7 @@ import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
 vi.mock('@/api/admin/latencyObservability', () => ({ getLatencyReport: vi.fn().mockResolvedValue({ groups: [] }) }))
+import { getLatencyReport } from '@/api/admin/latencyObservability'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
@@ -213,11 +214,22 @@ describe('admin UsageView route filters', () => {
     vi.useRealTimers()
   })
 
-  it('Issue603 embeds latency observations in the real admin usage page', async () => {
+  it('HTTP attempt observations stay off until enabled and stop fetching when disabled', async () => {
+    vi.mocked(getLatencyReport).mockClear()
     const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="latency-observability"]').exists()).toBe(false)
+    expect(getLatencyReport).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="usage-latency-toggle"]').setValue(true)
     await flushPromises()
     expect(wrapper.find('[data-testid="latency-observability"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('latencyObservability.sourceNone')
+    expect(getLatencyReport).toHaveBeenCalledTimes(1)
+    await wrapper.get('[data-testid="usage-latency-toggle"]').setValue(false)
+    ;(wrapper.vm as any).connectionRefreshKey++
+    await flushPromises()
+    expect(wrapper.find('[data-testid="latency-observability"]').exists()).toBe(false)
+    expect(getLatencyReport).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 
