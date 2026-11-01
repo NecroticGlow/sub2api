@@ -45,6 +45,15 @@ export async function getById(id: number): Promise<ApiKey> {
   return data
 }
 
+/** Resolve the selected key's model catalogue using panel login, never a cross-origin key request. */
+export async function getModels(id: number, options?: { signal?: AbortSignal }): Promise<unknown> {
+  const { data } = await apiClient.get<unknown>(`/keys/${id}/models`, {
+    signal: options?.signal,
+    timeout: 8000,
+  })
+  return data
+}
+
 /**
  * Create new API key
  * @param name - Key name
@@ -179,6 +188,7 @@ export const keysAPI = {
   getConcurrency,
   list,
   getById,
+  getModels,
   create,
   update,
   bulkUpdate,

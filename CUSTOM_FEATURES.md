@@ -1,6 +1,6 @@
 # 自定义功能清单与升级保护
 
-最后核对：2026-10-31。当前上游基线：`ranxi2001/sub2api` 正式 tag `v2.19.0`
+最后核对：2026-11-01。当前上游基线：`ranxi2001/sub2api` 正式 tag `v2.19.0`
 （`55da3ead72ce6f6126a977c75abf72cb4ad3f394`）。
 维护仓库：`NecroticGlow/sub2api`，发布分支：`main`。
 
@@ -19,7 +19,7 @@
 | Clinepass 账号开关 | `credentials.clinepass_usage_enabled` 可逐账号关闭；匹配账号未设置时保持自动查询兼容。新增账号也有创建/编辑入口。关闭后不能误查询 DeepSeek 官方余额接口。 | Create/Edit account modal、Clinepass usage tests |
 | Clinepass 非流式正文 | 成功的 `{success:true,data:{choices,...}}` 响应统一解包为标准 Chat Completions；普通 API、Responses/Messages 转换、账号测试及渠道监控均能读取正文；保留真实 usage、缓存、思考和工具字段，不把错误包装或思考内容当作答案。流式不改变。 | `pkg/apicompat/chatcompletions_envelope*.go`、`service/chatcompletions_envelope_test.go` |
 | CCS/CC Switch 导入 | 导入的 API 端点固定为 `https://wanwuplus.com`；官网地址跟随当前网站。支持 Claude/Codex/OpenCode 等现有导入配置，不把官网地址也写死。 | `frontend/src/utils/ccswitchImport.ts`、对应 utils tests |
-| CCS 模型加载 | 弹窗初始已打开也须加载；使用所选 Key，切换 Key 时取消旧请求；兼容 OpenAI `data[].id`、Codex `models[].slug` 等格式；同源/配置地址/固定站点候选、超时、错误提示与重试；保留用户手填模型。 | `frontend/src/components/keys/CcSwitchImportModal.vue`、对应 modal tests |
+| CCS 模型加载 | 使用已登录的同源 `/api/v1/keys/:id/models` 接口，严格检查 Key 归属、当前分组及用户模型权限；不携带站点 Key 跨域请求 `/v1/models`，避免反代 302 丢认证头及 CORS 拦截。弹窗初始已打开也须加载，切 Key 取消旧请求；兼容 OpenAI/Codex 模型格式，保留手填、8 秒超时、错误提示与重试。导出的 API 地址仍固定为 wanwuplus.com，不改全局 CORS。 | `api_key_model_discovery.go`（service/handler）、user routes、`CcSwitchImportModal.vue`、对应 tests |
 | Codex 唯一设备 | 默认账号唯一设备模式；稳定派生指纹，保留显式关闭及其他模式，不在升级时退回多设备随机身份。 | `backend/internal/service/openai_codex_fingerprint.go`、fingerprint tests；账号编辑入口 |
 | Codex 额度透支 | 保留全局和账号级开关、业务流量探测、恢复周期和残留限流清理；不能用上游二进制覆盖定制。启用与限制详见旧专项文档，但当前代码/配置优先。 | `openai_codex_quota_overdraft*.go`、对应 tests、`account_test_codex_overdraft.go` |
 | 账号导入继承记录 | 账号名和邮箱完全相同，Team 还要求空间 ID 相同，RT 轮换时复用旧身份/记录；不能按相似名字合并不同账号。 | `backend/internal/handler/admin/account_codex_import.go`、对应 import tests |

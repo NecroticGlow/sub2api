@@ -5,6 +5,11 @@ import type { ApiKey } from '@/types'
 
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, params?: { detail?: string }) => `${key}${params?.detail ? `: ${params.detail}` : ''}` }) }))
 vi.mock('@/stores', () => ({ useAppStore: () => ({ showError: vi.fn() }) }))
+vi.mock('@/api/keys', () => ({ keysAPI: { getModels: async (id: number, options: unknown) => {
+  const result = await fetchMock(id, options)
+  if (!result.ok) throw { status: result.status }
+  return result.json()
+} } }))
 
 const wrappers: VueWrapper[] = []
 let fetchMock: ReturnType<typeof vi.fn>
@@ -29,7 +34,7 @@ function mainSelect(wrapper: VueWrapper) { return wrapper.findAllComponents({ na
 
 beforeEach(() => {
   fetchMock = vi.fn()
-  vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Must not send keys through a cross-origin redirect') }))
 })
 
 afterEach(() => {
@@ -39,11 +44,13 @@ afterEach(() => {
 })
 
 describe('CC Switch import model discovery', () => {
-  it('loads models when initially mounted open, with the selected key', async () => {
+  it('loads the selected key through the panel endpoint without a raw key fetch', async () => {
     fetchMock.mockResolvedValue(response({ data: [{ id: 'gpt-6.1-sol' }, { id: 'gpt-6-astra' }] }))
     const wrapper = createWrapper()
     await flushPromises()
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/v1/models'), expect.objectContaining({ headers: { Authorization: 'Bearer synthetic-key-1' }, signal: expect.any(AbortSignal) }))
+    expect(fetchMock).toHaveBeenCalledWith(1, { signal: expect.any(AbortSignal) })
+    expect(fetch).not.toHaveBeenCalled()
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain('synthetic-key')
     expect(mainSelect(wrapper).props('options')).toEqual([{ value: 'gpt-6.1-sol', label: 'gpt-6.1-sol' }, { value: 'gpt-6-astra', label: 'gpt-6-astra' }])
     expect(mainSelect(wrapper).props('modelValue')).toBe('gpt-6.1-sol')
     expect(mainSelect(wrapper).props('loading')).toBe(false)
@@ -58,14 +65,14 @@ describe('CC Switch import model discovery', () => {
     expect(mainSelect(wrapper).props('options')).toEqual([{ value: 'gpt-6-astra', label: 'gpt-6-astra' }])
   })
 
-  it('falls back after an HTTP error instead of leaving the list empty', async () => {
-    fetchMock.mockResolvedValueOnce(response({}, 404)).mockResolvedValueOnce(response({ data: [{ id: 'gpt-6-astra' }] }))
+  it('reports empty model metadata instead of inventing IDs or making a cross-origin request', async () => {
+    fetchMock.mockResolvedValue(response({ data: [] }))
     const wrapper = createWrapper()
     await flushPromises()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock.mock.calls[1][0]).toBe('https://wanwuplus.com/v1/models')
-    expect(mainSelect(wrapper).props('options')).toHaveLength(1)
-    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(mainSelect(wrapper).props('options')).toHaveLength(0)
+    expect(wrapper.get('[role="alert"]').text()).toContain('keys.ccsImport.modelsEmpty')
   })
 
   it('shows an actionable failure and supports retry without disclosing response contents', async () => {
@@ -105,7 +112,7 @@ describe('CC Switch import model discovery', () => {
     expect(mainSelect(wrapper).props('modelValue')).toBe('manually-entered-model')
   })
 
-  it('times out an unreachable endpoint and tries the next one', async () => {
+  it('times out a stalled panel lookup and allows a clean retry', async () => {
     vi.useFakeTimers()
     fetchMock.mockImplementationOnce((_url, options: RequestInit) => new Promise((_resolve, reject) => {
       options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
@@ -113,9 +120,14 @@ describe('CC Switch import model discovery', () => {
     const wrapper = createWrapper()
     await vi.advanceTimersByTimeAsync(8000)
     await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(mainSelect(wrapper).props('loading')).toBe(false)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="ccs-models-retry"]').trigger('click')
+    await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(mainSelect(wrapper).props('options')).toHaveLength(1)
-    expect(mainSelect(wrapper).props('loading')).toBe(false)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 
   it('cancels pending requests when the modal closes', async () => {

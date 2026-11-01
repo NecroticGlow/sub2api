@@ -83,6 +83,8 @@ func RegisterUserRoutes(
 			keys.GET("", h.APIKey.List)
 			// 必须在动态 /:id 路由之前注册，避免被参数路由吞掉。
 			keys.GET("/concurrency", h.APIKey.GetConcurrencyQueue)
+			// Same-origin, owner-checked catalogue for panel import dialogs.
+			keys.GET("/:id/models", h.APIKey.PrepareModelDiscovery, h.Gateway.PanelModels)
 			keys.GET("/:id", h.APIKey.GetByID)
 			keys.POST("", h.APIKey.Create)
 			keys.PUT("/:id", h.APIKey.Update)

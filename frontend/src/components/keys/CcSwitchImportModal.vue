@@ -75,11 +75,11 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores'
+import { keysAPI } from '@/api/keys'
 import type { ApiKey, PublicSettings } from '@/types'
 import {
   CC_SWITCH_PROVIDER_API_BASE_URL,
   buildCcSwitchImportDeeplink,
-  ccSwitchModelsUrls,
   parseCcSwitchModelIds,
   defaultCcSwitchAppForPlatform,
   defaultCcSwitchModelForPlatform,
@@ -103,9 +103,6 @@ const modelsError = ref('')
 let modelsRequestId = 0
 let modelsController: AbortController | null = null
 const platform = computed(() => props.apiKey?.group?.platform || 'anthropic')
-const gatewayBaseUrl = computed(() =>
-  (props.publicSettings?.api_base_url || window.location.origin).replace(/\/+$/, '')
-)
 const modelOptions = computed(() => models.value.map(model => ({ value: model, label: model })))
 const tieredFields = computed(() => [
   { key: 'haiku', value: haikuModel },
@@ -157,39 +154,32 @@ async function fetchModels() {
   let detail = t('keys.ccsImport.modelsNetworkError')
   loadingModels.value = true
   modelsError.value = ''
+  const controller = new AbortController()
+  modelsController = controller
+  const timeout = window.setTimeout(() => controller.abort(), 8000)
   try {
-    for (const url of ccSwitchModelsUrls(gatewayBaseUrl.value, window.location.origin, platform.value)) {
-      if (requestId !== modelsRequestId) return
-      const controller = new AbortController()
-      modelsController = controller
-      const timeout = window.setTimeout(() => controller.abort(), 8000)
-      try {
-        const response = await fetch(url, { headers: { Authorization: `Bearer ${row.key}` }, signal: controller.signal })
-        if (requestId !== modelsRequestId) return
-        if (!response.ok) {
-          detail = `HTTP ${response.status}`
-          continue
-        }
-        const available = parseCcSwitchModelIds(await response.json())
-        if (requestId !== modelsRequestId) return
-        if (!available.length) {
-          detail = t('keys.ccsImport.modelsEmpty')
-          continue
-        }
-        models.value = available
-        // Do not overwrite a model manually entered while discovery was pending.
-        if (mainModel.value === initialModel && !available.includes(initialModel)) mainModel.value = available[0]
-        pickTieredDefaults()
-        return
-      } catch {
-        if (requestId !== modelsRequestId) return
-      } finally {
-        window.clearTimeout(timeout)
-        if (modelsController === controller) modelsController = null
-      }
+    const payload = await keysAPI.getModels(row.id, { signal: controller.signal })
+    if (requestId !== modelsRequestId) return
+    const available = parseCcSwitchModelIds(payload)
+    if (available.length) {
+      models.value = available
+      // Do not overwrite a model manually entered while discovery was pending.
+      if (mainModel.value === initialModel && !available.includes(initialModel)) mainModel.value = available[0]
+      pickTieredDefaults()
+    } else {
+      detail = t('keys.ccsImport.modelsEmpty')
+      modelsError.value = t('keys.ccsImport.modelsLoadFailed', { detail })
     }
-    if (requestId === modelsRequestId) modelsError.value = t('keys.ccsImport.modelsLoadFailed', { detail })
+  } catch (error) {
+    if (requestId !== modelsRequestId) return
+    // Show only the status, never a server response body or credentials.
+    const status = (error as { status?: number; response?: { status?: number } })?.status
+      ?? (error as { response?: { status?: number } })?.response?.status
+    if (typeof status === 'number') detail = `HTTP ${status}`
+    modelsError.value = t('keys.ccsImport.modelsLoadFailed', { detail })
   } finally {
+    window.clearTimeout(timeout)
+    if (modelsController === controller) modelsController = null
     if (requestId === modelsRequestId) loadingModels.value = false
   }
 }
@@ -199,8 +189,7 @@ watch([
   () => props.apiKey?.id,
   () => props.apiKey?.key,
   () => props.apiKey?.group?.id,
-  platform,
-  gatewayBaseUrl
+  platform
 ], ([show]) => {
   cancelModelsRequest()
   if (show && props.apiKey) {

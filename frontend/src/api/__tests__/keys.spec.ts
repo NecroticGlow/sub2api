@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { create, getConcurrency, update } from '../keys'
+import { create, getConcurrency, getModels, update } from '../keys'
 import { apiClient } from '../client'
 
 vi.mock('../client', () => ({ apiClient: { post: vi.fn(), put: vi.fn(), get: vi.fn() } }))
 
 describe('API key concurrency payloads', () => {
   beforeEach(() => vi.resetAllMocks())
+
+  it('reads model metadata from the selected key panel URL with bounded cancellation', async () => {
+    const catalogue = { object: 'list', data: [{ id: 'deepseek-v4.1-flash' }] }
+    vi.mocked(apiClient.get).mockResolvedValue({ data: catalogue })
+    const controller = new AbortController()
+    expect(await getModels(42, { signal: controller.signal })).toEqual(catalogue)
+    expect(apiClient.get).toHaveBeenCalledWith('/keys/42/models', { signal: controller.signal, timeout: 8000 })
+  })
 
   it.each([0, 8])('preserves concurrency_limit=%s in create and update requests and responses', async (limit) => {
     const key = { id: 1, name: 'test-key', concurrency_limit: limit }
